@@ -15,13 +15,23 @@ def get_model():
         print("Model loaded.")
     return _model
 
-def narrate_text(text: str, session_id: str, page_index: int) -> str:
+def narrate_text(text: str, session_id: str, page_index: int, voice_id: str = None) -> str:
     """
     Generates audio for the given text and saves it.
     Returns the relative path to the generated audio file.
     """
     model = get_model()
-    wav = model.generate(text)
+    
+    audio_prompt_path = None
+    if voice_id:
+        audio_prompt_path = os.path.join("data", "voices", f"{voice_id}.wav")
+        if not os.path.exists(audio_prompt_path):
+            raise Exception(f"Voice profile '{voice_id}' not found.")
+            
+    if audio_prompt_path:
+        wav = model.generate(text, audio_prompt_path=audio_prompt_path)
+    else:
+        wav = model.generate(text)
     
     # Save the output
     output_dir = os.path.join("data", "sessions", session_id)

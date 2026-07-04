@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import CameraCapture from './CameraCapture';
 import TextEditor from './TextEditor';
 import AudioPlayer from './AudioPlayer';
+import VoiceSettings from './VoiceSettings';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
 import { narrateText } from '../utils/api';
@@ -13,6 +14,7 @@ export default function BookSession() {
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [step, setStep] = useState('capture'); // capture, processing, review, playback
     const [currentText, setCurrentText] = useState("");
+    const [activeVoiceId, setActiveVoiceId] = useState(null);
     
     const handleCapture = async (imageDataUrl) => {
         setStep('processing');
@@ -37,7 +39,7 @@ export default function BookSession() {
     
     const handleNarrate = async (text) => {
         try {
-            const audioUrl = await narrateText(text, sessionId, currentPageIndex);
+            const audioUrl = await narrateText(text, sessionId, currentPageIndex, activeVoiceId);
             
             setPages([...pages, { text, audioUrl }]);
             setStep('playback');
@@ -58,8 +60,14 @@ export default function BookSession() {
     return (
         <div className="book-session">
             <header className="session-header">
-                <h2>BookVoice Session</h2>
-                <div className="page-indicator">Page {currentPageIndex + 1}</div>
+                <div className="header-top">
+                    <h2>BookVoice Session</h2>
+                    <div className="page-indicator">Page {currentPageIndex + 1}</div>
+                </div>
+                <VoiceSettings 
+                    activeVoiceId={activeVoiceId} 
+                    onVoiceChange={setActiveVoiceId} 
+                />
             </header>
             
             <div className="session-content">
