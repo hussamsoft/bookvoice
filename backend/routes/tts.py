@@ -9,6 +9,7 @@ class NarrateRequest(BaseModel):
     session_id: str
     page_index: int
     voice_id: str | None = None
+    language_id: str = "en"
     
 class NarrateResponse(BaseModel):
     audio_url: str
@@ -23,7 +24,8 @@ async def narrate(request: NarrateRequest):
             text=request.text, 
             session_id=request.session_id, 
             page_index=request.page_index,
-            voice_id=request.voice_id
+            voice_id=request.voice_id,
+            language_id=request.language_id
         )
         return NarrateResponse(audio_url=audio_url)
     except Exception as e:

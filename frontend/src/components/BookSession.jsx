@@ -15,6 +15,7 @@ export default function BookSession() {
     const [step, setStep] = useState('capture'); // capture, processing, review, playback
     const [currentText, setCurrentText] = useState("");
     const [activeVoiceId, setActiveVoiceId] = useState(null);
+    const [targetLanguage, setTargetLanguage] = useState("en");
     
     const handleCapture = async (imageDataUrl) => {
         setStep('processing');
@@ -39,7 +40,7 @@ export default function BookSession() {
     
     const handleNarrate = async (text) => {
         try {
-            const audioUrl = await narrateText(text, sessionId, currentPageIndex, activeVoiceId);
+            const audioUrl = await narrateText(text, sessionId, currentPageIndex, activeVoiceId, targetLanguage);
             
             setPages([...pages, { text, audioUrl }]);
             setStep('playback');
@@ -84,7 +85,9 @@ export default function BookSession() {
                 
                 {step === 'review' && (
                     <TextEditor 
-                        initialText={currentText} 
+                        initialText={currentText}
+                        targetLanguage={targetLanguage}
+                        onTranslateChange={setTargetLanguage}
                         onNarrate={handleNarrate}
                         onRetake={() => setStep('capture')}
                     />

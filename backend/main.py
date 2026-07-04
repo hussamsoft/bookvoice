@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 load_dotenv()
 
-from routes import tts, voices
+from routes import tts, voices, translation
 
 app = FastAPI(title="BookVoice API")
 
@@ -30,6 +30,7 @@ app.add_middleware(
 # Include routers
 app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
+app.include_router(translation.router, prefix="/api/translate", tags=["translation"])
 
 # Mount static files for generated audio sessions
 os.makedirs("data/sessions", exist_ok=True)

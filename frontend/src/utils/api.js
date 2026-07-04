@@ -1,11 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || 'http://localhost:8000';
 
-export async function narrateText(text, sessionId, pageIndex, voiceId = null) {
+export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = "en") {
     const requestBody = {
         text,
         session_id: sessionId,
-        page_index: pageIndex
+        page_index: pageIndex,
+        language_id: languageId
     };
     
     if (voiceId) {
@@ -54,4 +55,25 @@ export async function uploadVoice(audioBlob, name) {
     }
     
     return await response.json();
+}
+
+export async function translateText(text, targetLang) {
+    const response = await fetch(`${API_BASE_URL}/translate/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            text,
+            target_lang: targetLang
+        })
+    });
+    
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to translate text");
+    }
+    
+    const data = await response.json();
+    return data.translated_text;
 }
