@@ -1,43 +1,109 @@
 # BookVoice
 
-A web application that allows you to point a camera at a physical book page, extract the text using OCR, and narrate it using high-quality Text-to-Speech (Resemble AI Chatterbox).
+BookVoice is a personal web application that allows users to capture images of physical book pages (via a phone or webcam), extract the text using OCR, translate it into one of 23 languages, and have it read aloud using a high-quality, voice-cloned text-to-speech (TTS) engine.
 
-## Architecture
+## Features
 
-*   **Frontend**: React + Vite + Tesseract.js (for client-side OCR)
-*   **Backend**: Python FastAPI + Chatterbox TTS
-*   **Storage**: Local files in `backend/data/` (no database required for MVP)
+This MVP was built across three development phases:
 
-## Requirements
+1. **Phase 1: Core Loop (OCR & TTS)**
+   - Client-side zero-cost OCR using `tesseract.js` directly in the browser.
+   - Text review and editing step.
+   - Backend narration generation using the open-source **Chatterbox (Resemble AI)** TTS engine.
+   - Self-contained standalone application packaging.
 
-*   Node.js (for the frontend)
-*   Python 3.11 (for the backend)
-*   `uv` (fast Python package manager)
-*   An NVIDIA GPU with at least 8GB VRAM (tested on RTX 4060)
+2. **Phase 2: Voice Cloning**
+   - Direct-from-browser microphone recording via the `MediaRecorder` API to create instant Voice Profiles.
+   - Support for uploading `.wav` reference clips.
+   - Zero-shot voice cloning capabilities natively integrated into the TTS generation step.
 
-## Quick Start (Development)
+3. **Phase 3: Translation & Dubbing**
+   - Built-in text translation scaffolding utilizing `deep-translator` (Google Translate free endpoint) for zero-cost operation.
+   - 23 supported target languages (e.g., French, Spanish, Japanese, German, Arabic).
+   - Dynamic VRAM management: The backend intelligently switches between the standard English TTS model and the Multilingual TTS model on-the-fly to prevent Out-Of-Memory (OOM) errors on 8GB GPUs.
+   - Automatic cross-lingual voice cloning and dubbing.
 
-### 1. Setup Backend
-1. `cd backend`
-2. Create a virtual environment: `uv venv --python 3.11`
-3. Activate the environment (Windows): `.venv\Scripts\activate`
-4. Install PyTorch with CUDA 12.1:
-   `uv pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121`
-5. Install dependencies:
-   `uv pip install chatterbox-tts setuptools fastapi[standard] pydantic python-multipart`
-6. Start the server:
-   `uvicorn main:app --reload`
-   *(Runs on http://localhost:8000)*
+## Technology Stack
 
-### 2. Setup Frontend
-1. `cd frontend`
-2. Install dependencies: `npm install`
-3. Start the dev server: `npm run dev`
-4. Open the displayed local URL in your browser.
+- **Frontend**: React + Vite + plain CSS
+- **Backend**: Python (FastAPI)
+- **TTS Engine**: [Chatterbox by Resemble AI](https://github.com/resemble-ai/chatterbox)
+- **OCR Engine**: Tesseract.js
+- **Translation**: `deep-translator` (Python)
 
-## Known Limitations
+## System Requirements
 
-*   **Single-Shot Capture**: The application captures one page at a time. Continuous streaming is not yet supported.
-*   **No Accounts / Cloud Sync**: Sessions and generated audio files are stored locally on disk (`backend/data/sessions/`). They are lost on browser refresh since the session ID generates randomly.
-*   **Footnotes**: Footnote markers in text may be read aloud inline.
-*   **Tesseract Data**: The frontend fetches Tesseract language data (~20MB) from a CDN on the first run.
+- **GPU**: NVIDIA GPU strongly recommended (e.g., RTX 4060 8GB). The backend actively manages VRAM by unloading inactive models, but 8GB of VRAM is the practical minimum for the Chatterbox models.
+- **Python**: Python 3.10+
+- **Node.js**: v18+ (for frontend development only)
+
+## Directory Structure
+
+```text
+bookvoice/
+├── backend/            # FastAPI backend source code
+│   ├── routes/         # API endpoints (tts, voices, translation)
+│   ├── services/       # Core business logic and Chatterbox integrations
+│   └── data/           # Ignored by git; stores sessions and voice profiles
+├── frontend/           # React + Vite frontend source code
+│   └── src/            # UI components (Camera, TextEditor, BookSession, etc.)
+└── dist/               # Standalone production package
+    ├── static/         # Compiled React static assets
+    ├── routes/         # Copied backend routes
+    ├── services/       # Copied backend services
+    ├── main.py         # Entry point for serving both backend API and static frontend
+    └── requirements.txt
+```
+
+## Setup & Execution
+
+BookVoice provides a convenient `dist/` directory that contains a pre-built, self-contained version of the application. 
+
+### 1. Install Backend Dependencies
+Navigate to the `dist` directory and install the required Python packages (it is recommended to use a virtual environment like `uv` or `venv`):
+
+```bash
+cd dist
+uv pip install -r requirements.txt
+```
+
+*(Note: Chatterbox requires `setuptools<70` due to a PyTorch dependency quirk. This should be handled automatically by standard installation.)*
+
+### 2. Configure Environment Variables
+Create a `.env` file in the `dist` directory (or modify the backend one):
+
+```env
+PORT=8000
+CORS_ORIGINS=["*"]
+```
+
+### 3. Run the Standalone Application
+Start the FastAPI server from the `dist` directory. The server is configured to serve the API routes alongside the compiled frontend static files, meaning you only need to run this single command:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000` in your browser.
+
+## Development
+
+If you wish to modify the application, work within the `frontend/` and `backend/` directories directly.
+
+### Running the Frontend Dev Server
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Building the Frontend
+To push frontend changes into the standalone `dist/` bundle:
+```bash
+cd frontend
+npm run build
+# Copy the contents of frontend/dist into dist/static
+```
+
+## License
+BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.
