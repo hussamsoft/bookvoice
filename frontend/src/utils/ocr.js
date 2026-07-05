@@ -1,18 +1,24 @@
-import Tesseract from 'tesseract.js';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export async function extractTextFromImage(imageSrc) {
     try {
-        // We use Tesseract's CDN to fetch the English .traineddata file (~20MB) 
-        // on the first run rather than bundling it locally. This avoids bloating the
-        // initial package and simplifies the worker setup for the MVP.
-        const result = await Tesseract.recognize(
-            imageSrc,
-            'eng',
-            { logger: m => console.log(m) }
-        );
-        return result.data.text;
+        const response = await fetch(`${API_BASE}/api/ocr/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ image_data: imageSrc })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || "Failed to process image OCR on the server.");
+        }
+        
+        const data = await response.json();
+        return data.text;
     } catch (error) {
         console.error("OCR Error:", error);
-        throw new Error("Failed to extract text from image.");
+        throw error;
     }
 }
