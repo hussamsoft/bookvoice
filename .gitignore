@@ -9,26 +9,26 @@ Thumbs.db
 
 # Node
 node_modules/
-dist/
+frontend/dist/
 dist-ssr/
 *.local
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 .venv/
 venv/
 ENV/
 env/
-.env
-
-# Generated Data
-backend/data/
-frontend/dist/
-
-# Env files (keep .env.example)
+test_venv*/
 .env
 .env.*
 !.env.example
+
+# Generated Data
+backend/data/
+dist/data/
+
+# Media
 *.wav
