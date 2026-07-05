@@ -125,8 +125,8 @@ body {
   background: #000;
   display: flex;
   flex-direction: column;
-  aspect-ratio: 3 / 4;
-  max-height: 75vh;
+  aspect-ratio: 2 / 3;
+  max-height: 80vh;
   margin: 0 auto;
 }
 

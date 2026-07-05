@@ -12,7 +12,7 @@ router = APIRouter()
 class OCRRequest(BaseModel):
     image_data: str
 
-@router.post("/")
+@router.post("")
 async def process_ocr(req: OCRRequest):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
