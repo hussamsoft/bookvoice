@@ -1,11 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, RefreshCw } from 'lucide-react';
+import { Camera, RefreshCw, Zap, ZapOff, ZoomIn } from 'lucide-react';
 
 export default function CameraCapture({ onCapture }) {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const [stream, setStream] = useState(null);
     const [error, setError] = useState(null);
+    const [capabilities, setCapabilities] = useState(null);
+    const [torchOn, setTorchOn] = useState(false);
+    const [zoom, setZoom] = useState(1);
 
     const startCamera = async () => {
         try {
@@ -19,6 +22,21 @@ export default function CameraCapture({ onCapture }) {
             setStream(mediaStream);
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
+            }
+            
+            // Extract capabilities for zoom and torch
+            const track = mediaStream.getVideoTracks()[0];
+            if (track && track.getCapabilities) {
+                // Wrap in try-catch as some browsers throw when getting capabilities
+                try {
+                    const caps = track.getCapabilities();
+                    setCapabilities(caps);
+                    if (caps.zoom) {
+                        setZoom(track.getSettings().zoom || caps.zoom.min);
+                    }
+                } catch(e) {
+                    console.warn("Could not get track capabilities", e);
+                }
             }
         } catch (err) {
             console.error("Error accessing camera:", err);
@@ -40,6 +58,34 @@ export default function CameraCapture({ onCapture }) {
             }
         };
     }, []);
+
+    const toggleTorch = async () => {
+        if (!stream) return;
+        const track = stream.getVideoTracks()[0];
+        try {
+            const newTorchState = !torchOn;
+            await track.applyConstraints({
+                advanced: [{ torch: newTorchState }]
+            });
+            setTorchOn(newTorchState);
+        } catch (err) {
+            console.error("Failed to toggle torch", err);
+        }
+    };
+
+    const handleZoomChange = async (e) => {
+        const newZoom = parseFloat(e.target.value);
+        setZoom(newZoom);
+        if (!stream) return;
+        const track = stream.getVideoTracks()[0];
+        try {
+            await track.applyConstraints({
+                advanced: [{ zoom: newZoom }]
+            });
+        } catch (err) {
+            console.error("Failed to apply zoom", err);
+        }
+    };
 
     const captureImage = () => {
         if (!videoRef.current || !canvasRef.current) return;
@@ -75,6 +121,41 @@ export default function CameraCapture({ onCapture }) {
                         muted 
                         className="camera-feed"
                     />
+                    
+                    {/* Viewfinder Overlay */}
+                    <div className="viewfinder-overlay">
+                        <div className="viewfinder-cutout">
+                            <div className="corner top-left"></div>
+                            <div className="corner top-right"></div>
+                            <div className="corner bottom-left"></div>
+                            <div className="corner bottom-right"></div>
+                        </div>
+                        <p className="viewfinder-instruction">Align page within the frame</p>
+                    </div>
+
+                    {/* Camera Controls */}
+                    <div className="camera-controls">
+                        {capabilities?.torch && (
+                            <button onClick={toggleTorch} className={`control-btn ${torchOn ? 'active' : ''}`} title="Toggle Flashlight">
+                                {torchOn ? <Zap size={20} /> : <ZapOff size={20} />}
+                            </button>
+                        )}
+                        
+                        {capabilities?.zoom && (
+                            <div className="zoom-control">
+                                <ZoomIn size={16} />
+                                <input 
+                                    type="range" 
+                                    min={capabilities.zoom.min} 
+                                    max={capabilities.zoom.max} 
+                                    step={capabilities.zoom.step || 0.1}
+                                    value={zoom}
+                                    onChange={handleZoomChange}
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     <button onClick={captureImage} className="capture-btn">
                         <Camera size={24} /> Capture Page
                     </button>
