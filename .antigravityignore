@@ -1,0 +1,39 @@
+# --- Node / JS / Vite ---
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- Godot ---
+.godot/
+.import/
+*.import
+export_presets.cfg
+*.pck
+
+# --- General build/artifact noise ---
+*.log
+.cache/
+.DS_Store
+coverage/
+*.min.js
+*.min.css
+
+# --- Secrets (never index) ---
+.env
+.env.*
+*.pem
+*.key

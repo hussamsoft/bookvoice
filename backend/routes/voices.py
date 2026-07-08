@@ -4,15 +4,26 @@ import shutil
 
 router = APIRouter()
 VOICES_DIR = os.path.join("data", "voices")
+DEFAULT_VOICES_DIR = os.path.join("data", "default_voices")
 os.makedirs(VOICES_DIR, exist_ok=True)
+
+def seed_default_voices():
+    if os.path.exists(DEFAULT_VOICES_DIR):
+        for f in os.listdir(DEFAULT_VOICES_DIR):
+            if f.endswith(".wav"):
+                src = os.path.join(DEFAULT_VOICES_DIR, f)
+                dst = os.path.join(VOICES_DIR, f)
+                if not os.path.exists(dst):
+                    shutil.copy2(src, dst)
 
 @router.get("/")
 async def list_voices():
+    seed_default_voices()
     voices = []
     if os.path.exists(VOICES_DIR):
         for f in os.listdir(VOICES_DIR):
             if f.endswith(".wav"):
-                voices.append({"id": f[:-4], "name": f[:-4]})
+                voices.append({"id": f[:-4], "name": f[:-4].replace("_", " ").title()})
     return {"voices": voices}
 
 @router.post("/")

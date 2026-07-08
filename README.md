@@ -7,9 +7,9 @@ BookVoice is a personal web application that allows users to capture images of p
 This MVP was built across three development phases:
 
 1. **Phase 1: Core Loop (OCR & TTS)**
-   - Client-side zero-cost OCR using `tesseract.js` directly in the browser.
+   - Local OCR using **EasyOCR** — models download automatically on first use, no API keys.
    - Text review and editing step.
-   - Backend narration generation using the open-source **Chatterbox (Resemble AI)** TTS engine.
+   - Local narration via the open-source **Chatterbox (Resemble AI)** TTS engine.
    - Self-contained standalone application packaging.
 
 2. **Phase 2: Voice Cloning**
@@ -27,15 +27,16 @@ This MVP was built across three development phases:
 
 - **Frontend**: React + Vite + plain CSS
 - **Backend**: Python (FastAPI)
-- **TTS Engine**: [Chatterbox by Resemble AI](https://github.com/resemble-ai/chatterbox)
-- **OCR Engine**: Tesseract.js
+- **TTS Engine**: [Chatterbox by Resemble AI](https://github.com/resemble-ai/chatterbox) (local, downloaded on first run)
+- **OCR Engine**: [EasyOCR](https://github.com/JaidedAI/EasyOCR) (local, downloaded on first run)
 - **Translation**: `deep-translator` (Python)
 
 ## System Requirements
 
-- **GPU**: NVIDIA GPU strongly recommended (e.g., RTX 4060 8GB). The backend actively manages VRAM by unloading inactive models, but 8GB of VRAM is the practical minimum for the Chatterbox models.
+- **GPU**: NVIDIA GPU strongly recommended (e.g., RTX 4060 8GB) for TTS. OCR runs on CPU by default to preserve VRAM.
 - **Python**: Python 3.10+
 - **Node.js**: v18+ (for frontend development only)
+- **Disk**: ~2–3 GB for Chatterbox + EasyOCR model weights (downloaded automatically on first use)
 
 ## Directory Structure
 
@@ -74,8 +75,13 @@ Create a `.env` file in the `dist` directory (or modify the backend one):
 
 ```env
 PORT=8000
-CORS_ORIGINS=["*"]
+CORS_ORIGINS=["http://localhost:5173", "http://localhost:4173"]
+
+# Optional: use GPU for OCR (default is CPU to save VRAM for TTS)
+OCR_USE_GPU=false
 ```
+
+On first page capture, EasyOCR downloads its model weights (~100 MB). Chatterbox downloads its weights on first narration. No API keys required.
 
 ### 3. Run the Standalone Application
 Start the FastAPI server from the `dist` directory. The server is configured to serve the API routes alongside the compiled frontend static files, meaning you only need to run this single command:

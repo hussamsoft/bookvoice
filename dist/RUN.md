@@ -31,6 +31,8 @@ This `dist` folder contains the packaged, standalone version of BookVoice. The f
    *(By default, it will run on `http://localhost:8000`)*
 
 2. Open `http://localhost:8000` in your browser.
-3. The server will handle all static files (HTML, CSS, JS) and API calls (`/api/tts/narrate`).
+3. The server handles static files and all API calls (`/api/ocr`, `/api/tts/narrate`, etc.).
+
+**First run:** EasyOCR and Chatterbox download their models automatically. The first page capture and first narration each take longer while weights are fetched.
 
 Enjoy narrating your physical books!

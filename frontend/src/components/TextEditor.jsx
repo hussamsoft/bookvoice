@@ -1,37 +1,39 @@
 import React, { useState } from 'react';
 import { Play, RotateCcw, Languages, Loader2 } from 'lucide-react';
 import { translateText } from '../utils/api';
+import { useToast } from './Toast';
+
+const SUPPORTED_LANGUAGES = [
+    { code: "en", name: "English" },
+    { code: "ar", name: "Arabic" },
+    { code: "da", name: "Danish" },
+    { code: "de", name: "German" },
+    { code: "el", name: "Greek" },
+    { code: "es", name: "Spanish" },
+    { code: "fi", name: "Finnish" },
+    { code: "fr", name: "French" },
+    { code: "he", name: "Hebrew" },
+    { code: "hi", name: "Hindi" },
+    { code: "it", name: "Italian" },
+    { code: "ja", name: "Japanese" },
+    { code: "ko", name: "Korean" },
+    { code: "ms", name: "Malay" },
+    { code: "nl", name: "Dutch" },
+    { code: "no", name: "Norwegian" },
+    { code: "pl", name: "Polish" },
+    { code: "pt", name: "Portuguese" },
+    { code: "ru", name: "Russian" },
+    { code: "sv", name: "Swedish" },
+    { code: "sw", name: "Swahili" },
+    { code: "tr", name: "Turkish" },
+    { code: "zh", name: "Chinese" }
+];
 
 export default function TextEditor({ initialText, onNarrate, onRetake, onTranslateChange, targetLanguage }) {
+    const toast = useToast();
     const [text, setText] = useState(initialText);
     const [isNarrating, setIsNarrating] = useState(false);
     const [isTranslating, setIsTranslating] = useState(false);
-
-    const SUPPORTED_LANGUAGES = [
-        { code: "en", name: "English" },
-        { code: "ar", name: "Arabic" },
-        { code: "da", name: "Danish" },
-        { code: "de", name: "German" },
-        { code: "el", name: "Greek" },
-        { code: "es", name: "Spanish" },
-        { code: "fi", name: "Finnish" },
-        { code: "fr", name: "French" },
-        { code: "he", name: "Hebrew" },
-        { code: "hi", name: "Hindi" },
-        { code: "it", name: "Italian" },
-        { code: "ja", name: "Japanese" },
-        { code: "ko", name: "Korean" },
-        { code: "ms", name: "Malay" },
-        { code: "nl", name: "Dutch" },
-        { code: "no", name: "Norwegian" },
-        { code: "pl", name: "Polish" },
-        { code: "pt", name: "Portuguese" },
-        { code: "ru", name: "Russian" },
-        { code: "sv", name: "Swedish" },
-        { code: "sw", name: "Swahili" },
-        { code: "tr", name: "Turkish" },
-        { code: "zh", name: "Chinese" }
-    ];
 
     const handleTranslate = async () => {
         if (targetLanguage === "en" || !text.trim()) return;
@@ -39,8 +41,9 @@ export default function TextEditor({ initialText, onNarrate, onRetake, onTransla
         try {
             const translated = await translateText(text, targetLanguage);
             setText(translated);
+            toast.success("Text translated");
         } catch (error) {
-            alert(error.message);
+            toast.error(error.message);
         } finally {
             setIsTranslating(false);
         }
@@ -59,7 +62,7 @@ export default function TextEditor({ initialText, onNarrate, onRetake, onTransla
 
     return (
         <div className="text-editor">
-            <h3>Review Extracted Text</h3>
+            <h3>Review extracted text</h3>
             
             <div className="translation-toolbar">
                 <div className="lang-select-group">
@@ -79,7 +82,7 @@ export default function TextEditor({ initialText, onNarrate, onRetake, onTransla
                     onClick={handleTranslate} 
                     disabled={targetLanguage === "en" || isTranslating || isNarrating}
                 >
-                    {isTranslating ? <><Loader2 className="spin" size={16} /> Translating...</> : 'Translate'}
+                    {isTranslating ? <><Loader2 className="spinner" size={16} /> Translating...</> : 'Translate'}
                 </button>
             </div>
 
@@ -99,14 +102,17 @@ export default function TextEditor({ initialText, onNarrate, onRetake, onTransla
                     className="btn secondary"
                     disabled={isNarrating}
                 >
-                    <RotateCcw size={16} /> Retake Photo
+                    <RotateCcw size={16} /> Retake photo
                 </button>
                 <button 
                     onClick={handleNarrate} 
                     className="btn primary"
                     disabled={isNarrating || !text.trim()}
                 >
-                    <Play size={16} /> {isNarrating ? 'Generating Audio...' : 'Narrate'}
+                    {isNarrating
+                        ? <><Loader2 className="spinner" size={16} /> Generating audio...</>
+                        : <><Play size={16} /> Narrate</>
+                    }
                 </button>
             </div>
         </div>

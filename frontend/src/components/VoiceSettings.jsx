@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getVoices, uploadVoice } from '../utils/api';
+import { useToast } from './Toast';
 import { Mic, Upload, StopCircle, RefreshCw } from 'lucide-react';
 
 export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
+    const toast = useToast();
     const [voices, setVoices] = useState([]);
     const [isRecording, setIsRecording] = useState(false);
     const [loading, setLoading] = useState(false);
     const [newVoiceName, setNewVoiceName] = useState("");
+    const [uploadName, setUploadName] = useState("");
     
     const mediaRecorderRef = useRef(null);
     const chunksRef = useRef([]);
+    const fileInputRef = useRef(null);
 
     const fetchVoices = async () => {
         try {
@@ -27,20 +31,26 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
-        let name = prompt("Enter a name for this voice profile:");
-        if (!name) return;
+
+        const name = uploadName.trim();
+        if (!name) {
+            toast.error("Enter a name for this voice profile first.");
+            e.target.value = null;
+            return;
+        }
         
         setLoading(true);
         try {
             const result = await uploadVoice(file, name);
             await fetchVoices();
             onVoiceChange(result.id);
+            setUploadName("");
+            toast.success(`Voice "${name}" saved`);
         } catch (error) {
-            alert(error.message);
+            toast.error(error.message);
         } finally {
             setLoading(false);
-            e.target.value = null; // reset file input
+            e.target.value = null;
         }
     };
 
@@ -57,23 +67,23 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
 
             mediaRecorder.onstop = async () => {
                 const blob = new Blob(chunksRef.current, { type: 'audio/wav' });
-                
-                // Stop tracks to release mic
                 stream.getTracks().forEach(track => track.stop());
                 
-                if (!newVoiceName) {
-                    alert("Voice name is required.");
+                if (!newVoiceName.trim()) {
+                    toast.error("Voice name is required.");
                     return;
                 }
                 
                 setLoading(true);
                 try {
                     const result = await uploadVoice(blob, newVoiceName);
+                    const savedName = result.name || newVoiceName;
                     await fetchVoices();
                     onVoiceChange(result.id);
                     setNewVoiceName("");
+                    toast.success(`Voice "${savedName}" saved`);
                 } catch (error) {
-                    alert(error.message);
+                    toast.error(error.message);
                 } finally {
                     setLoading(false);
                 }
@@ -83,7 +93,7 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
             setIsRecording(true);
         } catch (err) {
             console.error(err);
-            alert("Could not access microphone.");
+            toast.error("Could not access microphone.");
         }
     };
 
@@ -97,33 +107,52 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
     return (
         <div className="voice-settings">
             <div className="voice-selector">
-                <label>Voice Profile: </label>
+                <label>Voice</label>
                 <select 
                     value={activeVoiceId || ""} 
                     onChange={(e) => onVoiceChange(e.target.value || null)}
                 >
-                    <option value="">Default (No Voice Cloning)</option>
+                    <option value="">Default voice</option>
                     {voices.map(v => (
                         <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                 </select>
-                <button className="btn icon-btn" onClick={fetchVoices} title="Refresh Voices">
+                <button className="icon-btn" onClick={fetchVoices} title="Refresh voices">
                     <RefreshCw size={16} />
                 </button>
             </div>
 
             <div className="voice-creation">
-                <h4>Create New Voice</h4>
+                <h4>Create new voice</h4>
                 <div className="creation-controls">
-                    <label className="btn secondary file-upload">
-                        <Upload size={16} /> Upload .wav
-                        <input type="file" accept="audio/wav" onChange={handleFileUpload} hidden disabled={loading} />
-                    </label>
+                    <div className="record-section">
+                        <input 
+                            type="text" 
+                            placeholder="Voice name" 
+                            value={uploadName}
+                            onChange={(e) => setUploadName(e.target.value)}
+                            disabled={loading}
+                        />
+                        <button
+                            className="btn secondary file-upload"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={loading || !uploadName.trim()}
+                        >
+                            <Upload size={16} /> Upload .wav
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="audio/wav"
+                            onChange={handleFileUpload}
+                            hidden
+                        />
+                    </div>
                     
                     <div className="record-section">
                         <input 
                             type="text" 
-                            placeholder="Voice Name" 
+                            placeholder="Voice name" 
                             value={newVoiceName}
                             onChange={(e) => setNewVoiceName(e.target.value)}
                             disabled={isRecording || loading}
@@ -134,12 +163,12 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
                             </button>
                         ) : (
                             <button className="btn primary danger" onClick={stopRecording}>
-                                <StopCircle size={16} /> Stop & Save
+                                <StopCircle size={16} /> Stop & save
                             </button>
                         )}
                     </div>
                 </div>
-                {loading && <p className="hint">Uploading voice...</p>}
+                {loading && <p className="hint">Saving voice profile...</p>}
             </div>
         </div>
     );

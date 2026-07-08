@@ -4,13 +4,14 @@ import { Camera, RefreshCw, Zap, ZapOff, ZoomIn } from 'lucide-react';
 export default function CameraCapture({ onCapture }) {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const [stream, setStream] = useState(null);
+    const streamRef = useRef(null);
     const [error, setError] = useState(null);
     const [capabilities, setCapabilities] = useState(null);
     const [torchOn, setTorchOn] = useState(false);
     const [zoom, setZoom] = useState(1);
 
     const startCamera = async () => {
+        setError(null);
         try {
             const mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: { 
@@ -19,33 +20,31 @@ export default function CameraCapture({ onCapture }) {
                     height: { ideal: 1920 }
                 }
             });
-            setStream(mediaStream);
+            streamRef.current = mediaStream;
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
             }
             
-            // Extract capabilities for zoom and torch
             const track = mediaStream.getVideoTracks()[0];
-            if (track && track.getCapabilities) {
-                // Wrap in try-catch as some browsers throw when getting capabilities
+            if (track?.getCapabilities) {
                 try {
                     const caps = track.getCapabilities();
                     setCapabilities(caps);
                     if (caps.zoom) {
                         setZoom(track.getSettings().zoom || caps.zoom.min);
                     }
-                } catch(e) {
+                } catch (e) {
                     console.warn("Could not get track capabilities", e);
                 }
             }
         } catch (err) {
             console.error("Error accessing camera:", err);
             if (err.name === 'NotAllowedError') {
-                setError("Camera permission denied. Please allow camera access in your browser settings.");
+                setError("Camera permission denied. Allow access in your browser settings.");
             } else if (err.name === 'NotFoundError') {
-                setError("No camera device found on your system.");
+                setError("No camera found on this device.");
             } else {
-                setError("Could not access camera. Please check permissions and connection.");
+                setError("Could not access camera. Check permissions and connection.");
             }
         }
     };
@@ -53,13 +52,15 @@ export default function CameraCapture({ onCapture }) {
     useEffect(() => {
         startCamera();
         return () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
             }
         };
     }, []);
 
     const toggleTorch = async () => {
+        const stream = streamRef.current;
         if (!stream) return;
         const track = stream.getVideoTracks()[0];
         try {
@@ -76,6 +77,7 @@ export default function CameraCapture({ onCapture }) {
     const handleZoomChange = async (e) => {
         const newZoom = parseFloat(e.target.value);
         setZoom(newZoom);
+        const stream = streamRef.current;
         if (!stream) return;
         const track = stream.getVideoTracks()[0];
         try {
@@ -122,7 +124,6 @@ export default function CameraCapture({ onCapture }) {
                         className="camera-feed"
                     />
                     
-                    {/* Viewfinder Overlay */}
                     <div className="viewfinder-overlay">
                         <div className="viewfinder-cutout">
                             <div className="corner top-left"></div>
@@ -133,10 +134,9 @@ export default function CameraCapture({ onCapture }) {
                         <p className="viewfinder-instruction">Align page within the frame</p>
                     </div>
 
-                    {/* Camera Controls */}
                     <div className="camera-controls">
                         {capabilities?.torch && (
-                            <button onClick={toggleTorch} className={`control-btn ${torchOn ? 'active' : ''}`} title="Toggle Flashlight">
+                            <button onClick={toggleTorch} className={`control-btn ${torchOn ? 'active' : ''}`} title="Toggle flashlight">
                                 {torchOn ? <Zap size={20} /> : <ZapOff size={20} />}
                             </button>
                         )}
@@ -157,7 +157,7 @@ export default function CameraCapture({ onCapture }) {
                     </div>
 
                     <button onClick={captureImage} className="capture-btn">
-                        <Camera size={24} /> Capture Page
+                        <Camera size={22} /> Capture Page
                     </button>
                 </div>
             )}

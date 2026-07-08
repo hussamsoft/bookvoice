@@ -6,13 +6,17 @@ import VoiceSettings from './VoiceSettings';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
 import { narrateText } from '../utils/api';
+import { useToast } from './Toast';
 import { Loader2 } from 'lucide-react';
 
+const STEPS = ['capture', 'processing', 'review', 'playback'];
+
 export default function BookSession() {
+    const toast = useToast();
     const [sessionId] = useState(() => 'session_' + Date.now());
     const [pages, setPages] = useState([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
-    const [step, setStep] = useState('capture'); // capture, processing, review, playback
+    const [step, setStep] = useState('capture');
     const [currentText, setCurrentText] = useState("");
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState("en");
@@ -24,7 +28,7 @@ export default function BookSession() {
             const cleaned = cleanExtractedText(rawText);
             
             if (!cleaned.trim()) {
-                alert("OCR did not find any recognizable text on this page. Please try again with better lighting or focus.");
+                toast.error("No text found on this page. Try better lighting or focus.");
                 setStep('capture');
                 return;
             }
@@ -33,7 +37,7 @@ export default function BookSession() {
             setStep('review');
         } catch (error) {
             console.error(error);
-            alert("Failed to process image: " + error.message);
+            toast.error("Failed to process image: " + error.message);
             setStep('capture');
         }
     };
@@ -42,12 +46,20 @@ export default function BookSession() {
         try {
             const audioUrl = await narrateText(text, sessionId, currentPageIndex, activeVoiceId, targetLanguage);
             
-            setPages([...pages, { text, audioUrl }]);
+            setPages((prev) => {
+                const updated = [...prev];
+                if (updated[currentPageIndex]) {
+                    updated[currentPageIndex] = { text, audioUrl };
+                } else {
+                    updated.push({ text, audioUrl });
+                }
+                return updated;
+            });
             setStep('playback');
+            toast.success("Narration ready");
         } catch (error) {
             console.error("TTS Generation Error:", error);
-            alert("Backend Error: " + (error.message || "Failed to generate audio."));
-            // Keep the user on the review step so they can try again
+            toast.error(error.message || "Failed to generate audio.");
             setStep('review');
         }
     };
@@ -57,14 +69,26 @@ export default function BookSession() {
         setCurrentText("");
         setStep('capture');
     };
+
+    const stepIndex = STEPS.indexOf(step);
     
     return (
         <div className="book-session">
             <header className="session-header">
                 <div className="header-top">
-                    <h2>BookVoice Session</h2>
+                    <h2>Reading Session</h2>
                     <div className="page-indicator">Page {currentPageIndex + 1}</div>
                 </div>
+
+                <div className="step-indicator" aria-hidden="true">
+                    {STEPS.slice(0, 3).map((s, i) => (
+                        <div
+                            key={s}
+                            className={`step-dot ${i < stepIndex ? 'done' : ''} ${i === stepIndex ? 'active' : ''}`}
+                        />
+                    ))}
+                </div>
+
                 <VoiceSettings 
                     activeVoiceId={activeVoiceId} 
                     onVoiceChange={setActiveVoiceId} 
@@ -78,13 +102,14 @@ export default function BookSession() {
                 
                 {step === 'processing' && (
                     <div className="loading-state">
-                        <Loader2 className="spinner" size={48} />
-                        <p>Extracting text...</p>
+                        <Loader2 className="spinner" size={40} />
+                        <p>Extracting text from page...</p>
                     </div>
                 )}
                 
                 {step === 'review' && (
                     <TextEditor 
+                        key={`review-${currentPageIndex}-${currentText.length}`}
                         initialText={currentText}
                         targetLanguage={targetLanguage}
                         onTranslateChange={setTargetLanguage}
@@ -93,7 +118,7 @@ export default function BookSession() {
                     />
                 )}
                 
-                {step === 'playback' && (
+                {step === 'playback' && pages[currentPageIndex] && (
                     <AudioPlayer 
                         audioUrl={pages[currentPageIndex].audioUrl} 
                         onNextPage={handleNextPage} 
@@ -103,7 +128,7 @@ export default function BookSession() {
             
             {pages.length > 0 && (
                 <div className="history">
-                    <h3>Session History</h3>
+                    <h3>Pages in this session</h3>
                     <div className="history-list">
                         {pages.map((p, i) => (
                             <button 
