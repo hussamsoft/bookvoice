@@ -39,11 +39,15 @@ build/
 
 # dist/ is the committed, self-contained app. Ignore only its
 # generated/runtime contents, not the source-of-truth build output.
-dist/data/
+dist/data/sessions/
+dist/data/voices/
 dist/__pycache__/
 dist/.venv/
 dist/routes/__pycache__/
 dist/services/__pycache__/
-dist/*.wav
 dist/*.log
 dist/.env
+
+# Keep the committed, preloaded default voices (override the global *.wav rule)
+!voices/*.wav
+!dist/data/default_voices/*.wav

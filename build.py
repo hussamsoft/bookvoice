@@ -114,6 +114,14 @@ def assemble_dist():
     # 5. venv bootstrap script used by the launcher / installer
     shutil.copy2(ROOT / "setup_venv.bat", DIST / "setup_venv.bat")
 
+    # 6. Preloaded default voices (seeded into data/voices at runtime by the API)
+    voices_src = ROOT / "voices"
+    if voices_src.is_dir():
+        default_voices_dst = DIST / "data" / "default_voices"
+        default_voices_dst.mkdir(parents=True, exist_ok=True)
+        for wav in voices_src.glob("*.wav"):
+            shutil.copy2(wav, default_voices_dst / wav.name)
+
     # 5. Remove stale root-level artifacts that cause confusion
     stale_root_index = DIST / "index.html"
     if stale_root_index.exists():

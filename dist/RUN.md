@@ -41,3 +41,10 @@ first page capture and first narration each take longer while weights are fetche
 From the repo root: `python build.py` regenerates this `dist/` from `frontend/`
 and `backend/`. The desktop `Launcher.exe` starts this server and opens it in a
 native window.
+
+## Installer / first run
+The packaged app is installed per-user (default `%LocalAppData%\BookVoice`,
+writable without admin). On first launch, `Launcher.exe` automatically creates
+the Python virtual environment via `setup_venv.bat` (using `uv` if available,
+otherwise the system `python`) and then starts the server. The first run
+downloads the model dependencies, so it can take a few minutes.

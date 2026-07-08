@@ -123,5 +123,21 @@ first run, create the Python environment with `setup_venv.bat` (installs
 (`installer.iss`) packages this automatically.
 
 
+## Packaging (Windows installer)
+
+`build_msi.py` produces a standard Windows MSI (`installer/BookVoice.msi`) using
+the WiX Toolset binaries vendored in `tools/wix`. It installs **per-user** into
+`%LocalAppData%\BookVoice` by default (writable without admin rights, so the
+app can create its `.venv` and `data/` at runtime), with a proper install
+wizard (folder selection, shortcuts, progress).
+
+```bash
+python build.py        # (re)generate dist/
+python build_msi.py    # build installer/BookVoice.msi
+```
+
+On first launch, `Launcher.exe` bootstraps a Python virtual environment
+(`setup_venv.bat`) if one does not exist, then starts the backend.
+
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.
