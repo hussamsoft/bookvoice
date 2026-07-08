@@ -22,10 +22,14 @@ try:
 except Exception:
     origins = ["*"]
 
+# Starlette rejects the combination of wildcard origins with credentials,
+# so only enable credentials when explicit (non-wildcard) origins are set.
+allow_credentials = origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

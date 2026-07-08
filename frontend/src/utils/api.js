@@ -1,5 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.host}/api`;
-const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || `${window.location.protocol}//${window.location.host}`;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`;
+export const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || `${window.location.origin}`;
 
 export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = "en") {
     const requestBody = {

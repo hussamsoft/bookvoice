@@ -42,9 +42,13 @@ def narrate_text(text: str, session_id: str, page_index: int, voice_id: str = No
     
     audio_prompt_path = None
     if voice_id:
-        audio_prompt_path = os.path.join("data", "voices", f"{voice_id}.wav")
+        # Sanitize to prevent path traversal: only allow safe filename chars.
+        safe_id = "".join(c for c in voice_id if c.isalnum() or c in ('-', '_')).strip()
+        if not safe_id:
+            raise Exception("Invalid voice id.")
+        audio_prompt_path = os.path.join("data", "voices", f"{safe_id}.wav")
         if not os.path.exists(audio_prompt_path):
-            raise Exception(f"Voice profile '{voice_id}' not found.")
+            raise Exception(f"Voice profile '{safe_id}' not found.")
             
     generate_kwargs = {}
     if audio_prompt_path:

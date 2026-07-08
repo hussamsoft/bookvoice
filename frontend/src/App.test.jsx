@@ -12,25 +12,25 @@ vi.mock('./components/PdfViewer', () => ({
 }));
 
 describe('App Component', () => {
-  it('renders correctly and defaults to Camera Mode', () => {
+  it('renders correctly and defaults to PDF Mode', () => {
     render(<App />);
     expect(screen.getByText('BookVoice')).toBeInTheDocument();
-    expect(screen.getByTestId('book-session-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
-  it('switches between Camera Mode and PDF Mode', () => {
+  it('switches between PDF Mode and Camera Mode', () => {
     render(<App />);
-    
-    // Initial state is Camera Mode
-    expect(screen.getByTestId('book-session-mock')).toBeInTheDocument();
-    
-    // Switch to PDF Mode
-    fireEvent.click(screen.getByText('PDF Mode'));
+
+    // Initial state is PDF Mode
     expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
-    expect(screen.queryByTestId('book-session-mock')).not.toBeInTheDocument();
-    
-    // Switch back to Camera Mode
+
+    // Switch to Camera Mode
     fireEvent.click(screen.getByText('Camera Mode'));
     expect(screen.getByTestId('book-session-mock')).toBeInTheDocument();
+    expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
+
+    // Switch back to PDF Mode
+    fireEvent.click(screen.getByText('PDF Mode'));
+    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 });

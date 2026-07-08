@@ -1,0 +1,16 @@
+fastapi==0.139.0
+uvicorn==0.50.0
+python-dotenv==1.2.2
+python-multipart==0.0.32
+chatterbox-tts==0.1.7
+deep-translator==1.11.4
+easyocr==1.7.2
+pillow==12.3.0
+numpy==1.26.4
+opencv-python-headless==4.11.0.86
+setuptools<70
+
+# For NVIDIA GPU support, install the CUDA build of torch/torchaudio AFTER the
+# above, using the PyTorch index (match the chatterbox torch version):
+#   pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 \
+#       --index-url https://download.pytorch.org/whl/cu121

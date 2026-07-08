@@ -93,8 +93,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 Open `http://localhost:8000` in your browser.
 
 ## Development
-
-If you wish to modify the application, work within the `frontend/` and `backend/` directories directly.
+If you wish to modify the application, work within the `frontend/` and `backend/` directories directly. `backend/` is the single source of truth for the Python app; the `dist/` folder is produced by the build script.
 
 ### Running the Frontend Dev Server
 ```bash
@@ -103,13 +102,26 @@ npm install
 npm run dev
 ```
 
-### Building the Frontend
-To push frontend changes into the standalone `dist/` bundle:
+### Building the Standalone `dist/`
+`build.py` builds the frontend, copies it into `dist/static`, assembles the
+backend (`main.py`, `routes/`, `services/`) into `dist/`, and writes a clean
+`requirements.txt`. It also removes stale build artifacts.
+
 ```bash
-cd frontend
-npm run build
-# Copy the contents of frontend/dist into dist/static
+python build.py
+cd dist
+uvicorn main:app --port 8000
 ```
+
+Open `http://localhost:8000`.
+
+### Desktop Launcher (optional)
+`Launcher.exe` starts the backend and opens it in a native window. It expects to
+run from a folder containing `main.py` + `static/` (i.e. the built `dist/`). On
+first run, create the Python environment with `setup_venv.bat` (installs
+`requirements.txt` into a local `.venv`). The InnoSetup installer
+(`installer.iss`) packages this automatically.
+
 
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.

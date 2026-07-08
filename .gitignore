@@ -31,7 +31,19 @@ backend/data/
 
 # Media
 *.wav
+
+# Build artifacts (PyInstaller output)
 installer/
 build/
-dist/
 *.spec
+
+# dist/ is the committed, self-contained app. Ignore only its
+# generated/runtime contents, not the source-of-truth build output.
+dist/data/
+dist/__pycache__/
+dist/.venv/
+dist/routes/__pycache__/
+dist/services/__pycache__/
+dist/*.wav
+dist/*.log
+dist/.env
