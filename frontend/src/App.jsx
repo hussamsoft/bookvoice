@@ -5,7 +5,7 @@ import BookSession from './components/BookSession';
 import PdfViewer from './components/PdfViewer';
 
 function App() {
-    const [mode, setMode] = React.useState('camera'); // 'camera' or 'pdf'
+    const [mode, setMode] = React.useState('pdf'); // 'camera' or 'pdf'
 
     return (
         <div className="app-container">

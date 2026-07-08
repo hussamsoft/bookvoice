@@ -6,13 +6,15 @@ import { Loader2, Play, Pause, ChevronUp, ChevronDown } from 'lucide-react';
 import { narrateText } from '../utils/api';
 import { useToast } from './Toast';
 
+import VoiceSettings from './VoiceSettings';
+
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
 
-export default function PdfViewer({ activeVoiceId, targetLanguage }) {
+export default function PdfViewer() {
     const toast = useToast();
     const [file, setFile] = useState(null);
     const [numPages, setNumPages] = useState(null);
@@ -22,6 +24,8 @@ export default function PdfViewer({ activeVoiceId, targetLanguage }) {
     const [sentences, setSentences] = useState([]);
     const [audioUrl, setAudioUrl] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [activeVoiceId, setActiveVoiceId] = useState(null);
+    const [targetLanguage, setTargetLanguage] = useState("en");
 
     const audioRef = useRef(null);
     const containerRef = useRef(null);
@@ -157,6 +161,9 @@ export default function PdfViewer({ activeVoiceId, targetLanguage }) {
                 </div>
             ) : (
                 <>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem', background: 'var(--surface)', padding: '1rem', borderRadius: '0.5rem', boxShadow: 'var(--shadow-sm)' }}>
+                        <VoiceSettings activeVoiceId={activeVoiceId} onVoiceChange={setActiveVoiceId} />
+                    </div>
                     <div className="pdf-controls-bar">
                         <button className="btn secondary" onClick={() => setPageNumber(Math.max(1, pageNumber - 1))} disabled={pageNumber === 1}>
                             <ChevronUp size={16}/> Prev
