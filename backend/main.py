@@ -9,6 +9,9 @@ from fastapi.responses import FileResponse
 load_dotenv()
 
 from routes import tts, voices, translation, ocr
+import mimetypes
+mimetypes.add_type('application/javascript', '.mjs')
+mimetypes.add_type('application/javascript', '.js')
 
 app = FastAPI(title="BookVoice API")
 

@@ -5,15 +5,12 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import { Loader2, Play, Pause, ChevronUp, ChevronDown } from 'lucide-react';
 import { narrateText } from '../utils/api';
 import { useToast } from './Toast';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 import VoiceSettings from './VoiceSettings';
 
 // Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
-
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 export default function PdfViewer() {
     const toast = useToast();
     const [file, setFile] = useState(null);
