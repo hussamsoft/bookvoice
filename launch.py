@@ -3,10 +3,13 @@ import webview
 import time
 import sys
 import os
-import traceback
 import socket
 import psutil
 import threading
+import shutil
+
+
+APP_NAME = "BookVoice"
 
 
 def get_listening_pid(port):
@@ -54,18 +57,26 @@ def find_available_port(start_port=8000, max_port=8020):
     return None
 
 
-def find_app_dir(application_path):
-    """
-    Locate the directory that actually contains the runnable app
-    (main.py + static/ frontend). Prefer the launcher's own directory
-    (the self-contained dist/ build), then common dev layouts.
-    """
+def resolve_app_dir():
+    if getattr(sys, 'frozen', False):
+        for base in (sys._MEIPASS, os.path.dirname(sys.executable)):
+            if not base:
+                continue
+            candidate = os.path.join(base, "dist")
+            if os.path.isfile(os.path.join(candidate, "main.py")) and os.path.isdir(os.path.join(candidate, "static")):
+                return os.path.abspath(candidate)
+            if os.path.isfile(os.path.join(base, "main.py")) and os.path.isdir(os.path.join(base, "static")):
+                return os.path.abspath(base)
+        application_path = os.path.dirname(sys.executable)
+    else:
+        application_path = os.path.dirname(os.path.abspath(__file__))
+
     candidates = [
         application_path,
         os.path.join(application_path, "dist"),
-        os.path.join(application_path, "..", "dist"),
+        os.path.join(os.path.dirname(application_path), "dist"),
         os.path.join(application_path, "backend"),
-        os.path.join(application_path, "..", "backend"),
+        os.path.join(os.path.dirname(application_path), "backend"),
     ]
     for c in candidates:
         c = os.path.abspath(c)
@@ -75,7 +86,29 @@ def find_app_dir(application_path):
         c = os.path.abspath(c)
         if os.path.isfile(os.path.join(c, "main.py")):
             return c
-    return application_path
+    return os.path.abspath(application_path)
+
+
+def resolve_data_dir():
+    if os.name == 'nt':
+        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+    else:
+        base = os.path.expanduser('~')
+    return os.path.join(base, APP_NAME)
+
+
+def seed_default_voices(app_dir, data_dir):
+    src = os.path.join(app_dir, "data", "default_voices")
+    if not os.path.isdir(src):
+        return
+    dst = os.path.join(data_dir, "data", "voices")
+    os.makedirs(dst, exist_ok=True)
+    for fn in os.listdir(src):
+        if fn.endswith(".wav"):
+            sf = os.path.join(src, fn)
+            df = os.path.join(dst, fn)
+            if not os.path.exists(df):
+                shutil.copy2(sf, df)
 
 
 def set_status(window, title, detail):
@@ -88,20 +121,28 @@ def set_status(window, title, detail):
         pass
 
 
-def ensure_venv(app_dir, window):
-    """Return the venv python executable, creating the venv if needed."""
-    venv_python = os.path.join(app_dir, ".venv", "Scripts", "python.exe")
+def ensure_venv(app_dir, data_dir, window):
+    venv_python = os.path.join(data_dir, ".venv", "Scripts", "python.exe")
     if os.path.exists(venv_python):
         return venv_python
 
     set_status(window, "First-time setup", "Installing dependencies (this can take several minutes)...")
+
+    req_src = os.path.join(app_dir, "requirements.txt")
+    if not os.path.isfile(req_src):
+        set_status(window, "Setup failed", "requirements.txt not found in app directory.")
+        return None
+
+    os.makedirs(data_dir, exist_ok=True)
+    shutil.copy2(req_src, os.path.join(data_dir, "requirements.txt"))
+
     setup_script = os.path.join(app_dir, "setup_venv.bat")
-    log_path = os.path.join(app_dir, "bookvoice_setup.log")
+    log_path = os.path.join(data_dir, "bookvoice_setup.log")
     try:
         with open(log_path, "w") as log:
             subprocess.run(
                 setup_script,
-                cwd=app_dir,
+                cwd=data_dir,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 shell=True,
@@ -138,12 +179,11 @@ def show_error(window, message, log_path=None):
 
 
 def main():
-    if getattr(sys, 'frozen', False):
-        application_path = os.path.dirname(sys.executable)
-    else:
-        application_path = os.path.dirname(os.path.abspath(__file__))
+    app_dir = resolve_app_dir()
+    data_dir = resolve_data_dir()
+    os.makedirs(data_dir, exist_ok=True)
 
-    app_dir = find_app_dir(application_path)
+    seed_default_voices(app_dir, data_dir)
     os.chdir(app_dir)
 
     port = find_available_port(8000, 8020)
@@ -180,20 +220,22 @@ def main():
     """
 
     window = webview.create_window('BookVoice', html=html_content, width=1280, height=800)
-
-    log_path = os.path.join(app_dir, "bookvoice_server.log")
     process = None
 
     def start_server():
         nonlocal process
-        venv_python = ensure_venv(app_dir, window)
+        venv_python = ensure_venv(app_dir, data_dir, window)
         if not venv_python:
             return
         set_status(window, "Starting AI Engine", "Warming up Neural Voices...")
+        env = os.environ.copy()
+        env["DATA_DIR"] = os.path.join(data_dir, "data")
+        env["DEFAULT_VOICES_DIR"] = os.path.join(app_dir, "data", "default_voices")
+        log_path = os.path.join(data_dir, "bookvoice_server.log")
         cmd = [venv_python, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", str(port)]
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         process = subprocess.Popen(
-            cmd, cwd=app_dir, creationflags=creationflags,
+            cmd, cwd=app_dir, env=env, creationflags=creationflags,
             stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
         )
 
@@ -205,7 +247,7 @@ def main():
             if process is None:
                 continue
             if process.poll() is not None:
-                # Process exited -> capture failure
+                log_path = os.path.join(data_dir, "bookvoice_server.log")
                 show_error(window, "The backend process exited unexpectedly.", log_path)
                 return
             try:
@@ -216,6 +258,7 @@ def main():
                 return
             except (ConnectionRefusedError, socket.timeout, OSError):
                 pass
+        log_path = os.path.join(data_dir, "bookvoice_server.log")
         show_error(window, f"Backend did not become ready on port {port} after 120s.", log_path)
 
     threading.Thread(target=check_server, daemon=True).start()

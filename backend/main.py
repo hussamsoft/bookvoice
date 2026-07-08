@@ -1,29 +1,61 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
 import json
-from dotenv import load_dotenv
+import threading
+import mimetypes
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 
 load_dotenv()
 
 from routes import tts, voices, translation, ocr
-import mimetypes
+
 mimetypes.add_type('application/javascript', '.mjs')
 mimetypes.add_type('application/javascript', '.js')
 
-app = FastAPI(title="BookVoice API")
+DATA_DIR = os.environ.get("DATA_DIR", "data")
+DEFAULT_VOICES_DIR = os.environ.get("DEFAULT_VOICES_DIR", os.path.join("data", "default_voices"))
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Setup CORS for frontend development
+SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
+VOICES_DIR = os.path.join(DATA_DIR, "voices")
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+os.makedirs(VOICES_DIR, exist_ok=True)
+
+_preload_attempted = False
+_preload_error = None
+
+
+def _try_preload_model():
+    global _preload_attempted, _preload_error
+    _preload_attempted = True
+    try:
+        from services.tts_service import get_model
+        get_model("en")
+        print("TTS model preloaded successfully.")
+    except Exception as e:
+        _preload_error = str(e)
+        print(f"TTS model preload failed (will retry on first request): {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    threading.Thread(target=_try_preload_model, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="BookVoice API", lifespan=lifespan)
+
 cors_origins_str = os.getenv("CORS_ORIGINS", '["*"]')
 try:
     origins = json.loads(cors_origins_str)
 except Exception:
     origins = ["*"]
 
-# Starlette rejects the combination of wildcard origins with credentials,
-# so only enable credentials when explicit (non-wildcard) origins are set.
 allow_credentials = origins != ["*"]
 
 app.add_middleware(
@@ -34,28 +66,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
 app.include_router(translation.router, prefix="/api/translate", tags=["translation"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 
-# Mount static files for generated audio sessions
-os.makedirs("data/sessions", exist_ok=True)
-app.mount("/sessions", StaticFiles(directory="data/sessions"), name="sessions")
+app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 
-# Serve frontend static files
 if os.path.isdir("static"):
-    # Mount assets directory directly
     if os.path.isdir("static/assets"):
         app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
-        
+
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("sessions/"):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Not found")
-            
         path = os.path.join("static", full_path)
         if os.path.isfile(path):
             return FileResponse(path)

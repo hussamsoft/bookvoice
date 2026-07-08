@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """
-Build a proper Windows MSI installer for BookVoice using the vendored WiX
-Toolset (tools/wix).
+Build the Windows MSI installer for BookVoice using the vendored WiX Toolset
+(tools/wix).
 
-Design notes:
-  * Installs per-user into a WRITABLE directory (LocalAppData\\BookVoice by
-    default) so the app can create its .venv and data/ at runtime without
-    administrator rights. This is the root fix for the "stuck on generating"
-    symptom that happened when the previous installer dropped files into the
-    read-only C:\\Program Files.
-  * Ships the built dist/ (backend + compiled frontend) excluding the bulky,
-    machine-specific .venv and runtime data (sessions/voices are generated at
-    runtime; data/default_voices with the preloaded voices IS shipped).
+Design:
+  * Installs the read-only app into Program Files (perMachine, requires admin).
+  * The launcher stores its writable state (.venv, data/sessions, data/voices)
+    in %%LocalAppData%%\\BookVoice, so no admin rights are needed at runtime.
+  * Ships the built dist/ excluding machine-specific .venv and runtime data
+    (sessions/voices). Default voice seeds are included.
   * Uses the WixUI_InstallDir wizard (Welcome -> License -> Install Folder ->
     Confirm -> Progress -> Finish).
+
 Run from the repo root:  python build_msi.py
 """
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -29,7 +26,7 @@ DIST = ROOT / "dist"
 OUT = ROOT / "installer"
 WIX_BIN = ROOT / "tools" / "wix"
 UPGRADE_CODE = "{E3B3C1A2-1C2D-4F0E-9A1B-1234567890AB}"
-PRODUCT_VERSION = "1.1.0"
+PRODUCT_VERSION = "1.2.0"
 
 NS = "http://schemas.microsoft.com/wix/2006/wi"
 ET.register_namespace("", NS)
@@ -78,7 +75,7 @@ def build_wxs(files):
     ET.SubElement(product, "Package", {
         "InstallerVersion": "500",
         "Compressed": "yes",
-        "InstallScope": "perUser",
+        "InstallScope": "perMachine",
         "Description": "BookVoice installer",
         "Comments": "BookVoice - narrate your books",
     })
@@ -87,21 +84,17 @@ def build_wxs(files):
     })
     ET.SubElement(product, "MediaTemplate", {"EmbedCab": "yes", "CompressionLevel": "high"})
 
-    # ARP icon
     ET.SubElement(product, "Property", {"Id": "ARPPRODUCTICON", "Value": "bookvoice.ico"})
     ET.SubElement(product, "Icon", {"Id": "bookvoice.ico", "SourceFile": str(DIST / "bookvoice.ico")})
 
-    # UI: polished install wizard with folder selection
     ET.SubElement(product, "Property", {"Id": "WIXUI_INSTALLDIR", "Value": "INSTALLDIR"})
     ET.SubElement(product, "UIRef", {"Id": "WixUI_InstallDir"})
     ET.SubElement(product, "UIRef", {"Id": "WixUI_ErrorProgressText"})
 
-    # Directory tree: TARGETDIR -> LocalAppDataFolder -> INSTALLDIR
     target = ET.SubElement(product, "Directory", {"Id": "TARGETDIR", "Name": "SourceDir"})
-    local = ET.SubElement(target, "Directory", {"Id": "LocalAppDataFolder"})
-    instdir = ET.SubElement(local, "Directory", {"Id": "INSTALLDIR", "Name": "BookVoice"})
+    pf = ET.SubElement(target, "Directory", {"Id": "ProgramFilesFolder"})
+    instdir = ET.SubElement(pf, "Directory", {"Id": "INSTALLDIR", "Name": "BookVoice"})
 
-    # Start menu shortcut
     pm = ET.SubElement(target, "Directory", {"Id": "ProgramMenuFolder"})
     appmenu = ET.SubElement(pm, "Directory", {"Id": "AppMenuDir", "Name": "BookVoice"})
     comp = ET.SubElement(appmenu, "Component", {"Id": "StartMenuShortcut", "Guid": "*"})
@@ -122,7 +115,6 @@ def build_wxs(files):
     })
     ET.SubElement(feature, "ComponentRef", {"Id": "StartMenuShortcut"})
 
-    # Cache directory elements so we don't duplicate
     dir_elems = {"": instdir}
 
     def get_dir(rel_dir: str):
@@ -135,11 +127,9 @@ def build_wxs(files):
         dir_elems[rel_dir] = d
         return d
 
-    used_dirs = set()
     for idx, (rel, f) in enumerate(files):
         rel_dir = os.path.dirname(rel)
         d = get_dir(rel_dir) if rel_dir else instdir
-        used_dirs.add(rel_dir)
         comp_id = "cmp_" + sanitize(rel) + ("_%d" % idx if len(sanitize(rel)) > 40 else "")
         comp = ET.SubElement(d, "Component", {"Id": comp_id, "Guid": "*"})
         file_id = "file_" + sanitize(rel)
@@ -166,7 +156,7 @@ def main():
     subprocess.run([str(candle), "-ext", "WixUIExtension", "-ext", "WixUtilExtension",
                     str(wxs_path), "-out", str(obj)], check=True)
     light_cmd = [str(light), "-ext", "WixUIExtension", "-ext", "WixUtilExtension",
-                 "-sice:ICE38", "-sice:ICE64", "-sice:ICE91",
+                 "-sice:ICE38", "-sice:ICE43", "-sice:ICE57",
                  "-cultures:en-us", str(obj), "-out", str(msi)]
     wxl = WIX_BIN / "WixUI_en-us.wxl"
     if wxl.exists():

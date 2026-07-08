@@ -1,18 +1,17 @@
 @echo off
 setlocal
-pushd "%~dp0"
 
 if not exist requirements.txt (
     echo requirements.txt not found in %CD%
     exit /b 1
 )
 
-set "VENV_PY="
+set VENV_PY=
 where uv >nul 2>nul
-if not errorlevel 1 set "VENV_PY=uv"
+if not errorlevel 1 set VENV_PY=uv
 if not defined VENV_PY (
     where python >nul 2>nul
-    if not errorlevel 1 set "VENV_PY=python"
+    if not errorlevel 1 set VENV_PY=python
 )
 if not defined VENV_PY (
     echo ERROR: neither uv nor python was found on PATH. Install Python 3.10+ and try again.
