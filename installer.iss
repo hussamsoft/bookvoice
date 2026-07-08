@@ -10,7 +10,7 @@ SolidCompression=yes
 OutputDir=.\installer
 OutputBaseFilename=BookVoice_Setup
 PrivilegesRequired=lowest
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

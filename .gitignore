@@ -28,11 +28,10 @@ test_venv*/
 
 # Generated Data
 backend/data/
-dist/data/
 
 # Media
 *.wav
 installer/
 build/
-dist/Launcher.exe
+dist/
 *.spec

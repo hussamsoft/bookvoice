@@ -19,7 +19,7 @@ except ImportError:
         img.putdata(new_data)
         return img
 
-img_path = r"C:\Users\hussa\.gemini\antigravity-cli\brain\acae6e66-b22f-40f9-86bb-8abbf27be21c\bookvoice_icon_flat_1783529348308.jpg"
+img_path = sys.argv[1]
 input_image = Image.open(img_path)
 
 output_image = remove(input_image)

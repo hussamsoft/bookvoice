@@ -56,7 +56,8 @@ export default function PdfViewer() {
 
         setIsGenerating(true);
         try {
-            const pdf = await pdfjs.getDocument(file).promise;
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
             const text = await extractTextFromPage(pdf, pageNumber);
             const pageSentences = chunkText(text);
             setSentences(pageSentences);
