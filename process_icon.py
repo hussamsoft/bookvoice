@@ -1,31 +1,35 @@
-from PIL import Image, ImageDraw
+import sys
+from PIL import Image
+import os
 
-def add_rounded_corners(im, rad):
-    circle = Image.new('L', (rad * 2, rad * 2), 0)
-    draw = ImageDraw.Draw(circle)
-    draw.ellipse((0, 0, rad * 2 - 1, rad * 2 - 1), fill=255)
-    alpha = Image.new('L', im.size, 255)
-    w, h = im.size
-    alpha.paste(circle.crop((0, 0, rad, rad)), (0, 0))
-    alpha.paste(circle.crop((0, rad, rad, rad * 2)), (0, h - rad))
-    alpha.paste(circle.crop((rad, 0, rad * 2, rad)), (w - rad, 0))
-    alpha.paste(circle.crop((rad, rad, rad * 2, rad * 2)), (w - rad, h - rad))
-    im.putalpha(alpha)
-    return im
+try:
+    from rembg import remove
+except ImportError:
+    # Fallback to simple color replacement if rembg fails
+    def remove(img):
+        img = img.convert("RGBA")
+        datas = img.getdata()
+        new_data = []
+        for item in datas:
+            # The background is mostly #14110f (20, 17, 15)
+            if item[0] < 30 and item[1] < 30 and item[2] < 30:
+                new_data.append((255, 255, 255, 0))
+            else:
+                new_data.append(item)
+        img.putdata(new_data)
+        return img
 
-img_path = r"C:\Users\hussa\.gemini\antigravity-cli\brain\acae6e66-b22f-40f9-86bb-8abbf27be21c\bookvoice_icon_1783522138888.jpg"
-img = Image.open(img_path).convert("RGBA")
+img_path = r"C:\Users\hussa\.gemini\antigravity-cli\brain\acae6e66-b22f-40f9-86bb-8abbf27be21c\bookvoice_icon_flat_1783529348308.jpg"
+input_image = Image.open(img_path)
 
-# Make it a rounded rectangle
-radius = 200 # Since it's likely 1024x1024
-img = add_rounded_corners(img, radius)
+output_image = remove(input_image)
 
+# Resize appropriately for icon
 dist_dir = r"C:\AI Projects\Narrator\dist"
 public_dir = r"C:\AI Projects\Narrator\frontend\public"
-import os
 os.makedirs(dist_dir, exist_ok=True)
 os.makedirs(public_dir, exist_ok=True)
 
-img.save(os.path.join(dist_dir, "bookvoice.ico"), format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (32, 32)])
-img.save(os.path.join(public_dir, "bookvoice.png"), format="PNG")
-print("Rounded transparent icon created.")
+output_image.save(os.path.join(dist_dir, "bookvoice.ico"), format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (32, 32)])
+output_image.save(os.path.join(public_dir, "bookvoice.png"), format="PNG")
+print("Transparent clean icon created.")
