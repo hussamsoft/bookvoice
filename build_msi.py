@@ -87,6 +87,8 @@ def build_wxs(files):
     ET.SubElement(product, "Property", {"Id": "ARPPRODUCTICON", "Value": "bookvoice.ico"})
     ET.SubElement(product, "Icon", {"Id": "bookvoice.ico", "SourceFile": str(DIST / "bookvoice.ico")})
 
+    license_rtf = ROOT / "license.rtf"
+    ET.SubElement(product, "WixVariable", {"Id": "WixUILicenseRtf", "Value": str(license_rtf)})
     ET.SubElement(product, "Property", {"Id": "WIXUI_INSTALLDIR", "Value": "INSTALLDIR"})
     ET.SubElement(product, "UIRef", {"Id": "WixUI_InstallDir"})
     ET.SubElement(product, "UIRef", {"Id": "WixUI_ErrorProgressText"})

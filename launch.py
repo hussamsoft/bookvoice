@@ -7,8 +7,6 @@ import socket
 import psutil
 import threading
 import shutil
-
-
 APP_NAME = "BookVoice"
 
 
@@ -57,20 +55,26 @@ def find_available_port(start_port=8000, max_port=8020):
     return None
 
 
+def _app_dir_frozen():
+    exe_dir = os.path.dirname(sys.executable)
+    if os.path.isfile(os.path.join(exe_dir, "main.py")) and os.path.isdir(os.path.join(exe_dir, "static")):
+        return os.path.abspath(exe_dir)
+    for base in (sys._MEIPASS, exe_dir):
+        if not base:
+            continue
+        candidate = os.path.join(base, "dist")
+        if os.path.isfile(os.path.join(candidate, "main.py")) and os.path.isdir(os.path.join(candidate, "static")):
+            return os.path.abspath(candidate)
+        if os.path.isfile(os.path.join(base, "main.py")) and os.path.isdir(os.path.join(base, "static")):
+            return os.path.abspath(base)
+    return os.path.abspath(exe_dir)
+
+
 def resolve_app_dir():
     if getattr(sys, 'frozen', False):
-        for base in (sys._MEIPASS, os.path.dirname(sys.executable)):
-            if not base:
-                continue
-            candidate = os.path.join(base, "dist")
-            if os.path.isfile(os.path.join(candidate, "main.py")) and os.path.isdir(os.path.join(candidate, "static")):
-                return os.path.abspath(candidate)
-            if os.path.isfile(os.path.join(base, "main.py")) and os.path.isdir(os.path.join(base, "static")):
-                return os.path.abspath(base)
-        application_path = os.path.dirname(sys.executable)
-    else:
-        application_path = os.path.dirname(os.path.abspath(__file__))
+        return _app_dir_frozen()
 
+    application_path = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         application_path,
         os.path.join(application_path, "dist"),
@@ -89,11 +93,21 @@ def resolve_app_dir():
     return os.path.abspath(application_path)
 
 
-def resolve_data_dir():
-    if os.name == 'nt':
-        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-    else:
-        base = os.path.expanduser('~')
+def _is_dir_writable(directory):
+    try:
+        probe = os.path.join(directory, ".bookvoice_writable_test")
+        with open(probe, "w") as f:
+            f.write("test")
+        os.remove(probe)
+        return True
+    except (OSError, PermissionError):
+        return False
+
+
+def resolve_data_dir(app_dir):
+    if _is_dir_writable(app_dir):
+        return app_dir
+    base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
     return os.path.join(base, APP_NAME)
 
 
@@ -138,6 +152,7 @@ def ensure_venv(app_dir, data_dir, window):
 
     setup_script = os.path.join(app_dir, "setup_venv.bat")
     log_path = os.path.join(data_dir, "bookvoice_setup.log")
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
     try:
         with open(log_path, "w") as log:
             subprocess.run(
@@ -147,6 +162,7 @@ def ensure_venv(app_dir, data_dir, window):
                 stderr=subprocess.STDOUT,
                 shell=True,
                 check=True,
+                creationflags=creationflags,
             )
     except Exception as e:
         set_status(window, "Setup failed", f"Could not create the Python environment: {e}")
@@ -180,7 +196,7 @@ def show_error(window, message, log_path=None):
 
 def main():
     app_dir = resolve_app_dir()
-    data_dir = resolve_data_dir()
+    data_dir = resolve_data_dir(app_dir)
     os.makedirs(data_dir, exist_ok=True)
 
     seed_default_voices(app_dir, data_dir)
