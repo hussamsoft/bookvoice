@@ -7,6 +7,8 @@ import socket
 import psutil
 import threading
 import shutil
+
+
 APP_NAME = "BookVoice"
 
 
@@ -93,22 +95,14 @@ def resolve_app_dir():
     return os.path.abspath(application_path)
 
 
-def _is_dir_writable(directory):
-    try:
-        probe = os.path.join(directory, ".bookvoice_writable_test")
-        with open(probe, "w") as f:
-            f.write("test")
-        os.remove(probe)
-        return True
-    except (OSError, PermissionError):
-        return False
-
-
-def resolve_data_dir(app_dir):
-    if _is_dir_writable(app_dir):
-        return app_dir
+def resolve_data_dir():
     base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
     return os.path.join(base, APP_NAME)
+
+
+def _venv_has_chatterbox(data_dir):
+    site = os.path.join(data_dir, ".venv", "Lib", "site-packages", "chatterbox")
+    return os.path.isdir(site)
 
 
 def seed_default_voices(app_dir, data_dir):
@@ -137,10 +131,14 @@ def set_status(window, title, detail):
 
 def ensure_venv(app_dir, data_dir, window):
     venv_python = os.path.join(data_dir, ".venv", "Scripts", "python.exe")
-    if os.path.exists(venv_python):
+    if os.path.exists(venv_python) and _venv_has_chatterbox(data_dir):
         return venv_python
 
-    set_status(window, "First-time setup", "Installing dependencies (this can take several minutes)...")
+    if os.path.exists(venv_python):
+        set_status(window, "Fixing environment", "Rebuilding Python environment (packages missing)...")
+        shutil.rmtree(os.path.join(data_dir, ".venv"), ignore_errors=True)
+    else:
+        set_status(window, "First-time setup", "Installing dependencies (this can take several minutes)...")
 
     req_src = os.path.join(app_dir, "requirements.txt")
     if not os.path.isfile(req_src):
@@ -196,7 +194,7 @@ def show_error(window, message, log_path=None):
 
 def main():
     app_dir = resolve_app_dir()
-    data_dir = resolve_data_dir(app_dir)
+    data_dir = resolve_data_dir()
     os.makedirs(data_dir, exist_ok=True)
 
     seed_default_voices(app_dir, data_dir)

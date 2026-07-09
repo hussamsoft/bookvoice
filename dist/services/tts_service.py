@@ -7,6 +7,7 @@ from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
 _model = None
 _model_type = None
+_model_state = {"status": "idle", "detail": ""}
 
 
 def _data_dirs():
@@ -30,14 +31,24 @@ def get_model(language_id="en"):
             torch.cuda.empty_cache()
 
     if _model is None:
+        _model_state["status"] = "loading"
+        _model_state["detail"] = ""
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Loading {target_type} Chatterbox TTS model on {device}...")
-        if target_type == "en":
-            _model = ChatterboxTTS.from_pretrained(device=device)
-        else:
-            _model = ChatterboxMultilingualTTS.from_pretrained(device=device)
-        _model_type = target_type
-        print("Model loaded.")
+        try:
+            if target_type == "en":
+                _model = ChatterboxTTS.from_pretrained(device=device)
+            else:
+                _model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+            _model_type = target_type
+            _model_state["status"] = "ready"
+            _model_state["detail"] = ""
+            print("Model loaded.")
+        except Exception as e:
+            _model_state["status"] = "error"
+            _model_state["detail"] = str(e)
+            print(f"Model load failed: {e}")
+            raise
 
     return _model
 

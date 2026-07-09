@@ -77,3 +77,11 @@ export async function translateText(text, targetLang) {
     const data = await response.json();
     return data.translated_text;
 }
+
+export async function getTtsStatus() {
+    const response = await fetch(`${API_BASE_URL}/tts/status`);
+    if (!response.ok) {
+        throw new Error("Failed to fetch TTS status");
+    }
+    return response.json();
+}

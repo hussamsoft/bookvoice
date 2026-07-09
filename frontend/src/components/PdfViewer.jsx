@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { Loader2, Play, Pause, ChevronUp, ChevronDown } from 'lucide-react';
-import { narrateText } from '../utils/api';
+import { narrateText, getTtsStatus } from '../utils/api';
 import { useToast } from './Toast';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -23,6 +23,8 @@ export default function PdfViewer() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState("en");
+    const [modelReady, setModelReady] = useState(false);
+    const [modelError, setModelError] = useState(null);
 
     const audioRef = useRef(null);
     const containerRef = useRef(null);
@@ -38,6 +40,28 @@ export default function PdfViewer() {
         const textItems = textContent.items.map(item => item.str);
         return textItems.join(' ');
     };
+
+    // Poll TTS model status until ready
+    useEffect(() => {
+        const poll = async () => {
+            try {
+                const status = await getTtsStatus();
+                if (status.status === "ready") {
+                    setModelReady(true);
+                    setModelError(null);
+                } else if (status.status === "error") {
+                    setModelError(status.detail || "Model failed to load");
+                    setModelReady(false);
+                }
+                // "loading" or "idle" — keep polling
+            } catch {
+                // Backend not ready yet, keep polling
+            }
+        };
+        const interval = setInterval(poll, 2000);
+        poll();
+        return () => clearInterval(interval);
+    }, []);
 
     const handlePlay = async () => {
         if (!file || !numPages) return;
@@ -142,6 +166,16 @@ export default function PdfViewer() {
         if (pageNumber + 2 <= numPages) visiblePages.push(pageNumber + 2);
     }
 
+    const getPlayButtonState = () => {
+        if (modelError) return { text: "AI model error", disabled: true, icon: null };
+        if (!modelReady) return { text: "Warming up AI voices…", disabled: true, icon: <Loader2 className="spinner" size={16}/> };
+        if (isGenerating) return { text: " Generating…", disabled: true, icon: <Loader2 className="spinner" size={16}/> };
+        if (isPlaying) return { text: " Pause", disabled: false, icon: <Pause size={16}/> };
+        return { text: " Read Page " + pageNumber, disabled: false, icon: <Play size={16}/> };
+    };
+
+    const playBtn = getPlayButtonState();
+
     return (
         <div className="pdf-viewer-container">
             {!file ? (
@@ -166,9 +200,9 @@ export default function PdfViewer() {
                         <button className="btn secondary" onClick={() => setPageNumber(Math.max(1, pageNumber - 1))} disabled={pageNumber === 1}>
                             <ChevronUp size={16}/> Prev
                         </button>
-                        <button className="btn primary" onClick={handlePlay} disabled={isGenerating}>
-                            {isGenerating ? <Loader2 className="spinner" size={16}/> : isPlaying ? <Pause size={16}/> : <Play size={16}/>}
-                            {isGenerating ? " Generating..." : isPlaying ? " Pause" : " Read Page " + pageNumber}
+                        <button className="btn primary" onClick={handlePlay} disabled={playBtn.disabled}>
+                            {playBtn.icon}
+                            {playBtn.text}
                         </button>
                         <button className="btn secondary" onClick={() => setPageNumber(Math.min(numPages, pageNumber + 1))} disabled={pageNumber === numPages}>
                             Next <ChevronDown size={16}/>

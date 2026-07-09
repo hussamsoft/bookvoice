@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.tts_service import narrate_text
+from services.tts_service import narrate_text, _model_state
 
 router = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -20,6 +20,11 @@ class NarrateRequest(BaseModel):
 
 class NarrateResponse(BaseModel):
     audio_url: str
+
+
+@router.get("/status")
+async def tts_status():
+    return _model_state
 
 
 @router.post("/narrate", response_model=NarrateResponse)

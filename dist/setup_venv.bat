@@ -49,5 +49,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Pre-downloading TTS model (best effort, may take several minutes)...
+call .venv\Scripts\activate.bat
+python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cpu')" 2>nul || echo Model pre-download skipped (will download on first use).
+
 echo BookVoice environment ready.
 endlocal
