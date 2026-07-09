@@ -1,9 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Camera, RefreshCw, Zap, ZapOff, ZoomIn } from 'lucide-react';
+import { capturePageRegion } from '../utils/cameraCrop';
 
 export default function CameraCapture({ onCapture }) {
     const videoRef = useRef(null);
-    const canvasRef = useRef(null);
+    const cutoutRef = useRef(null);
     const streamRef = useRef(null);
     const [error, setError] = useState(null);
     const [capabilities, setCapabilities] = useState(null);
@@ -14,17 +15,19 @@ export default function CameraCapture({ onCapture }) {
         setError(null);
         try {
             const mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { 
+                video: {
                     facingMode: 'environment',
-                    width: { ideal: 1080 },
-                    height: { ideal: 1920 }
-                }
+                    // Prefer portrait sensor when available (phone-style page capture)
+                    width: { ideal: 1440 },
+                    height: { ideal: 1920 },
+                    aspectRatio: { ideal: 0.707 }, // ~1/√2 portrait
+                },
             });
             streamRef.current = mediaStream;
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
             }
-            
+
             const track = mediaStream.getVideoTracks()[0];
             if (track?.getCapabilities) {
                 try {
@@ -34,17 +37,17 @@ export default function CameraCapture({ onCapture }) {
                         setZoom(track.getSettings().zoom || caps.zoom.min);
                     }
                 } catch (e) {
-                    console.warn("Could not get track capabilities", e);
+                    console.warn('Could not get track capabilities', e);
                 }
             }
         } catch (err) {
-            console.error("Error accessing camera:", err);
+            console.error('Error accessing camera:', err);
             if (err.name === 'NotAllowedError') {
-                setError("Camera permission denied. Allow access in your browser settings.");
+                setError('Camera permission denied. Allow access in your browser settings.');
             } else if (err.name === 'NotFoundError') {
-                setError("No camera found on this device.");
+                setError('No camera found on this device.');
             } else {
-                setError("Could not access camera. Check permissions and connection.");
+                setError('Could not access camera. Check permissions and connection.');
             }
         }
     };
@@ -53,7 +56,7 @@ export default function CameraCapture({ onCapture }) {
         startCamera();
         return () => {
             if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current.getTracks().forEach((track) => track.stop());
                 streamRef.current = null;
             }
         };
@@ -66,11 +69,11 @@ export default function CameraCapture({ onCapture }) {
         try {
             const newTorchState = !torchOn;
             await track.applyConstraints({
-                advanced: [{ torch: newTorchState }]
+                advanced: [{ torch: newTorchState }],
             });
             setTorchOn(newTorchState);
         } catch (err) {
-            console.error("Failed to toggle torch", err);
+            console.error('Failed to toggle torch', err);
         }
     };
 
@@ -82,26 +85,26 @@ export default function CameraCapture({ onCapture }) {
         const track = stream.getVideoTracks()[0];
         try {
             await track.applyConstraints({
-                advanced: [{ zoom: newZoom }]
+                advanced: [{ zoom: newZoom }],
             });
         } catch (err) {
-            console.error("Failed to apply zoom", err);
+            console.error('Failed to apply zoom', err);
         }
     };
 
     const captureImage = () => {
-        if (!videoRef.current || !canvasRef.current) return;
-        
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        if (!videoRef.current || !cutoutRef.current) return;
+
+        // Prefer crop to the portrait page frame; fall back to full frame.
+        let imageDataUrl = capturePageRegion(videoRef.current, cutoutRef.current, 0.92);
+        if (!imageDataUrl) {
+            const video = videoRef.current;
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        }
         onCapture(imageDataUrl);
     };
 
@@ -116,38 +119,46 @@ export default function CameraCapture({ onCapture }) {
                 </div>
             ) : (
                 <div className="video-wrapper">
-                    <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
-                        muted 
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
                         className="camera-feed"
                     />
-                    
-                    <div className="viewfinder-overlay">
-                        <div className="viewfinder-cutout">
-                            <div className="corner top-left"></div>
-                            <div className="corner top-right"></div>
-                            <div className="corner bottom-left"></div>
-                            <div className="corner bottom-right"></div>
+
+                    <div className="viewfinder-overlay" aria-hidden="true">
+                        {/* ISO A-series portrait page frame (≈ book page) */}
+                        <div className="viewfinder-cutout" ref={cutoutRef}>
+                            <div className="corner top-left" />
+                            <div className="corner top-right" />
+                            <div className="corner bottom-left" />
+                            <div className="corner bottom-right" />
+                            <span className="viewfinder-page-label">Book page</span>
                         </div>
-                        <p className="viewfinder-instruction">Align page within the frame</p>
+                        <p className="viewfinder-instruction">
+                            Align the book page inside the portrait frame
+                        </p>
                     </div>
 
                     <div className="camera-controls">
                         {capabilities?.torch && (
-                            <button onClick={toggleTorch} className={`control-btn ${torchOn ? 'active' : ''}`} title="Toggle flashlight">
+                            <button
+                                onClick={toggleTorch}
+                                className={`control-btn ${torchOn ? 'active' : ''}`}
+                                title="Toggle flashlight"
+                            >
                                 {torchOn ? <Zap size={20} /> : <ZapOff size={20} />}
                             </button>
                         )}
-                        
+
                         {capabilities?.zoom && (
                             <div className="zoom-control">
                                 <ZoomIn size={16} />
-                                <input 
-                                    type="range" 
-                                    min={capabilities.zoom.min} 
-                                    max={capabilities.zoom.max} 
+                                <input
+                                    type="range"
+                                    min={capabilities.zoom.min}
+                                    max={capabilities.zoom.max}
                                     step={capabilities.zoom.step || 0.1}
                                     value={zoom}
                                     onChange={handleZoomChange}
@@ -161,7 +172,6 @@ export default function CameraCapture({ onCapture }) {
                     </button>
                 </div>
             )}
-            <canvas ref={canvasRef} style={{ display: 'none' }} />
         </div>
     );
 }

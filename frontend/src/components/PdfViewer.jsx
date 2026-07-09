@@ -2,12 +2,27 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { Loader2, Play, Pause, ChevronUp, ChevronDown, X, Languages, ScanText } from 'lucide-react';
+import {
+    Loader2,
+    Play,
+    Pause,
+    ChevronUp,
+    ChevronDown,
+    X,
+    Languages,
+    ScanText,
+} from 'lucide-react';
 import { narrateText } from '../utils/api';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
+import { estimateWordTimings, wordIndexAtTime } from '../utils/timings';
+import {
+    buildWordSpanMap,
+    applyWordHighlight,
+    clearPdfHighlights,
+} from '../utils/pdfHighlight';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -25,8 +40,6 @@ export default function PdfViewer({ onDirty }) {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [currentSentenceIndex, setCurrentSentenceIndex] = useState(-1);
-    const [sentences, setSentences] = useState([]);
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -38,28 +51,26 @@ export default function PdfViewer({ onDirty }) {
     const [pageWords, setPageWords] = useState([]);
     const [wordStartTimes, setWordStartTimes] = useState([]);
     const [currentWord, setCurrentWord] = useState(-1);
+    const [pageWidth, setPageWidth] = useState(520);
     const [sessionId] = useState(() => createSessionId('pdf'));
 
     const audioRef = useRef(null);
     const containerRef = useRef(null);
     const pdfDocRef = useRef(null);
     const fileRef = useRef(null);
+    const wordSpanMapRef = useRef([]);
+    const prevHighlightSpanRef = useRef(null);
+    const pageWordsRef = useRef([]);
+    const wordTimesRef = useRef([]);
+    const langRef = useRef(targetLanguage);
 
-    const chunkText = (text) => {
-        const parts = text.match(/[^.!?؟]+[.!?؟]+/g);
-        return parts && parts.length ? parts : [text];
-    };
+    langRef.current = targetLanguage;
 
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
-        setCurrentSentenceIndex(-1);
         setCurrentWord(-1);
-        const textLayer = document.querySelector('.react-pdf__Page__textContent');
-        if (textLayer) {
-            textLayer.querySelectorAll('.highlight-active').forEach((span) => {
-                span.classList.remove('highlight-active');
-            });
-        }
+        clearPdfHighlights(containerRef.current || document);
+        prevHighlightSpanRef.current = null;
     }, []);
 
     const pauseAudio = useCallback(() => {
@@ -69,21 +80,62 @@ export default function PdfViewer({ onDirty }) {
         clearPlaybackState();
     }, [clearPlaybackState]);
 
-    // Pause and clear highlights when changing pages
     const goToPage = (next) => {
         if (next === pageNumber) return;
         pauseAudio();
         setPageNumber(next);
     };
 
+    // Fit PDF page into the scroll viewport (portrait-friendly)
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || !file) return;
+
+        const measure = () => {
+            const styles = getComputedStyle(el);
+            const padX =
+                (parseFloat(styles.paddingLeft) || 0) +
+                (parseFloat(styles.paddingRight) || 0);
+            const padY =
+                (parseFloat(styles.paddingTop) || 0) +
+                (parseFloat(styles.paddingBottom) || 0);
+            const availW = Math.max(240, el.clientWidth - padX - 8);
+            const availH = Math.max(320, el.clientHeight - padY - 8);
+            // Typical book / letter portrait ≈ 1 : 1.414 (ISO A)
+            const pageAspect = 1 / 1.414;
+            const widthFromHeight = availH * pageAspect;
+            const fit = Math.floor(Math.min(availW, widthFromHeight, 860));
+            setPageWidth(Math.max(260, fit));
+        };
+
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [file, numPages]);
+
     const extractTextFromPage = async (pdf, pageNum) => {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        const textItems = textContent.items.map((item) => item.str);
-        return textItems.join(' ').replace(/\s+/g, ' ').trim();
+        // Preserve reading order with slight y-sorting for multi-column edge cases
+        const items = textContent.items
+            .filter((item) => item.str != null)
+            .map((item) => {
+                const t = item.transform || [1, 0, 0, 1, 0, 0];
+                return { str: item.str, x: t[4], y: t[5] };
+            });
+        items.sort((a, b) => {
+            const dy = b.y - a.y;
+            if (Math.abs(dy) > 4) return dy;
+            return a.x - b.x;
+        });
+        return items
+            .map((i) => i.str)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
     };
 
-    /** Render a PDF page to a JPEG data URL for OCR (scanned books). */
     const renderPageToDataUrl = async (pdf, pageNum, scale = 2) => {
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale });
@@ -105,67 +157,52 @@ export default function PdfViewer({ onDirty }) {
         return pdf;
     };
 
+    const rebindWordSpans = useCallback(() => {
+        const textLayer = containerRef.current?.querySelector(
+            '.react-pdf__Page__textContent'
+        );
+        if (!textLayer || !pageWordsRef.current.length) {
+            wordSpanMapRef.current = [];
+            return;
+        }
+        wordSpanMapRef.current = buildWordSpanMap(pageWordsRef.current, textLayer);
+    }, []);
+
     const computeWordTimings = useCallback((text, duration) => {
         const words = text.split(/\s+/).filter(Boolean);
         if (!words.length || !duration) return;
+        const times = estimateWordTimings(words, duration, langRef.current);
         setPageWords(words);
-        const totalChars = words.reduce((sum, w) => sum + w.length, 0) || 1;
-        let cumulative = 0;
-        const times = words.map((w) => {
-            const start = cumulative;
-            cumulative += (w.length / totalChars) * duration;
-            return start;
-        });
         setWordStartTimes(times);
-    }, []);
+        pageWordsRef.current = words;
+        wordTimesRef.current = times;
+        // Re-align after text layer paints
+        requestAnimationFrame(() => rebindWordSpans());
+    }, [rebindWordSpans]);
 
     useEffect(() => {
         const audio = audioRef.current;
-        if (!audio || pageWords.length === 0) return;
+        if (!audio) return;
 
         const handleTimeUpdate = () => {
             const duration = audio.duration;
             const currentTime = audio.currentTime;
             if (!duration) return;
 
-            const totalChars = sentences.join('').length;
-            if (sentences.length > 0 && totalChars > 0) {
-                let charAcc = 0;
-                const progressRatio = currentTime / duration;
-                const targetChar = progressRatio * totalChars;
-                let foundIndex = 0;
-                for (let i = 0; i < sentences.length; i++) {
-                    charAcc += sentences[i].length;
-                    if (charAcc >= targetChar) {
-                        foundIndex = i;
-                        break;
-                    }
-                }
-                setCurrentSentenceIndex(foundIndex);
-
-                const textLayer = document.querySelector('.react-pdf__Page__textContent');
-                if (textLayer && sentences[foundIndex]) {
-                    const spans = Array.from(textLayer.querySelectorAll('span'));
-                    const words = sentences[foundIndex]
-                        .split(/\s+/)
-                        .filter((w) => w.length > 3);
-                    spans.forEach((span) => {
-                        span.classList.remove('highlight-active');
-                        if (words.some((w) => span.textContent.includes(w))) {
-                            span.classList.add('highlight-active');
-                        }
-                    });
-                }
-            }
-
-            let idx = -1;
-            for (let i = wordStartTimes.length - 1; i >= 0; i--) {
-                if (currentTime >= wordStartTimes[i]) {
-                    idx = i;
-                    break;
-                }
-            }
+            const idx = wordIndexAtTime(wordTimesRef.current, currentTime);
             setCurrentWord(idx);
+
+            const textLayer = containerRef.current?.querySelector(
+                '.react-pdf__Page__textContent'
+            );
+            if (textLayer && wordSpanMapRef.current.length) {
+                applyWordHighlight(
+                    textLayer,
+                    wordSpanMapRef.current,
+                    idx,
+                    prevHighlightSpanRef
+                );
+            }
         };
 
         const handleLoadedMetadata = () => {
@@ -186,14 +223,12 @@ export default function PdfViewer({ onDirty }) {
             audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
             audio.removeEventListener('ended', handleEnded);
         };
-    }, [
-        sentences,
-        pageWords,
-        wordStartTimes,
-        pageText,
-        computeWordTimings,
-        clearPlaybackState,
-    ]);
+    }, [pageText, computeWordTimings, clearPlaybackState]);
+
+    // Rebuild span map when the visible page finishes rendering
+    const onPageRenderSuccess = useCallback(() => {
+        requestAnimationFrame(() => rebindWordSpans());
+    }, [rebindWordSpans]);
 
     const generateAudio = async (pageNum, text) => {
         setIsGenerating(true);
@@ -212,7 +247,6 @@ export default function PdfViewer({ onDirty }) {
                 await audioRef.current.play().catch(() => {});
             }
             setIsPlaying(true);
-            setCurrentSentenceIndex(0);
             setCurrentWord(0);
             onDirty?.();
         } catch (error) {
@@ -253,9 +287,11 @@ export default function PdfViewer({ onDirty }) {
         }
 
         setPageText(text);
-        setSentences(chunkText(text));
         setPageWords([]);
         setWordStartTimes([]);
+        pageWordsRef.current = [];
+        wordTimesRef.current = [];
+        wordSpanMapRef.current = [];
         setCurrentWord(-1);
         return text;
     };
@@ -349,19 +385,14 @@ export default function PdfViewer({ onDirty }) {
         setAudioUrl(null);
         setAudioPage(null);
         setPageText('');
-        setSentences([]);
         setPageWords([]);
         setWordStartTimes([]);
+        pageWordsRef.current = [];
+        wordTimesRef.current = [];
+        wordSpanMapRef.current = [];
         clearPlaybackState();
         onDirty?.();
     };
-
-    const visiblePages = [];
-    if (numPages) {
-        visiblePages.push(pageNumber);
-        if (pageNumber + 1 <= numPages) visiblePages.push(pageNumber + 1);
-        if (pageNumber + 2 <= numPages) visiblePages.push(pageNumber + 2);
-    }
 
     const getPlayButtonState = () => {
         if (modelError) return { text: 'AI model error', disabled: true, icon: null };
@@ -387,12 +418,6 @@ export default function PdfViewer({ onDirty }) {
             return { text: ' Pause', disabled: false, icon: <Pause size={16} /> };
         if (audioUrl && audioPage === pageNumber)
             return { text: ' Resume', disabled: false, icon: <Play size={16} /> };
-        if (audioUrl && audioPage !== pageNumber)
-            return {
-                text: ' Read Page ' + pageNumber,
-                disabled: false,
-                icon: <Play size={16} />,
-            };
         return {
             text: ' Read Page ' + pageNumber,
             disabled: false,
@@ -416,6 +441,9 @@ export default function PdfViewer({ onDirty }) {
                     <label htmlFor="pdf-upload" className="btn primary">
                         Select PDF Book
                     </label>
+                    <p className="pdf-upload-hint">
+                        Text PDFs read instantly. Scanned pages use OCR automatically.
+                    </p>
                 </div>
             ) : (
                 <>
@@ -544,15 +572,16 @@ export default function PdfViewer({ onDirty }) {
                                         </div>
                                     }
                                 >
-                                    {visiblePages.map((page) => (
-                                        <div key={page} className="pdf-page-wrapper">
-                                            <Page
-                                                pageNumber={page}
-                                                width={800}
-                                                renderAnnotationLayer={false}
-                                            />
-                                        </div>
-                                    ))}
+                                    <div className="pdf-page-wrapper pdf-page-current">
+                                        <Page
+                                            pageNumber={pageNumber}
+                                            width={pageWidth}
+                                            renderAnnotationLayer={false}
+                                            renderTextLayer={true}
+                                            onRenderSuccess={onPageRenderSuccess}
+                                            className="pdf-page-fit"
+                                        />
+                                    </div>
                                 </Document>
                             </div>
                         </div>
@@ -568,7 +597,6 @@ export default function PdfViewer({ onDirty }) {
                                 voiceId={activeVoiceId}
                                 languageId={targetLanguage}
                                 onSeek={handleSeek}
-                                audioRef={audioRef}
                             />
                         </div>
                     </div>

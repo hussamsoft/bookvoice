@@ -26,7 +26,7 @@ DIST = ROOT / "dist"
 OUT = ROOT / "installer"
 WIX_BIN = ROOT / "tools" / "wix"
 UPGRADE_CODE = "{E3B3C1A2-1C2D-4F0E-9A1B-1234567890AB}"
-PRODUCT_VERSION = "1.5.0"
+PRODUCT_VERSION = "1.5.1"
 
 NS = "http://schemas.microsoft.com/wix/2006/wi"
 ET.register_namespace("", NS)
