@@ -104,24 +104,24 @@ npm run dev
 ```
 
 ### Building the Standalone `dist/`
-`build.py` builds the frontend, copies it into `dist/static`, assembles the
-backend (`main.py`, `routes/`, `services/`) into `dist/`, and writes a clean
-`requirements.txt`. It also removes stale build artifacts.
+`build.py` produces a complete portable package (same payload as the MSI):
+
+- Frontend → `dist/static`
+- Backend → `dist/main.py`, `routes/`, `services/`
+- Bundled English models, default voices, `setup_venv.bat`, `fix_cuda_torch.bat`
+- Rebuilt `Launcher.exe`
 
 ```bash
-python build.py
-cd dist
-uvicorn main:app --port 8000
+python build.py          # portable dist/
+python build.py --msi    # dist/ + installer/BookVoice.msi
 ```
 
-Open `http://localhost:8000`.
+Run portable: double-click `dist/Launcher.exe`  
+Or manual: `cd dist && setup_venv.bat && uvicorn main:app --host 127.0.0.1 --port 8000`
 
-### Desktop Launcher (optional)
-`Launcher.exe` starts the backend and opens it in a native window. It expects to
-run from a folder containing `main.py` + `static/` (i.e. the built `dist/`). On
-first run, create the Python environment with `setup_venv.bat` (installs
-`requirements.txt` into a local `.venv`). The InnoSetup installer
-(`installer.iss`) packages this automatically.
+`Launcher.exe` uses `%LocalAppData%\BookVoice` for the writable `.venv` and
+session data (same as MSI). It will upgrade a CPU-only torch install to CUDA
+when an NVIDIA GPU is present.
 
 
 ## Packaging (Windows installer)

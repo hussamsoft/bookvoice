@@ -189,9 +189,34 @@ def _load_local_mtl(ckpt_dir, device):
 
 
 def _local_model_path(target_type: str) -> str:
-    return os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "data", "models", target_type)
+    """
+    Resolve bundled model directory.
+
+    Preference order:
+      1. MODEL_DIR env (set by Launcher to <app>/data/models)
+      2. APP_DIR/data/models
+      3. Next to this package: ../data/models (dist/backend layout)
+    """
+    candidates = []
+    model_dir_env = os.environ.get("MODEL_DIR", "").strip()
+    if model_dir_env:
+        candidates.append(os.path.join(model_dir_env, target_type))
+    app_dir = os.environ.get("APP_DIR", "").strip()
+    if app_dir:
+        candidates.append(os.path.join(app_dir, "data", "models", target_type))
+    candidates.append(
+        os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "data", "models", target_type)
+        )
     )
+    # Also try cwd-relative (manual uvicorn from dist/)
+    candidates.append(os.path.abspath(os.path.join("data", "models", target_type)))
+
+    for path in candidates:
+        if _has_local_model(target_type, path):
+            return path
+    # Return the primary expected path for error messages
+    return candidates[0]
 
 
 def _has_local_model(target_type: str, local_model_path: str) -> bool:

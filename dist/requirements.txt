@@ -11,7 +11,6 @@ opencv-python-headless==4.11.0.86
 soundfile==0.13.1
 setuptools<70
 
-# For NVIDIA GPU support, install the CUDA build of torch/torchaudio AFTER the
-# above, using the PyTorch index (match the chatterbox torch version):
-#   pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 \
-#       --index-url https://download.pytorch.org/whl/cu121
+# CUDA torch is installed automatically by setup_venv.bat / fix_cuda_torch.bat
+# when an NVIDIA GPU is detected. Manual install:
+#   pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu124

@@ -1,50 +1,47 @@
-# Running BookVoice (Packaged Build)
+# BookVoice — portable package (`dist/`)
 
-This `dist` folder is the self-contained, built version of BookVoice. The
-frontend is compiled into `static/` and served directly by the FastAPI backend,
-so only one process needs to run.
+This folder is a complete BookVoice app, same contents the MSI installs.
 
-## Prerequisites
-- Python **3.10 or 3.11** (chatterbox/torch are not validated on newer versions)
-- `uv` or `venv` for the Python environment
-- An NVIDIA GPU recommended for TTS (OCR runs on CPU by default to save VRAM)
+## Quick start (recommended)
 
-## Setup
-1. Open a terminal in this `dist` directory.
-2. Create a virtual environment:
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   ```
-3. Install the dependencies (this file is UTF-8 and pinned):
-   ```bash
-   pip install -r requirements.txt
-   ```
-   For GPU support, also install the CUDA torch wheels:
-   ```bash
-   pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-   ```
-   (Alternatively, run `setup_venv.bat` which does steps 2–3 for you.)
+1. Double-click **`Launcher.exe`**
+2. On first run it creates a Python env under `%LocalAppData%\BookVoice` and
+   installs CUDA PyTorch if you have an NVIDIA GPU (can take several minutes).
+3. The app opens in a desktop window on `http://127.0.0.1:<port>`.
 
-## Running the App
-1. Start the server using Uvicorn:
-   ```bash
-   uvicorn main:app --port 8000
-   ```
-2. Open `http://localhost:8000` in your browser.
-3. The server handles static files and all API calls (`/api/ocr`, `/api/tts/narrate`, etc.).
+## Manual start (developers)
 
-**First run:** EasyOCR and Chatterbox download their models automatically. The
-first page capture and first narration each take longer while weights are fetched.
+```bat
+setup_venv.bat
+.venv\Scripts\activate
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
 
-## Rebuilding
-From the repo root: `python build.py` regenerates this `dist/` from `frontend/`
-and `backend/`. The desktop `Launcher.exe` starts this server and opens it in a
-native window.
+Then open http://127.0.0.1:8000
 
-## Installer / first run
-The packaged app is installed per-user (default `%LocalAppData%\BookVoice`,
-writable without admin). On first launch, `Launcher.exe` automatically creates
-the Python virtual environment via `setup_venv.bat` (using `uv` if available,
-otherwise the system `python`) and then starts the server. The first run
-downloads the model dependencies, so it can take a few minutes.
+If TTS is slow, force GPU torch:
+
+```bat
+fix_cuda_torch.bat
+```
+
+## Layout
+
+| Path | Purpose |
+|------|---------|
+| `Launcher.exe` | Desktop entry (starts backend + window) |
+| `main.py` / `routes/` / `services/` | FastAPI backend |
+| `static/` | Built React UI |
+| `data/models/en/` | Bundled English TTS weights |
+| `data/default_voices/` | Seed voice profiles |
+| `setup_venv.bat` | Create/repair `.venv` + CUDA torch |
+| `fix_cuda_torch.bat` | Upgrade an existing venv to CUDA torch |
+
+## Notes
+
+- Writable data (sessions, custom voices, `.venv`) lives in
+  `%LocalAppData%\BookVoice` — same as the MSI install.
+- For a fully self-contained portable data folder next to the app, set
+  environment variable `BOOKVOICE_PORTABLE=1` before launching.
+- English TTS is offline once `data/models/en` is present. Arabic may download
+  the multilingual model on first use.

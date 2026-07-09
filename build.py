@@ -2,17 +2,21 @@
 """
 BookVoice build script.
 
-Single source of truth for producing the self-contained `dist/` app:
-  - Builds the React frontend (npm) into frontend/dist
-  - Copies the compiled frontend into dist/static
-  - Copies the FastAPI backend (main.py, routes/, services/) into dist/
-  - Writes a clean UTF-8, pinned requirements.txt
-  - Removes stale root-level index.html / assets stubs
+Produces a complete portable package in dist/ that matches MSI content:
+  - React frontend → dist/static
+  - FastAPI backend → dist/main.py, routes/, services/
+  - requirements.txt, setup_venv.bat, fix_cuda_torch.bat
+  - default voices + bundled English model weights
+  - Launcher.exe (rebuilt from launch.py via PyInstaller)
+  - bookvoice.ico, RUN.md
 
 Run from the repo root:  python build.py
+Full release (dist + MSI):  python build.py --msi
 """
 from __future__ import annotations
 
+import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -23,10 +27,6 @@ FRONTEND = ROOT / "frontend"
 BACKEND = ROOT / "backend"
 DIST = ROOT / "dist"
 
-# Pinned Python dependencies (frontend deps are managed by npm).
-# torch/torchaudio are intentionally NOT pinned here: chatterbox-tts pulls a
-# CPU build by default, and the CUDA wheels must be installed from the PyTorch
-# index. See the comment block written into requirements.txt.
 REQUIREMENTS = """\
 fastapi==0.139.0
 uvicorn==0.50.0
@@ -41,27 +41,73 @@ opencv-python-headless==4.11.0.86
 soundfile==0.13.1
 setuptools<70
 
-# For NVIDIA GPU support, install the CUDA build of torch/torchaudio AFTER the
-# above, using the PyTorch index (match the chatterbox torch version):
-#   pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 \\
-#       --index-url https://download.pytorch.org/whl/cu121
+# CUDA torch is installed automatically by setup_venv.bat / fix_cuda_torch.bat
+# when an NVIDIA GPU is detected. Manual install:
+#   pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+"""
+
+RUN_MD = """# BookVoice — portable package (`dist/`)
+
+This folder is a complete BookVoice app, same contents the MSI installs.
+
+## Quick start (recommended)
+
+1. Double-click **`Launcher.exe`**
+2. On first run it creates a Python env under `%LocalAppData%\\BookVoice` and
+   installs CUDA PyTorch if you have an NVIDIA GPU (can take several minutes).
+3. The app opens in a desktop window on `http://127.0.0.1:<port>`.
+
+## Manual start (developers)
+
+```bat
+setup_venv.bat
+.venv\\Scripts\\activate
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Then open http://127.0.0.1:8000
+
+If TTS is slow, force GPU torch:
+
+```bat
+fix_cuda_torch.bat
+```
+
+## Layout
+
+| Path | Purpose |
+|------|---------|
+| `Launcher.exe` | Desktop entry (starts backend + window) |
+| `main.py` / `routes/` / `services/` | FastAPI backend |
+| `static/` | Built React UI |
+| `data/models/en/` | Bundled English TTS weights |
+| `data/default_voices/` | Seed voice profiles |
+| `setup_venv.bat` | Create/repair `.venv` + CUDA torch |
+| `fix_cuda_torch.bat` | Upgrade an existing venv to CUDA torch |
+
+## Notes
+
+- Writable data (sessions, custom voices, `.venv`) lives in
+  `%LocalAppData%\\BookVoice` — same as the MSI install.
+- For a fully self-contained portable data folder next to the app, set
+  environment variable `BOOKVOICE_PORTABLE=1` before launching.
+- English TTS is offline once `data/models/en` is present. Arabic may download
+  the multilingual model on first use.
 """
 
 
 def _exe(name: str) -> str:
-    """Resolve an executable that may be a .cmd/.bat shim on Windows."""
     if sys.platform.startswith("win"):
-        import shutil
         for candidate in (name + ".cmd", name + ".bat", name + ".exe"):
             if shutil.which(candidate):
                 return candidate
     return name
 
 
-def run(cmd, cwd):
+def run(cmd, cwd, check=True):
     resolved = [_exe(cmd[0]) if i == 0 else c for i, c in enumerate(cmd)]
     print(f"[build] {' '.join(str(c) for c in resolved)}  (cwd={cwd})")
-    subprocess.run(resolved, cwd=str(cwd), check=True)
+    return subprocess.run(resolved, cwd=str(cwd), check=check)
 
 
 def copytree(src: Path, dst: Path):
@@ -72,11 +118,14 @@ def copytree(src: Path, dst: Path):
 
 def copy_py_dir(src: Path, dst: Path):
     dst.mkdir(parents=True, exist_ok=True)
-    # Remove stale .pyc caches in the destination
     for old in dst.glob("**/*.pyc"):
         old.unlink()
     for old in dst.glob("**/__pycache__"):
         shutil.rmtree(old, ignore_errors=True)
+    # Remove stale .py files no longer in source
+    for f in dst.glob("*.py"):
+        if not (src / f.name).exists():
+            f.unlink()
     for f in src.glob("*.py"):
         shutil.copy2(f, dst / f.name)
 
@@ -92,30 +141,44 @@ def build_frontend():
 def assemble_dist():
     DIST.mkdir(exist_ok=True)
 
-    # 1. Frontend static assets
+    # Preserve Launcher.exe if present until we rebuild it later
+    existing_launcher = DIST / "Launcher.exe"
+    launcher_backup = None
+    if existing_launcher.exists():
+        launcher_backup = ROOT / "build" / "_Launcher.exe.bak"
+        launcher_backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(existing_launcher, launcher_backup)
+
     fe_build = FRONTEND / "dist"
     if not fe_build.exists():
         raise SystemExit("Frontend build output missing: " + str(fe_build))
-    static_dst = DIST / "static"
-    copytree(fe_build, static_dst)
+    copytree(fe_build, DIST / "static")
 
-    # 2. Backend code (single source of truth = backend/)
     shutil.copy2(BACKEND / "main.py", DIST / "main.py")
     copy_py_dir(BACKEND / "routes", DIST / "routes")
     copy_py_dir(BACKEND / "services", DIST / "services")
 
-    # 3. Requirements (UTF-8, pinned)
     (DIST / "requirements.txt").write_text(REQUIREMENTS, encoding="utf-8")
+    (DIST / "RUN.md").write_text(RUN_MD, encoding="utf-8")
 
-    # 4. .env from example if absent
+    env_example = DIST / ".env.example"
+    if not env_example.exists():
+        env_example.write_text(
+            'CORS_ORIGINS=["*"]\nOCR_USE_GPU=false\n', encoding="utf-8"
+        )
     env = DIST / ".env"
     if not env.exists():
-        shutil.copy2(DIST / ".env.example", env)
+        shutil.copy2(env_example, env)
 
-    # 5. venv bootstrap script used by the launcher / installer
-    shutil.copy2(ROOT / "setup_venv.bat", DIST / "setup_venv.bat")
+    for name in ("setup_venv.bat", "fix_cuda_torch.bat"):
+        src = ROOT / name
+        if src.is_file():
+            shutil.copy2(src, DIST / name)
 
-    # 6. Preloaded default voices (seeded into data/voices at runtime by the API)
+    ico = ROOT / "bookvoice.ico"
+    if ico.is_file():
+        shutil.copy2(ico, DIST / "bookvoice.ico")
+
     voices_src = ROOT / "voices"
     if voices_src.is_dir():
         default_voices_dst = DIST / "data" / "default_voices"
@@ -123,39 +186,163 @@ def assemble_dist():
         for wav in voices_src.glob("*.wav"):
             shutil.copy2(wav, default_voices_dst / wav.name)
 
-    # 7. Bundled model weights (e.g. English weights for offline/fast load)
     models_src = BACKEND / "data" / "models"
     if models_src.is_dir():
         models_dst = DIST / "data" / "models"
-        print(f"[build] Copying bundled model weights from {models_src} to {models_dst}...")
+        print(f"[build] Copying bundled model weights from {models_src} → {models_dst}")
         copytree(models_src, models_dst)
+    else:
+        print("[build] WARNING: backend/data/models missing — TTS will fail offline")
 
-    # 5. Remove stale root-level artifacts that cause confusion
-    stale_root_index = DIST / "index.html"
-    if stale_root_index.exists():
-        stale_root_index.unlink()
-    stale_assets = DIST / "assets"
-    if stale_assets.exists() and stale_assets.is_dir():
-        shutil.rmtree(stale_assets, ignore_errors=True)
+    # Clean confusing stale artifacts
+    for stale in (DIST / "index.html", DIST / "assets"):
+        if stale.is_file():
+            stale.unlink()
+        elif stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+    for pycache in DIST.rglob("__pycache__"):
+        shutil.rmtree(pycache, ignore_errors=True)
+
+    return launcher_backup
+
+
+def build_launcher(launcher_backup: Path | None):
+    """Rebuild Launcher.exe into dist/ without clobbering the rest of dist."""
+    spec = ROOT / "Launcher.spec"
+    if not spec.exists():
+        print("[build] Launcher.spec missing — keeping previous Launcher.exe if any")
+        if launcher_backup and launcher_backup.exists():
+            shutil.copy2(launcher_backup, DIST / "Launcher.exe")
+        return
+
+    out_dir = ROOT / "build" / "pyinstaller"
+    work_dir = out_dir / "work"
+    dist_dir = out_dir / "dist"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    pyinstaller = shutil.which("pyinstaller") or shutil.which("pyinstaller.exe")
+    if not pyinstaller:
+        # try python -m PyInstaller
+        print("[build] Building Launcher via python -m PyInstaller …")
+        cmd = [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--clean",
+            f"--distpath={dist_dir}",
+            f"--workpath={work_dir}",
+            str(spec),
+        ]
+    else:
+        cmd = [
+            pyinstaller,
+            "--noconfirm",
+            "--clean",
+            f"--distpath={dist_dir}",
+            f"--workpath={work_dir}",
+            str(spec),
+        ]
+
+    try:
+        subprocess.run(cmd, cwd=str(ROOT), check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"[build] WARNING: Launcher rebuild failed: {e}")
+        if launcher_backup and launcher_backup.exists():
+            shutil.copy2(launcher_backup, DIST / "Launcher.exe")
+            print("[build] Restored previous Launcher.exe")
+        return
+
+    built = dist_dir / "Launcher.exe"
+    if built.is_file():
+        shutil.copy2(built, DIST / "Launcher.exe")
+        print(f"[build] Launcher.exe → dist/ ({built.stat().st_size // 1024} KB)")
+    elif launcher_backup and launcher_backup.exists():
+        shutil.copy2(launcher_backup, DIST / "Launcher.exe")
+        print("[build] Restored previous Launcher.exe (new build missing)")
 
 
 def validate():
+    errors = []
     index = DIST / "static" / "index.html"
-    text = index.read_text(encoding="utf-8")
-    import re
-    refs = re.findall(r'(?:src|href)="(/assets/[^"]+)"', text)
-    missing = [r for r in refs if not (DIST / "static" / r.lstrip("/")).exists()]
-    if missing:
-        raise SystemExit("Build validation failed, missing assets: " + ", ".join(missing))
-    print(f"[build] validated {len(refs)} referenced static asset(s)")
+    if not index.is_file():
+        errors.append("static/index.html missing")
+    else:
+        text = index.read_text(encoding="utf-8")
+        refs = re.findall(r'(?:src|href)="(/assets/[^"]+)"', text)
+        for r in refs:
+            if not (DIST / "static" / r.lstrip("/")).exists():
+                errors.append(f"missing asset {r}")
+        print(f"[build] validated {len(refs)} static asset ref(s)")
+
+    required = [
+        "main.py",
+        "requirements.txt",
+        "setup_venv.bat",
+        "fix_cuda_torch.bat",
+        "Launcher.exe",
+        "routes/tts.py",
+        "services/tts_service.py",
+        "services/path_utils.py",
+        "static/index.html",
+        "data/models/en/tokenizer.json",
+        "data/models/en/t3_cfg.safetensors",
+        "data/default_voices",
+    ]
+    for rel in required:
+        p = DIST / rel
+        if not p.exists():
+            errors.append(f"required missing: {rel}")
+
+    # No stale hashed assets left only if index points at them — already checked
+
+    if errors:
+        raise SystemExit("Build validation failed:\n  - " + "\n  - ".join(errors))
+    print("[build] dist package validation OK")
+
+
+def build_msi():
+    print("[build] Building MSI …")
+    run([sys.executable, str(ROOT / "build_msi.py")], ROOT)
 
 
 def main():
-    print("[build] Building BookVoice dist/ ...")
-    build_frontend()
-    assemble_dist()
+    parser = argparse.ArgumentParser(description="Build BookVoice portable dist/")
+    parser.add_argument(
+        "--msi", action="store_true", help="Also build installer/BookVoice.msi"
+    )
+    parser.add_argument(
+        "--skip-frontend", action="store_true", help="Skip npm build (reuse frontend/dist)"
+    )
+    parser.add_argument(
+        "--skip-launcher", action="store_true", help="Skip PyInstaller launcher rebuild"
+    )
+    args = parser.parse_args()
+
+    print("[build] Building BookVoice portable dist/ …")
+    if not args.skip_frontend:
+        build_frontend()
+    else:
+        print("[build] Skipping frontend build")
+
+    launcher_backup = assemble_dist()
+
+    if not args.skip_launcher:
+        build_launcher(launcher_backup)
+    elif launcher_backup and launcher_backup.exists():
+        shutil.copy2(launcher_backup, DIST / "Launcher.exe")
+
+    # Also mirror static into backend/static for dev uvicorn-from-backend
+    backend_static = BACKEND / "static"
+    if (DIST / "static").is_dir():
+        copytree(DIST / "static", backend_static)
+
     validate()
-    print("[build] Done. Run with:  cd dist && uvicorn main:app --port 8000")
+    print("[build] Portable package ready: dist/  (run Launcher.exe)")
+
+    if args.msi:
+        build_msi()
+        print("[build] MSI ready: installer/BookVoice.msi (+ cab*.cab)")
 
 
 if __name__ == "__main__":

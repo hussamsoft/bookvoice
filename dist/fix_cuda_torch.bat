@@ -1,7 +1,9 @@
 @echo off
 REM Fix an existing BookVoice venv that has CPU-only PyTorch.
-REM Run from the folder that contains .venv (e.g. %%LocalAppData%%\BookVoice)
-REM or pass the venv python path as arg1.
+REM Usage:
+REM   fix_cuda_torch.bat
+REM   fix_cuda_torch.bat "C:\path\to\.venv\Scripts\python.exe"
+REM Launcher passes the venv python as arg1.
 
 setlocal
 set PY=%~1
@@ -14,6 +16,10 @@ if "%PY%"=="" (
     echo Could not find BookVoice .venv. Run from the data dir or pass python.exe path.
     exit /b 1
   )
+)
+if not exist "%PY%" (
+  echo Python not found: %PY%
+  exit /b 1
 )
 
 echo Using: %PY%

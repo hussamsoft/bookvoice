@@ -34,7 +34,12 @@ DATA_DIR = os.environ.get("DATA_DIR", "data")
 DEFAULT_VOICES_DIR = os.environ.get(
     "DEFAULT_VOICES_DIR", os.path.join("data", "default_voices")
 )
+MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join("data", "models"))
+APP_DIR = os.environ.get("APP_DIR", os.getcwd())
 os.makedirs(DATA_DIR, exist_ok=True)
+print(f"[main] DATA_DIR={DATA_DIR}")
+print(f"[main] MODEL_DIR={MODEL_DIR}")
+print(f"[main] APP_DIR={APP_DIR}")
 
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 VOICES_DIR = os.path.join(DATA_DIR, "voices")
