@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import sys
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+# Windows consoles often default to cp1252 ("charmap"). Force UTF-8 on stdio so
+# log lines with non-ASCII never crash request handlers.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 load_dotenv()
 

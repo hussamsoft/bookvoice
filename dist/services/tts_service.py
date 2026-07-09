@@ -1,6 +1,7 @@
 import gc
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -39,12 +40,28 @@ _SESSION_CLEANUP_INTERVAL = 3600
 _last_cleanup = 0.0
 
 
+def _log(msg: str) -> None:
+    """Print without ever crashing on Windows cp1252/charmap consoles."""
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:
+        try:
+            enc = getattr(sys.stdout, "encoding", None) or "ascii"
+            safe = str(msg).encode(enc, errors="replace").decode(enc, errors="replace")
+            print(safe, flush=True)
+        except Exception:
+            try:
+                print(str(msg).encode("ascii", errors="replace").decode("ascii"), flush=True)
+            except Exception:
+                pass
+
+
 def _resolve_device() -> str:
     """Prefer CUDA when a real GPU build of torch is installed."""
     force = os.getenv("TTS_DEVICE", "").strip().lower()
     if force in ("cpu", "cuda", "mps"):
         if force == "cuda" and not torch.cuda.is_available():
-            print("TTS_DEVICE=cuda requested but CUDA is not available; using CPU.")
+            _log("TTS_DEVICE=cuda requested but CUDA is not available; using CPU.")
             return "cpu"
         return force
     if torch.cuda.is_available():
@@ -312,11 +329,11 @@ def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
             try:
                 wav = model.watermarker.apply_watermark(wav, sample_rate=model.sr)
             except Exception as e:
-                print(f"Watermark skipped: {e}")
+                _log(f"Watermark skipped: {e}")
 
     elapsed = time.perf_counter() - t0
-    print(
-        f"[tts] chunk {len(text)} chars → max_tokens={max_new_tokens} "
+    _log(
+        f"[tts] chunk {len(text)} chars -> max_tokens={max_new_tokens} "
         f"cfg={cfg_weight} device={model.device} took {elapsed:.1f}s"
     )
     return torch.from_numpy(wav).unsqueeze(0)
@@ -329,7 +346,7 @@ def get_model(language_id="en"):
 
     with _model_lock:
         if _model is not None and _model_type != target_type:
-            print(f"Switching models from {_model_type} to {target_type}. Freeing VRAM...")
+            _log(f"Switching models from {_model_type} to {target_type}. Freeing VRAM...")
             _model_state["status"] = "loading"
             _model_state["detail"] = f"Switching to {target_type} model..."
             _model = None
@@ -345,25 +362,26 @@ def get_model(language_id="en"):
             _model_state["cuda"] = device == "cuda"
 
             if device == "cpu":
-                print(
+                _log(
                     "WARNING: TTS is running on CPU. Generation will be VERY slow "
-                    "(minutes per page). Install CUDA PyTorch for your NVIDIA GPU — "
+                    "(minutes per page). Install CUDA PyTorch for your NVIDIA GPU - "
                     "see setup_venv.bat / fix_cuda_torch.bat."
                 )
                 _model_state["detail"] = (
-                    "Loading on CPU (slow). Install CUDA torch for GPU speed…"
+                    "Loading on CPU (slow). Install CUDA torch for GPU speed..."
                 )
             else:
-                print(f"TTS device: {device}" + (
-                    f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else ""
-                ))
+                _log(
+                    f"TTS device: {device}"
+                    + (f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else "")
+                )
 
             local_model_path = _local_model_path(target_type)
             has_local = _has_local_model(target_type, local_model_path)
 
             try:
                 if has_local:
-                    print(
+                    _log(
                         f"Loading {target_type} Chatterbox TTS model from local bundle: "
                         f"{local_model_path} on {device}..."
                     )
@@ -375,7 +393,7 @@ def get_model(language_id="en"):
                     _model_state["detail"] = (
                         "Downloading multilingual TTS model for Arabic (one-time)..."
                     )
-                    print(f"Local multilingual model missing; downloading on {device}...")
+                    _log(f"Local multilingual model missing; downloading on {device}...")
                     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
                     _model = ChatterboxMultilingualTTS.from_pretrained(device)
@@ -383,7 +401,7 @@ def get_model(language_id="en"):
                     error_msg = (
                         f"Local English model weights not found at: {local_model_path}."
                     )
-                    print(error_msg)
+                    _log(error_msg)
                     raise FileNotFoundError(error_msg)
 
                 _model_type = target_type
@@ -392,11 +410,11 @@ def get_model(language_id="en"):
                 if device == "cuda":
                     dev_label = f"CUDA ({torch.cuda.get_device_name(0)})"
                 _model_state["detail"] = f"Model ready on {dev_label}."
-                print("Model loaded.")
+                _log("Model loaded.")
             except Exception as e:
                 _model_state["status"] = "error"
                 _model_state["detail"] = str(e)
-                print(f"Model load failed: {e}")
+                _log(f"Model load failed: {e}")
                 raise
 
     return _model
@@ -484,9 +502,9 @@ def maybe_cleanup_sessions(force: bool = False) -> None:
                     for d in dirs:
                         os.rmdir(os.path.join(root, d))
                 os.rmdir(path)
-                print(f"Cleaned old session: {name}")
+                _log(f"Cleaned old session: {name}")
         except OSError as e:
-            print(f"Session cleanup skipped for {name}: {e}")
+            _log(f"Session cleanup skipped for {name}: {e}")
 
 
 def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
@@ -518,7 +536,7 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     wav_parts: list[torch.Tensor] = []
     device = getattr(model, "device", _resolve_device())
 
-    print(
+    _log(
         f"[tts] narrate page={page_index} chars={len(text)} chunks={total} "
         f"device={device} lang={language_id}"
     )
@@ -528,7 +546,7 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
         for i, chunk in enumerate(chunks):
             _model_state["detail"] = (
                 f"Generating audio {i + 1}/{total} on {str(device).upper()}"
-                + (" (CPU — slow; install CUDA torch for GPU)" if device == "cpu" else "")
+                + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
             )
             kwargs = dict(generate_kwargs)
             if i > 0:
