@@ -77,7 +77,8 @@ fix_cuda_torch.bat
 
 | Path | Purpose |
 |------|---------|
-| `Launcher.exe` | Desktop entry (starts backend + window) |
+| `BookVoice.bat` | **Reliable portable start** (browser; preferred if EXE fails) |
+| `Launcher.exe` | Desktop window entry (same backend env as the .bat) |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
@@ -170,7 +171,7 @@ def assemble_dist():
     if not env.exists():
         shutil.copy2(env_example, env)
 
-    for name in ("setup_venv.bat", "fix_cuda_torch.bat"):
+    for name in ("setup_venv.bat", "fix_cuda_torch.bat", "BookVoice.bat"):
         src = ROOT / name
         if src.is_file():
             shutil.copy2(src, DIST / name)
@@ -280,8 +281,10 @@ def validate():
         "requirements.txt",
         "setup_venv.bat",
         "fix_cuda_torch.bat",
+        "BookVoice.bat",
         "Launcher.exe",
         "routes/tts.py",
+        "routes/voices.py",
         "services/tts_service.py",
         "services/path_utils.py",
         "static/index.html",

@@ -1,6 +1,5 @@
 import os
 import shutil
-import struct
 import wave
 from io import BytesIO
 
@@ -9,13 +8,6 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from services.path_utils import MAX_VOICE_BYTES, validate_voice_id
 
 router = APIRouter()
-
-_data_dir = os.environ.get("DATA_DIR", "data")
-VOICES_DIR = os.path.join(_data_dir, "voices")
-DEFAULT_VOICES_DIR = os.environ.get(
-    "DEFAULT_VOICES_DIR", os.path.join("data", "default_voices")
-)
-os.makedirs(VOICES_DIR, exist_ok=True)
 
 _ALLOWED_CONTENT_TYPES = {
     "audio/wav",
@@ -28,29 +20,46 @@ _ALLOWED_CONTENT_TYPES = {
 }
 
 
+def _voices_dir() -> str:
+    """Resolve at call time so launcher env vars are always honored."""
+    data_dir = os.environ.get("DATA_DIR", "data")
+    path = os.path.join(data_dir, "voices")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _default_voices_dir() -> str:
+    env = os.environ.get("DEFAULT_VOICES_DIR", "").strip()
+    if env:
+        return env
+    app_dir = os.environ.get("APP_DIR", "").strip()
+    if app_dir:
+        return os.path.join(app_dir, "data", "default_voices")
+    return os.path.join("data", "default_voices")
+
+
 def seed_default_voices():
-    if os.path.exists(DEFAULT_VOICES_DIR):
-        for f in os.listdir(DEFAULT_VOICES_DIR):
-            if f.endswith(".wav"):
-                src = os.path.join(DEFAULT_VOICES_DIR, f)
-                dst = os.path.join(VOICES_DIR, f)
-                if not os.path.exists(dst):
-                    shutil.copy2(src, dst)
+    src = _default_voices_dir()
+    dst = _voices_dir()
+    if not os.path.isdir(src):
+        return
+    for f in os.listdir(src):
+        if f.endswith(".wav"):
+            s = os.path.join(src, f)
+            d = os.path.join(dst, f)
+            if not os.path.exists(d):
+                try:
+                    shutil.copy2(s, d)
+                except OSError:
+                    pass
 
 
 def _looks_like_wav(data: bytes) -> bool:
-    if len(data) < 12:
-        return False
-    return data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
+    return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
 
 
 def _convert_to_wav_pcm(data: bytes) -> bytes:
-    """
-    Accept real WAV, or convert other formats via librosa when available.
-    Returns PCM WAV bytes.
-    """
     if _looks_like_wav(data):
-        # Re-save via wave module to normalize; if that fails, try librosa.
         try:
             with wave.open(BytesIO(data), "rb") as wf:
                 params = wf.getparams()
@@ -65,16 +74,13 @@ def _convert_to_wav_pcm(data: bytes) -> bytes:
 
     try:
         import librosa
-        import numpy as np
         import soundfile as sf
     except ImportError as e:
         raise ValueError(
-            "Only standard PCM .wav files are supported without audio converters. "
-            "Install soundfile/librosa or upload a WAV recording."
+            "Only standard PCM .wav files are supported without audio converters."
         ) from e
 
     try:
-        # librosa can decode webm/ogg if audioread/ffmpeg is present; otherwise WAV only.
         y, sr = librosa.load(BytesIO(data), sr=22050, mono=True)
         out = BytesIO()
         sf.write(out, y, sr, format="WAV", subtype="PCM_16")
@@ -104,12 +110,11 @@ def _validate_wav_duration(data: bytes, min_sec: float = 0.3, max_sec: float = 6
 async def list_voices():
     seed_default_voices()
     voices = []
-    if os.path.exists(VOICES_DIR):
-        for f in sorted(os.listdir(VOICES_DIR)):
+    voices_dir = _voices_dir()
+    if os.path.isdir(voices_dir):
+        for f in sorted(os.listdir(voices_dir)):
             if f.endswith(".wav"):
-                voices.append(
-                    {"id": f[:-4], "name": f[:-4].replace("_", " ").title()}
-                )
+                voices.append({"id": f[:-4], "name": f[:-4].replace("_", " ").title()})
     return {"voices": voices}
 
 
@@ -130,7 +135,6 @@ async def upload_voice(
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     filename = (file.filename or "").lower()
     if content_type and content_type not in _ALLOWED_CONTENT_TYPES:
-        # Still allow if extension/magic looks ok.
         if not (filename.endswith(".wav") or _looks_like_wav(raw)):
             raise HTTPException(
                 status_code=400,
@@ -152,7 +156,7 @@ async def upload_voice(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    file_path = os.path.join(VOICES_DIR, f"{voice_id}.wav")
+    file_path = os.path.join(_voices_dir(), f"{voice_id}.wav")
     try:
         with open(file_path, "wb") as buffer:
             buffer.write(wav_bytes)

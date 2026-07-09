@@ -28,6 +28,12 @@ from routes import ocr, translation, tts, voices
 from services.path_utils import safe_join
 from services.tts_service import maybe_cleanup_sessions
 
+# Seed default voices on startup (paths resolved from env at call time).
+try:
+    voices.seed_default_voices()
+except Exception as _seed_err:
+    print(f"[main] voice seed skipped: {_seed_err}")
+
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("application/javascript", ".js")
 

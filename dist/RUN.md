@@ -29,7 +29,8 @@ fix_cuda_torch.bat
 
 | Path | Purpose |
 |------|---------|
-| `Launcher.exe` | Desktop entry (starts backend + window) |
+| `BookVoice.bat` | **Reliable portable start** (browser; preferred if EXE fails) |
+| `Launcher.exe` | Desktop window entry (same backend env as the .bat) |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
