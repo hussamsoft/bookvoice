@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 if not exist requirements.txt (
     echo requirements.txt not found in %CD%
@@ -49,9 +49,59 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Pre-downloading TTS model (best effort, may take several minutes)...
-call .venv\Scripts\activate.bat
-python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cpu')" 2>nul || echo Model pre-download skipped (will download on first use).
+REM --- CRITICAL: chatterbox pulls a CPU-only torch by default.
+REM Without a CUDA wheel, TTS runs at ~5-10 tok/s and a PDF page can take many minutes.
+echo.
+echo Checking for NVIDIA GPU / installing CUDA PyTorch if needed...
+call :install_cuda_torch
+if errorlevel 1 (
+    echo WARNING: CUDA torch install skipped or failed. TTS will use CPU ^(very slow^).
+)
+
+echo.
+echo Verifying torch device...
+python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 
 echo BookVoice environment ready.
 endlocal
+exit /b 0
+
+:install_cuda_torch
+REM Detect NVIDIA via nvidia-smi
+where nvidia-smi >nul 2>nul
+if errorlevel 1 (
+    echo No nvidia-smi on PATH — leaving CPU torch in place.
+    exit /b 1
+)
+nvidia-smi -L >nul 2>nul
+if errorlevel 1 (
+    echo nvidia-smi found but no GPU reported — leaving CPU torch.
+    exit /b 1
+)
+
+echo NVIDIA GPU detected. Installing CUDA build of torch + torchaudio...
+REM Prefer cu124 wheels which work with modern Game Ready drivers (incl. RTX 40 series).
+if "%VENV_PY%"=="uv" (
+    uv pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+) else (
+    python -m pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+)
+if errorlevel 1 (
+    echo cu124 install failed — trying cu121...
+    if "%VENV_PY%"=="uv" (
+        uv pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    ) else (
+        python -m pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    )
+)
+if errorlevel 1 (
+    exit /b 1
+)
+
+python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)"
+if errorlevel 1 (
+    echo Installed torch still reports cuda_available=False.
+    exit /b 1
+)
+echo CUDA torch is working.
+exit /b 0

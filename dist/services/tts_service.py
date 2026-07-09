@@ -19,16 +19,49 @@ from services.path_utils import (
 
 _model = None
 _model_type = None
-_model_state = {"status": "idle", "detail": ""}
+_model_state = {
+    "status": "idle",
+    "detail": "",
+    "device": "unknown",
+    "cuda": False,
+}
 _model_lock = threading.Lock()
 _generate_lock = threading.Lock()
 
-# Rough speech budget per Chatterbox generate call (speech tokens ~ limited).
-_CHUNK_TARGET_CHARS = 280
-_CHUNK_HARD_MAX = 420
+# Chunk sizes — GPU can handle larger pieces (fewer slow generate() calls).
+_CHUNK_TARGET_CHARS_GPU = 480
+_CHUNK_HARD_MAX_GPU = 700
+_CHUNK_TARGET_CHARS_CPU = 180
+_CHUNK_HARD_MAX_CPU = 260
+
 _SESSION_MAX_AGE_SECONDS = 7 * 24 * 3600
 _SESSION_CLEANUP_INTERVAL = 3600
 _last_cleanup = 0.0
+
+
+def _resolve_device() -> str:
+    """Prefer CUDA when a real GPU build of torch is installed."""
+    force = os.getenv("TTS_DEVICE", "").strip().lower()
+    if force in ("cpu", "cuda", "mps"):
+        if force == "cuda" and not torch.cuda.is_available():
+            print("TTS_DEVICE=cuda requested but CUDA is not available; using CPU.")
+            return "cpu"
+        return force
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _is_cuda_build() -> bool:
+    return torch.cuda.is_available()
+
+
+def _chunk_limits():
+    if _is_cuda_build():
+        return _CHUNK_TARGET_CHARS_GPU, _CHUNK_HARD_MAX_GPU
+    return _CHUNK_TARGET_CHARS_CPU, _CHUNK_HARD_MAX_CPU
 
 
 def _data_dirs():
@@ -38,6 +71,21 @@ def _data_dirs():
     os.makedirs(voices_dir, exist_ok=True)
     os.makedirs(sessions_dir, exist_ok=True)
     return data_dir, voices_dir, sessions_dir
+
+
+def _estimate_max_new_tokens(text: str) -> int:
+    """
+    Cap speech-token generation to what the text actually needs.
+    Chatterbox defaults to max_new_tokens=1000 which is far too high for short
+    chunks and makes CPU generation take minutes per chunk.
+    """
+    n = max(1, len(text.strip()))
+    # ~1.6 speech tokens per character is generous for English/Arabic TTS.
+    est = int(n * 1.6) + 48
+    if _is_cuda_build():
+        return max(80, min(600, est))
+    # CPU: keep the budget tight so a chunk finishes in a reasonable time.
+    return max(64, min(320, est))
 
 
 def _load_local_en(ckpt_dir, device):
@@ -97,7 +145,6 @@ def _load_local_mtl(ckpt_dir, device):
     t3_model = _resolve_multilingual_t3_model(None)
     map_location = torch.device("cpu") if device in ["cpu", "mps"] else None
 
-    # Prefer safetensors names used by some bundles; fall back to .pt from HF snapshot.
     ve_path = ckpt_dir / "ve.pt"
     if not ve_path.exists() and (ckpt_dir / "ve.safetensors").exists():
         ve_path = ckpt_dir / "ve.safetensors"
@@ -153,10 +200,106 @@ def _has_local_model(target_type: str, local_model_path: str) -> bool:
     return os.path.exists(os.path.join(local_model_path, "grapheme_mtl_merged_expanded_v1.json"))
 
 
+def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
+    """
+    Call Chatterbox generate with a text-length-aware speech-token budget.
+    The stock generate() hardcodes max_new_tokens=1000 which is extremely slow
+    on CPU and wasteful even on GPU.
+    """
+    import torch.nn.functional as F
+
+    max_new_tokens = _estimate_max_new_tokens(text)
+    # CFG doubles compute (two sequences). Keep quality on GPU; speed up CPU.
+    cfg_weight = generate_kwargs.get("cfg_weight")
+    if cfg_weight is None:
+        cfg_weight = 0.4 if _is_cuda_build() else 0.0
+    temperature = generate_kwargs.get("temperature", 0.8)
+    repetition_penalty = generate_kwargs.get("repetition_penalty", 1.2)
+    min_p = generate_kwargs.get("min_p", 0.05)
+    top_p = generate_kwargs.get("top_p", 1.0)
+    exaggeration = generate_kwargs.get("exaggeration", 0.5)
+    audio_prompt_path = generate_kwargs.get("audio_prompt_path")
+
+    if audio_prompt_path:
+        model.prepare_conditionals(audio_prompt_path, exaggeration=exaggeration)
+    elif model.conds is None:
+        raise RuntimeError("Model has no speaker conditionals; select a voice or reinstall models.")
+
+    # Multilingual path needs language_id
+    is_mtl = language_id != "en" or type(model).__name__ == "ChatterboxMultilingualTTS"
+
+    # Normalize + tokenize
+    if is_mtl:
+        from chatterbox.mtl_tts import punc_norm
+        text_norm = punc_norm(text)
+        text_tokens = model.tokenizer.text_to_tokens(
+            text_norm, language_id=language_id.lower() if language_id else None
+        ).to(model.device)
+    else:
+        from chatterbox.tts import punc_norm
+        text_norm = punc_norm(text)
+        text_tokens = model.tokenizer.text_to_tokens(text_norm).to(model.device)
+
+    if exaggeration != model.conds.t3.emotion_adv[0, 0, 0]:
+        from chatterbox.models.t3.modules.cond_enc import T3Cond
+
+        _cond = model.conds.t3
+        model.conds.t3 = T3Cond(
+            speaker_emb=_cond.speaker_emb,
+            cond_prompt_speech_tokens=_cond.cond_prompt_speech_tokens,
+            emotion_adv=exaggeration * torch.ones(1, 1, 1),
+        ).to(device=model.device)
+
+    if cfg_weight > 0.0:
+        text_tokens = torch.cat([text_tokens, text_tokens], dim=0)
+
+    sot = model.t3.hp.start_text_token
+    eot = model.t3.hp.stop_text_token
+    text_tokens = F.pad(text_tokens, (1, 0), value=sot)
+    text_tokens = F.pad(text_tokens, (0, 1), value=eot)
+
+    t0 = time.perf_counter()
+    with torch.inference_mode():
+        speech_tokens = model.t3.inference(
+            t3_cond=model.conds.t3,
+            text_tokens=text_tokens,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            cfg_weight=cfg_weight,
+            repetition_penalty=repetition_penalty,
+            min_p=min_p,
+            top_p=top_p,
+        )
+        speech_tokens = speech_tokens[0]
+        from chatterbox.models.s3tokenizer import drop_invalid_tokens
+
+        speech_tokens = drop_invalid_tokens(speech_tokens)
+        speech_tokens = speech_tokens[speech_tokens < 6561]
+        speech_tokens = speech_tokens.to(model.device)
+
+        wav, _ = model.s3gen.inference(
+            speech_tokens=speech_tokens,
+            ref_dict=model.conds.gen,
+        )
+        wav = wav.squeeze(0).detach().cpu().numpy()
+        # Watermark is optional quality; skip on CPU to save time
+        if _is_cuda_build() and getattr(model, "watermarker", None) is not None:
+            try:
+                wav = model.watermarker.apply_watermark(wav, sample_rate=model.sr)
+            except Exception as e:
+                print(f"Watermark skipped: {e}")
+
+    elapsed = time.perf_counter() - t0
+    print(
+        f"[tts] chunk {len(text)} chars → max_tokens={max_new_tokens} "
+        f"cfg={cfg_weight} device={model.device} took {elapsed:.1f}s"
+    )
+    return torch.from_numpy(wav).unsqueeze(0)
+
+
 def get_model(language_id="en"):
     global _model, _model_type
     language_id = validate_language_id(language_id)
-    # English uses the dedicated EN model; Arabic uses the multilingual model.
     target_type = "en" if language_id == "en" else "multilingual"
 
     with _model_lock:
@@ -172,7 +315,24 @@ def get_model(language_id="en"):
         if _model is None:
             _model_state["status"] = "loading"
             _model_state["detail"] = "Searching local model..."
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = _resolve_device()
+            _model_state["device"] = device
+            _model_state["cuda"] = device == "cuda"
+
+            if device == "cpu":
+                print(
+                    "WARNING: TTS is running on CPU. Generation will be VERY slow "
+                    "(minutes per page). Install CUDA PyTorch for your NVIDIA GPU — "
+                    "see setup_venv.bat / fix_cuda_torch.bat."
+                )
+                _model_state["detail"] = (
+                    "Loading on CPU (slow). Install CUDA torch for GPU speed…"
+                )
+            else:
+                print(f"TTS device: {device}" + (
+                    f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else ""
+                ))
+
             local_model_path = _local_model_path(target_type)
             has_local = _has_local_model(target_type, local_model_path)
 
@@ -187,25 +347,26 @@ def get_model(language_id="en"):
                     else:
                         _model = _load_local_mtl(local_model_path, device)
                 elif target_type == "multilingual":
-                    # Arabic requires multilingual weights; download once from Hugging Face.
                     _model_state["detail"] = (
-                        "Downloading multilingual TTS model for Arabic (one-time, several GB)..."
+                        "Downloading multilingual TTS model for Arabic (one-time)..."
                     )
-                    print(f"Local multilingual model missing; downloading via from_pretrained on {device}...")
+                    print(f"Local multilingual model missing; downloading on {device}...")
                     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
                     _model = ChatterboxMultilingualTTS.from_pretrained(device)
                 else:
                     error_msg = (
-                        f"Local English model weights not found at: {local_model_path}. "
-                        "Internet download fallback is disabled for English."
+                        f"Local English model weights not found at: {local_model_path}."
                     )
                     print(error_msg)
                     raise FileNotFoundError(error_msg)
 
                 _model_type = target_type
                 _model_state["status"] = "ready"
-                _model_state["detail"] = "Model loaded successfully."
+                dev_label = device.upper()
+                if device == "cuda":
+                    dev_label = f"CUDA ({torch.cuda.get_device_name(0)})"
+                _model_state["detail"] = f"Model ready on {dev_label}."
                 print("Model loaded.")
             except Exception as e:
                 _model_state["status"] = "error"
@@ -218,11 +379,11 @@ def get_model(language_id="en"):
 
 def _split_into_chunks(text: str) -> list[str]:
     """Split text into TTS-friendly chunks without breaking mid-word when possible."""
+    target, hard = _chunk_limits()
     text = re.sub(r"\s+", " ", text).strip()
-    if len(text) <= _CHUNK_HARD_MAX:
+    if len(text) <= hard:
         return [text]
 
-    # Prefer sentence boundaries; fall back to clauses / words.
     sentences = re.split(r"(?<=[.!?؟。])\s+", text)
     chunks: list[str] = []
     current = ""
@@ -237,14 +398,13 @@ def _split_into_chunks(text: str) -> list[str]:
         sentence = sentence.strip()
         if not sentence:
             continue
-        if len(sentence) > _CHUNK_HARD_MAX:
+        if len(sentence) > hard:
             flush()
-            # Hard-split long run-on sentence.
             words = sentence.split(" ")
             buf = ""
             for word in words:
                 candidate = f"{buf} {word}".strip()
-                if len(candidate) > _CHUNK_TARGET_CHARS and buf:
+                if len(candidate) > target and buf:
                     chunks.append(buf.strip())
                     buf = word
                 else:
@@ -254,20 +414,19 @@ def _split_into_chunks(text: str) -> list[str]:
             continue
 
         candidate = f"{current} {sentence}".strip() if current else sentence
-        if len(candidate) <= _CHUNK_TARGET_CHARS:
+        if len(candidate) <= target:
             current = candidate
         else:
             flush()
             current = sentence
 
     flush()
-    return chunks or [text[:_CHUNK_HARD_MAX]]
+    return chunks or [text[:hard]]
 
 
 def _concat_wavs(wavs: list[torch.Tensor]) -> torch.Tensor:
     if len(wavs) == 1:
         return wavs[0]
-    # Normalize to 2D [channels, samples]
     normalized = []
     for w in wavs:
         if w.dim() == 1:
@@ -277,7 +436,6 @@ def _concat_wavs(wavs: list[torch.Tensor]) -> torch.Tensor:
 
 
 def maybe_cleanup_sessions(force: bool = False) -> None:
-    """Delete session audio older than SESSION_MAX_AGE_SECONDS."""
     global _last_cleanup
     now = time.time()
     if not force and (now - _last_cleanup) < _SESSION_CLEANUP_INTERVAL:
@@ -329,26 +487,35 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     generate_kwargs = {}
     if audio_prompt_path:
         generate_kwargs["audio_prompt_path"] = audio_prompt_path
-    if language_id != "en":
-        generate_kwargs["language_id"] = language_id
 
     chunks = _split_into_chunks(text)
     total = len(chunks)
     wav_parts: list[torch.Tensor] = []
+    device = getattr(model, "device", _resolve_device())
 
-    # Serialize all generate calls so conditionals mutations never race.
+    print(
+        f"[tts] narrate page={page_index} chars={len(text)} chunks={total} "
+        f"device={device} lang={language_id}"
+    )
+
     with _generate_lock:
+        _model_state["status"] = "generating"
         for i, chunk in enumerate(chunks):
-            _model_state["detail"] = f"Generating audio chunk {i + 1}/{total}..."
-            # Only pass voice prompt on first chunk; later chunks reuse model conds.
+            _model_state["detail"] = (
+                f"Generating audio {i + 1}/{total} on {str(device).upper()}"
+                + (" (CPU — slow; install CUDA torch for GPU)" if device == "cpu" else "")
+            )
             kwargs = dict(generate_kwargs)
             if i > 0:
                 kwargs.pop("audio_prompt_path", None)
-            part = model.generate(chunk, **kwargs)
+            part = _generate_chunk(model, chunk, language_id, **kwargs)
             if isinstance(part, torch.Tensor):
                 wav_parts.append(part.detach().cpu())
             else:
                 wav_parts.append(torch.as_tensor(part).cpu())
+
+        _model_state["status"] = "ready"
+        _model_state["detail"] = f"Model ready on {str(device).upper()}."
 
     wav = _concat_wavs(wav_parts)
 
@@ -361,8 +528,5 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     if wav.dim() == 1:
         wav = wav.unsqueeze(0)
     ta.save(output_path, wav, model.sr)
-
-    _model_state["status"] = "ready"
-    _model_state["detail"] = "Model loaded successfully."
 
     return f"/sessions/{session_id}/{filename}"

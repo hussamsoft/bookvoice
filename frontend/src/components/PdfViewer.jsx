@@ -34,7 +34,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export default function PdfViewer({ onDirty }) {
     const toast = useToast();
-    const { modelReady, modelError, modelStatusDetail } = useTtsStatus();
+    const [isGenerating, setIsGenerating] = useState(false);
+    const { modelReady, modelError, modelStatusDetail, deviceInfo } = useTtsStatus({
+        pollWhileGenerating: isGenerating,
+    });
 
     const [file, setFile] = useState(null);
     const [numPages, setNumPages] = useState(null);
@@ -42,7 +45,6 @@ export default function PdfViewer({ onDirty }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
-    const [isGenerating, setIsGenerating] = useState(false);
     const [isOcring, setIsOcring] = useState(false);
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
@@ -410,7 +412,9 @@ export default function PdfViewer({ onDirty }) {
             };
         if (isGenerating)
             return {
-                text: ' Generating…',
+                text: modelStatusDetail?.startsWith('Generating')
+                    ? ` ${modelStatusDetail}`
+                    : ' Generating…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
@@ -526,6 +530,19 @@ export default function PdfViewer({ onDirty }) {
                     {modelError && (
                         <div className="model-loading-status-bar error">
                             <span>Error: {modelError}</span>
+                        </div>
+                    )}
+                    {deviceInfo === 'cpu' && modelReady && (
+                        <div className="model-loading-status-bar error">
+                            <span>
+                                TTS is on CPU (very slow). Run fix_cuda_torch.bat so your RTX GPU is used — pages can take minutes on CPU.
+                            </span>
+                        </div>
+                    )}
+                    {isGenerating && modelStatusDetail && (
+                        <div className="model-loading-status-bar">
+                            <Loader2 className="spinner" size={14} />
+                            <span>{modelStatusDetail}</span>
                         </div>
                     )}
 

@@ -15,7 +15,10 @@ const STEPS = ['capture', 'processing', 'review', 'playback'];
 
 export default function BookSession({ onDirty }) {
     const toast = useToast();
-    const { modelReady, modelError, modelStatusDetail } = useTtsStatus();
+    const [isNarratingUi, setIsNarratingUi] = useState(false);
+    const { modelReady, modelError, modelStatusDetail, deviceInfo } = useTtsStatus({
+        pollWhileGenerating: isNarratingUi,
+    });
     const [sessionId] = useState(() => createSessionId('session'));
     const [pages, setPages] = useState([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -51,6 +54,7 @@ export default function BookSession({ onDirty }) {
             toast.error(modelError || 'AI voice model is still loading. Please wait.');
             return;
         }
+        setIsNarratingUi(true);
         try {
             const audioUrl = await narrateText(
                 text,
@@ -72,6 +76,8 @@ export default function BookSession({ onDirty }) {
             console.error('TTS Generation Error:', error);
             toast.error(error.message || 'Failed to generate audio.');
             setStep('review');
+        } finally {
+            setIsNarratingUi(false);
         }
     };
 
@@ -113,6 +119,19 @@ export default function BookSession({ onDirty }) {
                 {modelError && (
                     <div className="model-loading-status-bar error">
                         <span>Error: {modelError}</span>
+                    </div>
+                )}
+                {deviceInfo === 'cpu' && modelReady && (
+                    <div className="model-loading-status-bar error">
+                        <span>
+                            TTS is on CPU (very slow). Run fix_cuda_torch.bat for GPU speed.
+                        </span>
+                    </div>
+                )}
+                {isNarratingUi && modelStatusDetail && (
+                    <div className="model-loading-status-bar">
+                        <Loader2 className="spinner" size={14} />
+                        <span>{modelStatusDetail}</span>
                     </div>
                 )}
             </header>
