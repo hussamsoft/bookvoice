@@ -17,6 +17,15 @@ from routes import tts, voices, translation, ocr
 mimetypes.add_type('application/javascript', '.mjs')
 mimetypes.add_type('application/javascript', '.js')
 
+# Force CUDA context initialization on the main thread to prevent background thread deadlocks
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.init()
+        print("CUDA context initialized on the main thread.")
+except Exception as e:
+    print(f"Failed to initialize CUDA context on the main thread: {e}")
+
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 DEFAULT_VOICES_DIR = os.environ.get("DEFAULT_VOICES_DIR", os.path.join("data", "default_voices"))
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -40,6 +49,12 @@ def _try_preload_model():
     except Exception as e:
         _preload_error = str(e)
         print(f"TTS model preload failed (will retry on first request): {e}")
+        try:
+            from services.tts_service import _model_state
+            _model_state["status"] = "error"
+            _model_state["detail"] = f"Preload failed: {e}"
+        except Exception:
+            pass
 
 
 @asynccontextmanager
