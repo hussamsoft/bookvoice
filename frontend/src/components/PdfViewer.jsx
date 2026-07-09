@@ -28,6 +28,7 @@ export default function PdfViewer() {
     const [targetLanguage, setTargetLanguage] = useState("en");
     const [modelReady, setModelReady] = useState(false);
     const [modelError, setModelError] = useState(null);
+    const [modelStatusDetail, setModelStatusDetail] = useState("Warming up AI voices...");
     const [showResumeChoice, setShowResumeChoice] = useState(false);
     const [pageText, setPageText] = useState("");
     const [pageWords, setPageWords] = useState([]);
@@ -56,9 +57,15 @@ export default function PdfViewer() {
                 if (status.status === "ready") {
                     setModelReady(true);
                     setModelError(null);
+                    setModelStatusDetail("");
+                } else if (status.status === "loading") {
+                    setModelStatusDetail(status.detail || "Warming up AI voices...");
                 } else if (status.status === "error") {
                     setModelError(status.detail || "Model failed to load");
                     setModelReady(false);
+                    setModelStatusDetail("");
+                } else if (status.status === "idle") {
+                    setModelStatusDetail("Initializing model preload...");
                 }
             } catch {
                 // Backend not ready yet, keep polling
@@ -286,6 +293,18 @@ export default function PdfViewer() {
                         </button>
                         <span className="pdf-page-indicator">Page {pageNumber} of {numPages}</span>
                     </div>
+
+                    {!modelReady && modelStatusDetail && (
+                        <div className="model-loading-status-bar">
+                            <Loader2 className="spinner" size={14} />
+                            <span>{modelStatusDetail}</span>
+                        </div>
+                    )}
+                    {modelError && (
+                        <div className="model-loading-status-bar error">
+                            <span>Error: {modelError}</span>
+                        </div>
+                    )}
 
                     {/* Resume/New Page Choice Modal */}
                     {showResumeChoice && (
