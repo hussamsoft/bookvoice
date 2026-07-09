@@ -82,7 +82,8 @@ def build_wxs(files):
     ET.SubElement(product, "MajorUpgrade", {
         "DowngradeErrorMessage": "A newer version of BookVoice is already installed.",
     })
-    ET.SubElement(product, "MediaTemplate", {"EmbedCab": "yes", "CompressionLevel": "high"})
+    # Set EmbedCab to "no" since the model weights size exceeds the 2GB MSI limit
+    ET.SubElement(product, "MediaTemplate", {"EmbedCab": "no", "CompressionLevel": "high"})
 
     ET.SubElement(product, "Property", {"Id": "ARPPRODUCTICON", "Value": "bookvoice.ico"})
     ET.SubElement(product, "Icon", {"Id": "bookvoice.ico", "SourceFile": str(DIST / "bookvoice.ico")})

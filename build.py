@@ -122,6 +122,13 @@ def assemble_dist():
         for wav in voices_src.glob("*.wav"):
             shutil.copy2(wav, default_voices_dst / wav.name)
 
+    # 7. Bundled model weights (e.g. English weights for offline/fast load)
+    models_src = BACKEND / "data" / "models"
+    if models_src.is_dir():
+        models_dst = DIST / "data" / "models"
+        print(f"[build] Copying bundled model weights from {models_src} to {models_dst}...")
+        copytree(models_src, models_dst)
+
     # 5. Remove stale root-level artifacts that cause confusion
     stale_root_index = DIST / "index.html"
     if stale_root_index.exists():

@@ -37,12 +37,28 @@ def get_model(language_id="en"):
             _model_state["status"] = "loading"
             _model_state["detail"] = ""
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"Loading {target_type} Chatterbox TTS model on {device}...")
+            
+            # Resolve local model directory path (e.g. backend/data/models/en or dist/data/models/en)
+            local_model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "models", target_type))
+            has_local = False
+            if target_type == "en":
+                has_local = os.path.exists(os.path.join(local_model_path, "tokenizer.json"))
+            else:
+                has_local = os.path.exists(os.path.join(local_model_path, "grapheme_mtl_merged_expanded_v1.json"))
+                
             try:
-                if target_type == "en":
-                    _model = ChatterboxTTS.from_pretrained(device=device)
+                if has_local:
+                    print(f"Loading {target_type} Chatterbox TTS model from local bundle: {local_model_path} on {device}...")
+                    if target_type == "en":
+                        _model = ChatterboxTTS.from_local(local_model_path, device=device)
+                    else:
+                        _model = ChatterboxMultilingualTTS.from_local(local_model_path, device=device)
                 else:
-                    _model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+                    print(f"Loading {target_type} Chatterbox TTS model from Hugging Face hub on {device}...")
+                    if target_type == "en":
+                        _model = ChatterboxTTS.from_pretrained(device=device)
+                    else:
+                        _model = ChatterboxMultilingualTTS.from_pretrained(device=device)
                 _model_type = target_type
                 _model_state["status"] = "ready"
                 _model_state["detail"] = ""

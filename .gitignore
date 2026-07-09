@@ -41,6 +41,7 @@ build/
 # generated/runtime contents, not the source-of-truth build output.
 dist/data/sessions/
 dist/data/voices/
+dist/data/models/
 dist/__pycache__/
 dist/.venv/
 dist/routes/__pycache__/
