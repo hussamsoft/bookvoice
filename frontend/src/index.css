@@ -37,7 +37,7 @@ body {
 }
 
 .app-container {
-  max-width: 720px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 1.5rem 1rem 3rem;
 }
@@ -813,4 +813,289 @@ body {
   align-items: center;
   height: 100%;
   color: var(--primary);
+}
+
+/* Voice Settings Bar */
+.voice-settings-bar {
+  display: flex;
+  justify-content: center;
+  background: var(--surface);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Two-column PDF layout */
+.pdf-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.pdf-main {
+  min-width: 0;
+}
+
+.pdf-transcript {
+  min-width: 0;
+}
+
+/* Transcript Panel */
+.transcript-panel {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.transcript-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.transcript-header h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.transcript-word-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.transcript-words {
+  line-height: 2;
+  font-size: 0.95rem;
+}
+
+.transcript-word {
+  cursor: pointer;
+  padding: 0.1rem 0.15rem;
+  border-radius: 3px;
+  transition: all 0.15s;
+  display: inline;
+}
+
+.transcript-word:hover {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.transcript-word.current {
+  background: var(--primary);
+  color: var(--bg);
+  font-weight: 500;
+  border-radius: 3px;
+}
+
+.transcript-word.hovered {
+  background: rgba(201, 149, 107, 0.15);
+  border-bottom: 2px solid var(--primary);
+}
+
+.word-pronounce-spinner {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.transcript-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem 1rem;
+  font-size: 0.9rem;
+}
+
+/* Resume Choice Modal */
+.resume-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.resume-modal {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  position: relative;
+}
+
+.resume-modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.resume-modal-close:hover {
+  color: var(--text);
+}
+
+.resume-modal h3 {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.resume-modal p {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.resume-modal-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.resume-modal-actions .btn {
+  flex: 1;
+}
+
+/* Laptop Responsive Layout */
+@media (min-width: 1024px) {
+  .app-container {
+    padding: 2rem 2rem 4rem;
+  }
+
+  .main-header h1 {
+    font-size: 2.5rem;
+  }
+
+  .pdf-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  .pdf-main {
+    flex: 1.2;
+    min-width: 0;
+  }
+
+  .pdf-transcript {
+    flex: 0.8;
+    min-width: 0;
+    position: sticky;
+    top: 1rem;
+    max-height: 85vh;
+  }
+
+  .pdf-scroll-area {
+    height: 80vh;
+  }
+
+  .pdf-page-wrapper {
+    max-width: 100%;
+  }
+
+  .react-pdf__Page {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-container {
+    max-width: 960px;
+    padding: 1.5rem 1.5rem 3rem;
+  }
+
+  .pdf-scroll-area {
+    height: 70vh;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-container {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .main-header h1 {
+    font-size: 1.85rem;
+  }
+
+  .book-session {
+    border-radius: var(--radius);
+    padding: 1.25rem;
+  }
+
+  .header-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .video-wrapper {
+    max-height: calc(100vh - 180px);
+  }
+
+  .capture-btn {
+    width: 88%;
+    justify-content: center;
+  }
+
+  .creation-controls,
+  .translation-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .editor-actions {
+    flex-direction: column;
+  }
+
+  .toast-container {
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+  }
+
+  .pdf-scroll-area {
+    height: 55vh;
+  }
+
+  .pdf-layout {
+    gap: 1rem;
+  }
+
+  .transcript-panel {
+    max-height: 40vh;
+  }
+
+  .resume-modal {
+    padding: 1.5rem;
+    width: 95%;
+  }
+
+  .resume-modal-actions {
+    flex-direction: column;
+  }
 }

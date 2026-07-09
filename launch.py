@@ -58,17 +58,16 @@ def find_available_port(start_port=8000, max_port=8020):
 
 
 def _app_dir_frozen():
+    # Prefer the clean PyInstaller-extracted bundled copy over the on-disk
+    # directory.  The bundled copy is guaranteed to match the EXE and avoids
+    # stale __pycache__ or leftover files in the on-disk dist/.
+    if getattr(sys, '_MEIPASS', None):
+        candidate = os.path.join(sys._MEIPASS, "dist")
+        if os.path.isfile(os.path.join(candidate, "main.py")) and os.path.isdir(os.path.join(candidate, "static")):
+            return os.path.abspath(candidate)
     exe_dir = os.path.dirname(sys.executable)
     if os.path.isfile(os.path.join(exe_dir, "main.py")) and os.path.isdir(os.path.join(exe_dir, "static")):
         return os.path.abspath(exe_dir)
-    for base in (sys._MEIPASS, exe_dir):
-        if not base:
-            continue
-        candidate = os.path.join(base, "dist")
-        if os.path.isfile(os.path.join(candidate, "main.py")) and os.path.isdir(os.path.join(candidate, "static")):
-            return os.path.abspath(candidate)
-        if os.path.isfile(os.path.join(base, "main.py")) and os.path.isdir(os.path.join(base, "static")):
-            return os.path.abspath(base)
     return os.path.abspath(exe_dir)
 
 
@@ -196,6 +195,14 @@ def main():
     app_dir = resolve_app_dir()
     data_dir = resolve_data_dir()
     os.makedirs(data_dir, exist_ok=True)
+
+    # Diagnostic: log startup info to help troubleshoot
+    venv_python = os.path.join(data_dir, ".venv", "Scripts", "python.exe")
+    venv_status = "exists" if os.path.exists(venv_python) else "missing"
+    chatterbox_ok = "yes" if _venv_has_chatterbox(data_dir) else "no"
+    print(f"[launch] app_dir  = {app_dir}")
+    print(f"[launch] data_dir = {data_dir}")
+    print(f"[launch] venv     = {venv_status} (chatterbox: {chatterbox_ok})")
 
     seed_default_voices(app_dir, data_dir)
     os.chdir(app_dir)
