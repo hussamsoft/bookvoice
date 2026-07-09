@@ -39,7 +39,8 @@ def find_available_port(start_port=8000, max_port=8020):
         if pid is None:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 try:
-                    s.bind(('0.0.0.0', port))
+                    # Check localhost only — app is not meant to be LAN-exposed.
+                    s.bind(('127.0.0.1', port))
                     return port
                 except OSError:
                     pass
@@ -253,12 +254,15 @@ def main():
         env["DATA_DIR"] = os.path.join(data_dir, "data")
         env["DEFAULT_VOICES_DIR"] = os.path.join(app_dir, "data", "default_voices")
         log_path = os.path.join(data_dir, "bookvoice_server.log")
-        cmd = [venv_python, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", str(port)]
+        # Bind to localhost only — this is a personal desktop app, not a network service.
+        cmd = [venv_python, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)]
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        log_file = open(log_path, "w", encoding="utf-8", errors="replace")
         process = subprocess.Popen(
             cmd, cwd=app_dir, env=env, creationflags=creationflags,
-            stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
+            stdout=log_file, stderr=subprocess.STDOUT,
         )
+        process._bookvoice_log = log_file  # kept open for process lifetime
 
     threading.Thread(target=start_server, daemon=True).start()
 
@@ -294,6 +298,13 @@ def main():
         process.kill()
     except Exception:
         pass
+    finally:
+        log_handle = getattr(process, "_bookvoice_log", None) if process else None
+        if log_handle is not None:
+            try:
+                log_handle.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

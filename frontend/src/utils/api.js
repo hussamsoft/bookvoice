@@ -1,14 +1,23 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`;
 export const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || `${window.location.origin}`;
 
-export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = "en") {
+function detailMessage(errorData, fallback) {
+    const detail = errorData?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+        return detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+    }
+    return fallback;
+}
+
+export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = 'en') {
     const requestBody = {
         text,
         session_id: sessionId,
         page_index: pageIndex,
-        language_id: languageId
+        language_id: languageId,
     };
-    
+
     if (voiceId) {
         requestBody.voice_id = voiceId;
     }
@@ -16,14 +25,14 @@ export async function narrateText(text, sessionId, pageIndex, voiceId = null, la
     const response = await fetch(`${API_BASE_URL}/tts/narrate`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to narrate text');
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Failed to narrate text'));
     }
 
     const data = await response.json();
@@ -33,7 +42,7 @@ export async function narrateText(text, sessionId, pageIndex, voiceId = null, la
 export async function getVoices() {
     const response = await fetch(`${API_BASE_URL}/voices/`);
     if (!response.ok) {
-        throw new Error("Failed to fetch voices");
+        throw new Error('Failed to fetch voices');
     }
     const data = await response.json();
     return data.voices;
@@ -41,19 +50,20 @@ export async function getVoices() {
 
 export async function uploadVoice(audioBlob, name) {
     const formData = new FormData();
-    formData.append("file", audioBlob, `${name}.wav`);
-    formData.append("name", name);
-    
+    const filename = name.endsWith('.wav') ? name : `${name}.wav`;
+    formData.append('file', audioBlob, filename);
+    formData.append('name', name);
+
     const response = await fetch(`${API_BASE_URL}/voices/`, {
         method: 'POST',
-        body: formData
+        body: formData,
     });
-    
+
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to upload voice");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to upload voice'));
     }
-    
+
     return await response.json();
 }
 
@@ -65,15 +75,15 @@ export async function translateText(text, targetLang) {
         },
         body: JSON.stringify({
             text,
-            target_lang: targetLang
-        })
+            target_lang: targetLang,
+        }),
     });
-    
+
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to translate text");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to translate text'));
     }
-    
+
     const data = await response.json();
     return data.translated_text;
 }
@@ -81,7 +91,25 @@ export async function translateText(text, targetLang) {
 export async function getTtsStatus() {
     const response = await fetch(`${API_BASE_URL}/tts/status`);
     if (!response.ok) {
-        throw new Error("Failed to fetch TTS status");
+        throw new Error('Failed to fetch TTS status');
     }
     return response.json();
+}
+
+export async function extractTextFromImageApi(imageSrc) {
+    const response = await fetch(`${API_BASE_URL}/ocr`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image_data: imageSrc }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to process image OCR on the server.'));
+    }
+
+    const data = await response.json();
+    return data.text;
 }

@@ -6,72 +6,83 @@ import VoiceSettings from './VoiceSettings';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
 import { narrateText } from '../utils/api';
+import { createSessionId } from '../utils/session';
 import { useToast } from './Toast';
+import { useTtsStatus } from '../hooks/useTtsStatus';
 import { Loader2 } from 'lucide-react';
 
 const STEPS = ['capture', 'processing', 'review', 'playback'];
 
-export default function BookSession() {
+export default function BookSession({ onDirty }) {
     const toast = useToast();
-    const [sessionId] = useState(() => 'session_' + Date.now());
+    const { modelReady, modelError, modelStatusDetail } = useTtsStatus();
+    const [sessionId] = useState(() => createSessionId('session'));
     const [pages, setPages] = useState([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [step, setStep] = useState('capture');
-    const [currentText, setCurrentText] = useState("");
+    const [currentText, setCurrentText] = useState('');
     const [activeVoiceId, setActiveVoiceId] = useState(null);
-    const [targetLanguage, setTargetLanguage] = useState("en");
-    
+    const [targetLanguage, setTargetLanguage] = useState('en');
+
     const handleCapture = async (imageDataUrl) => {
         setStep('processing');
         try {
             const rawText = await extractTextFromImage(imageDataUrl);
             const cleaned = cleanExtractedText(rawText);
-            
+
             if (!cleaned.trim()) {
-                toast.error("No text found on this page. Try better lighting or focus.");
+                toast.error('No text found on this page. Try better lighting or focus.');
                 setStep('capture');
                 return;
             }
-            
+
             setCurrentText(cleaned);
             setStep('review');
+            onDirty?.();
         } catch (error) {
             console.error(error);
-            toast.error("Failed to process image: " + error.message);
+            toast.error('Failed to process image: ' + error.message);
             setStep('capture');
         }
     };
-    
+
     const handleNarrate = async (text) => {
+        if (!modelReady) {
+            toast.error(modelError || 'AI voice model is still loading. Please wait.');
+            return;
+        }
         try {
-            const audioUrl = await narrateText(text, sessionId, currentPageIndex, activeVoiceId, targetLanguage);
-            
+            const audioUrl = await narrateText(
+                text,
+                sessionId,
+                currentPageIndex,
+                activeVoiceId,
+                targetLanguage
+            );
+
             setPages((prev) => {
                 const updated = [...prev];
-                if (updated[currentPageIndex]) {
-                    updated[currentPageIndex] = { text, audioUrl };
-                } else {
-                    updated.push({ text, audioUrl });
-                }
+                updated[currentPageIndex] = { text, audioUrl };
                 return updated;
             });
             setStep('playback');
-            toast.success("Narration ready");
+            onDirty?.();
+            toast.success('Narration ready');
         } catch (error) {
-            console.error("TTS Generation Error:", error);
-            toast.error(error.message || "Failed to generate audio.");
+            console.error('TTS Generation Error:', error);
+            toast.error(error.message || 'Failed to generate audio.');
             setStep('review');
         }
     };
-    
+
     const handleNextPage = () => {
         setCurrentPageIndex(pages.length);
-        setCurrentText("");
+        setCurrentText('');
         setStep('capture');
     };
 
     const stepIndex = STEPS.indexOf(step);
-    
+
     return (
         <div className="book-session">
             <header className="session-header">
@@ -84,32 +95,41 @@ export default function BookSession() {
                     {STEPS.slice(0, 3).map((s, i) => (
                         <div
                             key={s}
-                            className={`step-dot ${i < stepIndex ? 'done' : ''} ${i === stepIndex ? 'active' : ''}`}
+                            className={`step-dot ${i < stepIndex ? 'done' : ''} ${
+                                i === stepIndex ? 'active' : ''
+                            }`}
                         />
                     ))}
                 </div>
 
-                <VoiceSettings 
-                    activeVoiceId={activeVoiceId} 
-                    onVoiceChange={setActiveVoiceId} 
-                />
-            </header>
-            
-            <div className="session-content">
-                {step === 'capture' && (
-                    <CameraCapture onCapture={handleCapture} />
+                <VoiceSettings activeVoiceId={activeVoiceId} onVoiceChange={setActiveVoiceId} />
+
+                {!modelReady && modelStatusDetail && (
+                    <div className="model-loading-status-bar">
+                        <Loader2 className="spinner" size={14} />
+                        <span>{modelStatusDetail}</span>
+                    </div>
                 )}
-                
+                {modelError && (
+                    <div className="model-loading-status-bar error">
+                        <span>Error: {modelError}</span>
+                    </div>
+                )}
+            </header>
+
+            <div className="session-content">
+                {step === 'capture' && <CameraCapture onCapture={handleCapture} />}
+
                 {step === 'processing' && (
                     <div className="loading-state">
                         <Loader2 className="spinner" size={40} />
                         <p>Extracting text from page...</p>
                     </div>
                 )}
-                
+
                 {step === 'review' && (
-                    <TextEditor 
-                        key={`review-${currentPageIndex}-${currentText.length}`}
+                    <TextEditor
+                        key={`review-${currentPageIndex}-${sessionId}`}
                         initialText={currentText}
                         targetLanguage={targetLanguage}
                         onTranslateChange={setTargetLanguage}
@@ -117,31 +137,35 @@ export default function BookSession() {
                         onRetake={() => setStep('capture')}
                     />
                 )}
-                
+
                 {step === 'playback' && pages[currentPageIndex] && (
-                    <AudioPlayer 
-                        audioUrl={pages[currentPageIndex].audioUrl} 
-                        onNextPage={handleNextPage} 
+                    <AudioPlayer
+                        audioUrl={pages[currentPageIndex].audioUrl}
+                        onNextPage={handleNextPage}
                     />
                 )}
             </div>
-            
+
             {pages.length > 0 && (
                 <div className="history">
                     <h3>Pages in this session</h3>
                     <div className="history-list">
-                        {pages.map((p, i) => (
-                            <button 
-                                key={i} 
-                                className={`history-item ${i === currentPageIndex ? 'active' : ''}`}
-                                onClick={() => {
-                                    setCurrentPageIndex(i);
-                                    setStep('playback');
-                                }}
-                            >
-                                Page {i + 1}
-                            </button>
-                        ))}
+                        {pages.map((p, i) =>
+                            p ? (
+                                <button
+                                    key={i}
+                                    className={`history-item ${
+                                        i === currentPageIndex ? 'active' : ''
+                                    }`}
+                                    onClick={() => {
+                                        setCurrentPageIndex(i);
+                                        setStep('playback');
+                                    }}
+                                >
+                                    Page {i + 1}
+                                </button>
+                            ) : null
+                        )}
                     </div>
                 </div>
             )}

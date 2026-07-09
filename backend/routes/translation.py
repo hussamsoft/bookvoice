@@ -2,8 +2,9 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from services.path_utils import MAX_TEXT_CHARS, validate_language_id
 from services.translation_service import translate_text
 
 router = APIRouter()
@@ -11,7 +12,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 
 class TranslationRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=MAX_TEXT_CHARS + 500)
     target_lang: str
 
 
@@ -23,14 +24,16 @@ class TranslationResponse(BaseModel):
 async def translate(request: TranslationRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
-    if not request.target_lang.strip():
-        raise HTTPException(status_code=400, detail="Target language cannot be empty")
+    try:
+        target = validate_language_id(request.target_lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         translated = await loop.run_in_executor(
-            _executor, translate_text, request.text, request.target_lang
+            _executor, translate_text, request.text, target
         )
         return TranslationResponse(translated_text=translated)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

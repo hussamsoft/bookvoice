@@ -1,25 +1,36 @@
-import os
 import base64
-import numpy as np
+import os
 from io import BytesIO
+
+import numpy as np
 from PIL import Image
 
+from services.path_utils import MAX_OCR_IMAGE_BYTES
+
 _reader = None
+_reader_langs = None
 
 
-def get_reader():
-    global _reader
-    if _reader is None:
-        import easyocr
-        import torch
+def get_reader(languages=None):
+    """Lazy-load EasyOCR. Default languages: English + Arabic."""
+    global _reader, _reader_langs
+    langs = languages or ["en", "ar"]
+    langs = list(dict.fromkeys(langs))  # preserve order, unique
 
-        use_gpu = (
-            os.getenv("OCR_USE_GPU", "false").lower() == "true"
-            and torch.cuda.is_available()
-        )
-        print(f"Loading EasyOCR model (gpu={use_gpu})...")
-        _reader = easyocr.Reader(["en"], gpu=use_gpu)
-        print("EasyOCR model ready.")
+    if _reader is not None and _reader_langs == langs:
+        return _reader
+
+    import easyocr
+    import torch
+
+    use_gpu = (
+        os.getenv("OCR_USE_GPU", "false").lower() == "true"
+        and torch.cuda.is_available()
+    )
+    print(f"Loading EasyOCR model (gpu={use_gpu}, langs={langs})...")
+    _reader = easyocr.Reader(langs, gpu=use_gpu)
+    _reader_langs = langs
+    print("EasyOCR model ready.")
     return _reader
 
 
@@ -30,8 +41,24 @@ def _decode_image(image_data: str) -> np.ndarray:
         encoded = image_data
 
     try:
-        image_bytes = base64.b64decode(encoded)
+        image_bytes = base64.b64decode(encoded, validate=False)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 image data: {e}") from e
+
+    if len(image_bytes) > MAX_OCR_IMAGE_BYTES:
+        raise ValueError(
+            f"Image too large ({len(image_bytes)} bytes). "
+            f"Maximum is {MAX_OCR_IMAGE_BYTES} bytes."
+        )
+
+    try:
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        # Cap extreme resolutions to protect memory.
+        max_side = 4000
+        w, h = image.size
+        if max(w, h) > max_side:
+            scale = max_side / float(max(w, h))
+            image = image.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
         return np.array(image)
     except Exception as e:
         raise ValueError(f"Invalid image format: {e}") from e
@@ -77,6 +104,6 @@ def _assemble_text(results: list) -> str:
 
 def extract_text_from_image(image_data: str) -> str:
     image_array = _decode_image(image_data)
-    reader = get_reader()
+    reader = get_reader(["en", "ar"])
     results = reader.readtext(image_array, paragraph=False)
     return _assemble_text(results)

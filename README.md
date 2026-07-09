@@ -1,6 +1,6 @@
 # BookVoice
 
-BookVoice is a personal web application that allows users to capture images of physical book pages (via a phone or webcam), extract the text using OCR, translate it into one of 23 languages, and have it read aloud using a high-quality, voice-cloned text-to-speech (TTS) engine.
+BookVoice is a personal web application that allows users to capture images of physical book pages (via a phone or webcam) or open a PDF, extract the text using OCR, translate between **English and Arabic**, and have it read aloud using a high-quality, voice-cloned text-to-speech (TTS) engine.
 
 ## Features
 
@@ -17,18 +17,19 @@ This MVP was built across three development phases:
    - Support for uploading `.wav` reference clips.
    - Zero-shot voice cloning capabilities natively integrated into the TTS generation step.
 
-3. **Phase 3: Translation & Dubbing**
-   - Built-in text translation scaffolding utilizing `deep-translator` (Google Translate free endpoint) for zero-cost operation.
-   - 23 supported target languages (e.g., French, Spanish, Japanese, German, Arabic).
-   - Dynamic VRAM management: The backend intelligently switches between the standard English TTS model and the Multilingual TTS model on-the-fly to prevent Out-Of-Memory (OOM) errors on 8GB GPUs.
-   - Automatic cross-lingual voice cloning and dubbing.
+3. **Phase 3: Translation & Dubbing (English + Arabic)**
+   - Built-in translation via `deep-translator` (Google Translate free endpoint).
+   - Supported languages: **English** and **Arabic** only.
+   - Dynamic VRAM management: switches between the English TTS model and the Multilingual model (for Arabic) to reduce OOM risk on 8GB GPUs.
+   - PDF mode: embedded text layer when available; **OCR fallback** for scanned pages.
+   - Desktop launcher binds to **localhost only** (not exposed on the LAN).
 
 ## Technology Stack
 
 - **Frontend**: React + Vite + plain CSS
 - **Backend**: Python (FastAPI)
-- **TTS Engine**: [Chatterbox by Resemble AI](https://github.com/resemble-ai/chatterbox) (local, downloaded on first run)
-- **OCR Engine**: [EasyOCR](https://github.com/JaidedAI/EasyOCR) (local, downloaded on first run)
+- **TTS Engine**: [Chatterbox by Resemble AI](https://github.com/resemble-ai/chatterbox) — English weights can be bundled under `data/models/en`; Arabic uses the multilingual model (downloaded on first Arabic narration if not bundled)
+- **OCR Engine**: [EasyOCR](https://github.com/JaidedAI/EasyOCR) (English + Arabic; models download on first OCR use)
 - **Translation**: `deep-translator` (Python)
 
 ## System Requirements
@@ -87,10 +88,10 @@ On first page capture, EasyOCR downloads its model weights (~100 MB). Chatterbox
 Start the FastAPI server from the `dist` directory. The server is configured to serve the API routes alongside the compiled frontend static files, meaning you only need to run this single command:
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://localhost:8000` in your browser.
+Open `http://localhost:8000` in your browser. The desktop launcher also binds to `127.0.0.1` only.
 
 ## Development
 If you wish to modify the application, work within the `frontend/` and `backend/` directories directly. `backend/` is the single source of truth for the Python app; the `dist/` folder is produced by the build script.

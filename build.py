@@ -38,6 +38,7 @@ easyocr==1.7.2
 pillow==12.3.0
 numpy==1.26.4
 opencv-python-headless==4.11.0.86
+soundfile==0.13.1
 setuptools<70
 
 # For NVIDIA GPU support, install the CUDA build of torch/torchaudio AFTER the
