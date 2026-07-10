@@ -10,6 +10,10 @@ function detailMessage(errorData, fallback) {
     return fallback;
 }
 
+/**
+ * Request TTS for a page/snippet.
+ * @returns {Promise<{ audioUrl: string, segments: Array, duration_s: number }>}
+ */
 export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = 'en') {
     const requestBody = {
         text,
@@ -36,7 +40,11 @@ export async function narrateText(text, sessionId, pageIndex, voiceId = null, la
     }
 
     const data = await response.json();
-    return `${AUDIO_BASE_URL}${data.audio_url}`;
+    return {
+        audioUrl: `${AUDIO_BASE_URL}${data.audio_url}`,
+        segments: Array.isArray(data.segments) ? data.segments : [],
+        duration_s: typeof data.duration_s === 'number' ? data.duration_s : 0,
+    };
 }
 
 export async function getVoices() {

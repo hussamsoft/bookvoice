@@ -17,7 +17,11 @@ import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
-import { estimateWordTimings, wordIndexAtTime } from '../utils/timings';
+import {
+    estimateWordTimings,
+    estimateWordTimingsFromSegments,
+    wordIndexAtTime,
+} from '../utils/timings';
 import {
     buildWordSpanMap,
     applyWordHighlight,
@@ -56,6 +60,7 @@ export default function PdfViewer({ onDirty }) {
     const [currentWord, setCurrentWord] = useState(-1);
     const [pageWidth, setPageWidth] = useState(520);
     const [sessionId] = useState(() => createSessionId('pdf'));
+    const [voiceSwitchHint, setVoiceSwitchHint] = useState('');
 
     const audioRef = useRef(null);
     const containerRef = useRef(null);
@@ -66,8 +71,20 @@ export default function PdfViewer({ onDirty }) {
     const pageWordsRef = useRef([]);
     const wordTimesRef = useRef([]);
     const langRef = useRef(targetLanguage);
+    const pageTextRef = useRef('');
+    const audioPageRef = useRef(null);
+    const audioVoiceRef = useRef(null);
+    const isPlayingRef = useRef(false);
+    const currentWordRef = useRef(-1);
+    const voiceSwitchGenRef = useRef(0);
+    const segmentsRef = useRef([]);
+    const rafRef = useRef(0);
 
     langRef.current = targetLanguage;
+    pageTextRef.current = pageText;
+    audioPageRef.current = audioPage;
+    isPlayingRef.current = isPlaying;
+    currentWordRef.current = currentWord;
 
     // Apply saved user settings once, when config arrives — but never clobber
     // a choice the user already made while config was still loading.
@@ -78,6 +95,7 @@ export default function PdfViewer({ onDirty }) {
             configAppliedRef.current = true;
             if (!userTouchedRef.current.voice && config.voice_id) {
                 setActiveVoiceId(config.voice_id);
+                audioVoiceRef.current = config.voice_id;
             }
             if (!userTouchedRef.current.language && config.language_id) {
                 setTargetLanguage(config.language_id);
@@ -85,45 +103,36 @@ export default function PdfViewer({ onDirty }) {
         }
     }, [config]);
 
-    const handleVoiceChange = useCallback(
-        (id) => {
-            userTouchedRef.current.voice = true;
-            setActiveVoiceId(id);
-            updateConfig({ voice_id: id }).catch((e) =>
-                toast.error(e?.message || 'Could not save voice preference')
-            );
-        },
-        [toast, updateConfig]
-    );
-
-    const handleLanguageChange = useCallback(
-        (lang) => {
-            userTouchedRef.current.language = true;
-            setTargetLanguage(lang);
-            updateConfig({ language_id: lang }).catch((e) =>
-                toast.error(e?.message || 'Could not save language preference')
-            );
-        },
-        [toast, updateConfig]
-    );
-
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
+        isPlayingRef.current = false;
         setCurrentWord(-1);
+        currentWordRef.current = -1;
         clearPdfHighlights(containerRef.current || document);
         prevHighlightSpanRef.current = null;
+        if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = 0;
+        }
     }, []);
 
     const pauseAudio = useCallback(() => {
         if (audioRef.current) {
             audioRef.current.pause();
         }
-        clearPlaybackState();
-    }, [clearPlaybackState]);
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = 0;
+        }
+    }, []);
 
     const goToPage = (next) => {
         if (next === pageNumber) return;
         pauseAudio();
+        setCurrentWord(-1);
+        clearPdfHighlights(containerRef.current || document);
         setPageNumber(next);
     };
 
@@ -141,12 +150,11 @@ export default function PdfViewer({ onDirty }) {
                 (parseFloat(styles.paddingTop) || 0) +
                 (parseFloat(styles.paddingBottom) || 0);
             const availW = Math.max(240, el.clientWidth - padX - 8);
-            const availH = Math.max(320, el.clientHeight - padY - 8);
-            // Typical book / letter portrait ≈ 1 : 1.414 (ISO A)
+            const availH = Math.max(280, el.clientHeight - padY - 8);
             const pageAspect = 1 / 1.414;
             const widthFromHeight = availH * pageAspect;
-            const fit = Math.floor(Math.min(availW, widthFromHeight, 860));
-            setPageWidth(Math.max(260, fit));
+            const fit = Math.floor(Math.min(availW, widthFromHeight, 900));
+            setPageWidth(Math.max(240, fit));
         };
 
         measure();
@@ -158,7 +166,6 @@ export default function PdfViewer({ onDirty }) {
     const extractTextFromPage = async (pdf, pageNum) => {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        // Preserve reading order with slight y-sorting for multi-column edge cases
         const items = textContent.items
             .filter((item) => item.str != null)
             .map((item) => {
@@ -209,46 +216,99 @@ export default function PdfViewer({ onDirty }) {
         wordSpanMapRef.current = buildWordSpanMap(pageWordsRef.current, textLayer);
     }, []);
 
-    const computeWordTimings = useCallback((text, duration) => {
-        const words = text.split(/\s+/).filter(Boolean);
-        if (!words.length || !duration) return;
-        const times = estimateWordTimings(words, duration, langRef.current);
-        setPageWords(words);
-        setWordStartTimes(times);
-        pageWordsRef.current = words;
-        wordTimesRef.current = times;
-        // Re-align after text layer paints
-        requestAnimationFrame(() => rebindWordSpans());
-    }, [rebindWordSpans]);
+    const applyTimings = useCallback(
+        (text, segments, duration) => {
+            const { words, times } = estimateWordTimingsFromSegments(
+                text,
+                segments,
+                langRef.current,
+                duration
+            );
+            if (!words.length) {
+                const fallbackWords = text.split(/\s+/).filter(Boolean);
+                const fallbackTimes = estimateWordTimings(
+                    fallbackWords,
+                    duration,
+                    langRef.current
+                );
+                setPageWords(fallbackWords);
+                setWordStartTimes(fallbackTimes);
+                pageWordsRef.current = fallbackWords;
+                wordTimesRef.current = fallbackTimes;
+            } else {
+                setPageWords(words);
+                setWordStartTimes(times);
+                pageWordsRef.current = words;
+                wordTimesRef.current = times;
+            }
+            requestAnimationFrame(() => rebindWordSpans());
+        },
+        [rebindWordSpans]
+    );
+
+    const syncHighlightAt = useCallback((currentTime) => {
+        const idx = wordIndexAtTime(wordTimesRef.current, currentTime);
+        if (idx !== currentWordRef.current) {
+            currentWordRef.current = idx;
+            setCurrentWord(idx);
+        }
+        const textLayer = containerRef.current?.querySelector(
+            '.react-pdf__Page__textContent'
+        );
+        if (textLayer && wordSpanMapRef.current.length) {
+            applyWordHighlight(
+                textLayer,
+                wordSpanMapRef.current,
+                idx,
+                prevHighlightSpanRef
+            );
+        }
+    }, []);
+
+    const startHighlightLoop = useCallback(() => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        const tick = () => {
+            const audio = audioRef.current;
+            if (!audio || audio.paused || audio.ended) {
+                rafRef.current = 0;
+                return;
+            }
+            syncHighlightAt(audio.currentTime);
+            rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+    }, [syncHighlightAt]);
 
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
 
-        const handleTimeUpdate = () => {
-            const duration = audio.duration;
-            const currentTime = audio.currentTime;
-            if (!duration) return;
-
-            const idx = wordIndexAtTime(wordTimesRef.current, currentTime);
-            setCurrentWord(idx);
-
-            const textLayer = containerRef.current?.querySelector(
-                '.react-pdf__Page__textContent'
-            );
-            if (textLayer && wordSpanMapRef.current.length) {
-                applyWordHighlight(
-                    textLayer,
-                    wordSpanMapRef.current,
-                    idx,
-                    prevHighlightSpanRef
+        const handleLoadedMetadata = () => {
+            if (pageTextRef.current) {
+                applyTimings(
+                    pageTextRef.current,
+                    segmentsRef.current,
+                    audio.duration || 0
                 );
             }
         };
 
-        const handleLoadedMetadata = () => {
-            if (pageText) {
-                computeWordTimings(pageText, audio.duration);
+        const handlePlay = () => {
+            setIsPlaying(true);
+            isPlayingRef.current = true;
+            startHighlightLoop();
+        };
+
+        const handlePause = () => {
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = 0;
+            }
+            // Keep highlight frozen on the current word while paused.
+            if (audio.currentTime != null) {
+                syncHighlightAt(audio.currentTime);
             }
         };
 
@@ -256,46 +316,125 @@ export default function PdfViewer({ onDirty }) {
             clearPlaybackState();
         };
 
-        audio.addEventListener('timeupdate', handleTimeUpdate);
-        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-        audio.addEventListener('ended', handleEnded);
-        return () => {
-            audio.removeEventListener('timeupdate', handleTimeUpdate);
-            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-            audio.removeEventListener('ended', handleEnded);
+        // Fallback for browsers that throttle rAF in background tabs.
+        const handleTimeUpdate = () => {
+            if (!audio.paused) syncHighlightAt(audio.currentTime);
         };
-    }, [pageText, computeWordTimings, clearPlaybackState]);
 
-    // Rebuild span map when the visible page finishes rendering
+        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.addEventListener('play', handlePlay);
+        audio.addEventListener('pause', handlePause);
+        audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('timeupdate', handleTimeUpdate);
+        return () => {
+            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            audio.removeEventListener('play', handlePlay);
+            audio.removeEventListener('pause', handlePause);
+            audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('timeupdate', handleTimeUpdate);
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        };
+    }, [applyTimings, clearPlaybackState, startHighlightLoop, syncHighlightAt]);
+
     const onPageRenderSuccess = useCallback(() => {
         requestAnimationFrame(() => rebindWordSpans());
     }, [rebindWordSpans]);
 
-    const generateAudio = async (pageNum, text) => {
-        setIsGenerating(true);
-        try {
-            const url = await narrateText(
-                text,
-                sessionId,
-                pageNum,
-                activeVoiceId,
-                targetLanguage
+    /**
+     * Generate narration for the current page text.
+     * @param {{ resumeWordIndex?: number, autoplay?: boolean, voiceId?: string|null }} opts
+     */
+    const generateAudio = useCallback(
+        async (pageNum, text, opts = {}) => {
+            const {
+                resumeWordIndex = 0,
+                autoplay = true,
+                voiceId = activeVoiceId,
+            } = opts;
+
+            setIsGenerating(true);
+            setVoiceSwitchHint(
+                resumeWordIndex > 0
+                    ? 'Switching voice — picking up where you left off…'
+                    : ''
             );
-            setAudioUrl(url);
-            setAudioPage(pageNum);
-            if (audioRef.current) {
-                audioRef.current.src = url;
-                await audioRef.current.play().catch(() => {});
+            try {
+                const result = await narrateText(
+                    text,
+                    sessionId,
+                    pageNum,
+                    voiceId,
+                    langRef.current
+                );
+                segmentsRef.current = result.segments || [];
+                setAudioUrl(result.audioUrl);
+                setAudioPage(pageNum);
+                audioPageRef.current = pageNum;
+                audioVoiceRef.current = voiceId ?? null;
+
+                const audio = audioRef.current;
+                if (audio) {
+                    audio.src = result.audioUrl;
+                    // Wait for metadata so we can place timings + seek accurately.
+                    await new Promise((resolve) => {
+                        const onMeta = () => {
+                            audio.removeEventListener('loadedmetadata', onMeta);
+                            resolve();
+                        };
+                        if (audio.readyState >= 1) resolve();
+                        else audio.addEventListener('loadedmetadata', onMeta);
+                    });
+
+                    applyTimings(
+                        text,
+                        segmentsRef.current,
+                        audio.duration || result.duration_s || 0
+                    );
+
+                    const times = wordTimesRef.current;
+                    const seekIdx = Math.max(
+                        0,
+                        Math.min(resumeWordIndex, Math.max(0, times.length - 1))
+                    );
+                    const seekTime = times[seekIdx] ?? 0;
+                    try {
+                        audio.currentTime = seekTime;
+                    } catch {
+                        /* ignore seek race */
+                    }
+                    setCurrentWord(seekIdx);
+                    currentWordRef.current = seekIdx;
+                    syncHighlightAt(seekTime);
+
+                    if (autoplay) {
+                        await audio.play().catch(() => {});
+                        setIsPlaying(true);
+                        isPlayingRef.current = true;
+                        startHighlightLoop();
+                    } else {
+                        setIsPlaying(false);
+                        isPlayingRef.current = false;
+                    }
+                }
+                onDirty?.();
+            } catch (error) {
+                toast.error('Failed to narrate: ' + error.message);
+                throw error;
+            } finally {
+                setIsGenerating(false);
+                setVoiceSwitchHint('');
             }
-            setIsPlaying(true);
-            setCurrentWord(0);
-            onDirty?.();
-        } catch (error) {
-            toast.error('Failed to narrate: ' + error.message);
-        } finally {
-            setIsGenerating(false);
-        }
-    };
+        },
+        [
+            activeVoiceId,
+            applyTimings,
+            onDirty,
+            sessionId,
+            startHighlightLoop,
+            syncHighlightAt,
+            toast,
+        ]
+    );
 
     const preparePageText = async (pageNum, { forceOcr = false } = {}) => {
         const pdf = await getPdfDocument();
@@ -328,14 +467,78 @@ export default function PdfViewer({ onDirty }) {
         }
 
         setPageText(text);
+        pageTextRef.current = text;
         setPageWords([]);
         setWordStartTimes([]);
         pageWordsRef.current = [];
         wordTimesRef.current = [];
         wordSpanMapRef.current = [];
+        segmentsRef.current = [];
         setCurrentWord(-1);
         return text;
     };
+
+    /**
+     * Speechify-style voice change: regenerate with the new voice and resume
+     * at the same word whether playback was running or paused.
+     */
+    const switchVoiceLive = useCallback(
+        async (nextVoiceId) => {
+            const text = pageTextRef.current;
+            const page = pageNumber;
+            if (!text || !modelReady) return;
+            // Only seamless-switch when we already have narration for this page
+            // (or are mid-read). Fresh voice picks without audio just stick.
+            const hasPageAudio = audioPageRef.current === page && !!audioRef.current?.src;
+            if (!hasPageAudio && !isPlayingRef.current) {
+                audioVoiceRef.current = nextVoiceId;
+                return;
+            }
+
+            const gen = ++voiceSwitchGenRef.current;
+            const wasPlaying = isPlayingRef.current;
+            const resumeWord = Math.max(0, currentWordRef.current);
+
+            pauseAudio();
+            setVoiceSwitchHint('Loading new voice…');
+
+            try {
+                await generateAudio(page, text, {
+                    resumeWordIndex: resumeWord,
+                    autoplay: wasPlaying,
+                    voiceId: nextVoiceId,
+                });
+                if (gen !== voiceSwitchGenRef.current) return; // superseded
+            } catch {
+                /* toast already shown */
+            }
+        },
+        [generateAudio, modelReady, pageNumber, pauseAudio]
+    );
+
+    const handleVoiceChange = useCallback(
+        (id) => {
+            userTouchedRef.current.voice = true;
+            setActiveVoiceId(id);
+            updateConfig({ voice_id: id }).catch((e) =>
+                toast.error(e?.message || 'Could not save voice preference')
+            );
+            // Fire-and-forget seamless switch (latest generation wins).
+            switchVoiceLive(id);
+        },
+        [switchVoiceLive, toast, updateConfig]
+    );
+
+    const handleLanguageChange = useCallback(
+        (lang) => {
+            userTouchedRef.current.language = true;
+            setTargetLanguage(lang);
+            updateConfig({ language_id: lang }).catch((e) =>
+                toast.error(e?.message || 'Could not save language preference')
+            );
+        },
+        [toast, updateConfig]
+    );
 
     const handlePlay = async () => {
         if (!file || !numPages) return;
@@ -343,12 +546,15 @@ export default function PdfViewer({ onDirty }) {
         if (isPlaying) {
             audioRef.current?.pause();
             setIsPlaying(false);
+            isPlayingRef.current = false;
             return;
         }
 
         if (audioUrl && audioPage === pageNumber) {
             audioRef.current?.play();
             setIsPlaying(true);
+            isPlayingRef.current = true;
+            startHighlightLoop();
             return;
         }
 
@@ -364,7 +570,11 @@ export default function PdfViewer({ onDirty }) {
 
         try {
             const text = await preparePageText(pageNumber);
-            await generateAudio(pageNumber, text);
+            await generateAudio(pageNumber, text, {
+                resumeWordIndex: 0,
+                autoplay: true,
+                voiceId: activeVoiceId,
+            });
         } catch (error) {
             toast.error(error.message);
         }
@@ -375,6 +585,8 @@ export default function PdfViewer({ onDirty }) {
         if (audioRef.current) {
             audioRef.current.play();
             setIsPlaying(true);
+            isPlayingRef.current = true;
+            startHighlightLoop();
         }
     };
 
@@ -386,7 +598,11 @@ export default function PdfViewer({ onDirty }) {
         }
         try {
             const text = await preparePageText(pageNumber);
-            await generateAudio(pageNumber, text);
+            await generateAudio(pageNumber, text, {
+                resumeWordIndex: 0,
+                autoplay: true,
+                voiceId: activeVoiceId,
+            });
         } catch (error) {
             toast.error(error.message);
         }
@@ -398,7 +614,11 @@ export default function PdfViewer({ onDirty }) {
             const text = await preparePageText(pageNumber, { forceOcr: true });
             toast.success(`OCR extracted ${text.split(/\s+/).length} words`);
             if (modelReady) {
-                await generateAudio(pageNumber, text);
+                await generateAudio(pageNumber, text, {
+                    resumeWordIndex: 0,
+                    autoplay: true,
+                    voiceId: activeVoiceId,
+                });
             }
         } catch (error) {
             toast.error(error.message);
@@ -408,9 +628,12 @@ export default function PdfViewer({ onDirty }) {
     const handleSeek = (time) => {
         if (audioRef.current) {
             audioRef.current.currentTime = time;
+            syncHighlightAt(time);
             if (!isPlaying) {
                 audioRef.current.play();
                 setIsPlaying(true);
+                isPlayingRef.current = true;
+                startHighlightLoop();
             }
         }
     };
@@ -425,12 +648,16 @@ export default function PdfViewer({ onDirty }) {
         setPageNumber(1);
         setAudioUrl(null);
         setAudioPage(null);
+        audioPageRef.current = null;
         setPageText('');
+        pageTextRef.current = '';
         setPageWords([]);
         setWordStartTimes([]);
         pageWordsRef.current = [];
         wordTimesRef.current = [];
         wordSpanMapRef.current = [];
+        segmentsRef.current = [];
+        audioVoiceRef.current = null;
         clearPlaybackState();
         onDirty?.();
     };
@@ -439,21 +666,23 @@ export default function PdfViewer({ onDirty }) {
         if (modelError) return { text: 'AI model error', disabled: true, icon: null };
         if (!modelReady)
             return {
-                text: 'Warming up AI voices…',
+                text: 'Warming up…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
         if (isOcring)
             return {
-                text: ' Running OCR…',
+                text: ' OCR…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
         if (isGenerating)
             return {
-                text: modelStatusDetail?.startsWith('Generating')
-                    ? ` ${modelStatusDetail}`
-                    : ' Generating…',
+                text: voiceSwitchHint
+                    ? ` ${voiceSwitchHint}`
+                    : modelStatusDetail?.startsWith('Generating')
+                      ? ` ${modelStatusDetail}`
+                      : ' Generating…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
@@ -462,7 +691,7 @@ export default function PdfViewer({ onDirty }) {
         if (audioUrl && audioPage === pageNumber)
             return { text: ' Resume', disabled: false, icon: <Play size={16} /> };
         return {
-            text: ' Read Page ' + pageNumber,
+            text: ' Read page ' + pageNumber,
             disabled: false,
             icon: <Play size={16} />,
         };
@@ -490,74 +719,71 @@ export default function PdfViewer({ onDirty }) {
                 </div>
             ) : (
                 <>
-                    <div className="voice-settings-bar">
-                        <VoiceSettings
-                            activeVoiceId={activeVoiceId}
-                            onVoiceChange={handleVoiceChange}
-                        />
-                    </div>
-
-                    <div className="pdf-lang-bar">
-                        <div className="lang-select-group">
-                            <Languages size={16} />
-                            <label htmlFor="pdf-lang">Narration language</label>
-                            <select
-                                id="pdf-lang"
-                                value={targetLanguage}
-                                onChange={(e) => handleLanguageChange(e.target.value)}
-                                disabled={isGenerating || isOcring}
-                            >
-                                {SUPPORTED_LANGUAGES.map((lang) => (
-                                    <option key={lang.code} value={lang.code}>
-                                        {lang.name}
-                                    </option>
-                                ))}
-                            </select>
+                    <div className="pdf-toolbar">
+                        <div className="pdf-toolbar-voice">
+                            <VoiceSettings
+                                activeVoiceId={activeVoiceId}
+                                onVoiceChange={handleVoiceChange}
+                            />
                         </div>
-                        <button
-                            className="btn secondary"
-                            onClick={handleForceOcr}
-                            disabled={isGenerating || isOcring}
-                            title="Use OCR for scanned pages without a text layer"
-                        >
-                            {isOcring ? (
-                                <>
-                                    <Loader2 className="spinner" size={16} /> OCR…
-                                </>
-                            ) : (
-                                <>
-                                    <ScanText size={16} /> OCR this page
-                                </>
-                            )}
-                        </button>
-                    </div>
-
-                    <div className="pdf-controls-bar">
-                        <button
-                            className="btn secondary"
-                            onClick={() => goToPage(Math.max(1, pageNumber - 1))}
-                            disabled={pageNumber === 1}
-                        >
-                            <ChevronUp size={16} /> Prev
-                        </button>
-                        <button
-                            className="btn primary"
-                            onClick={handlePlay}
-                            disabled={playBtn.disabled}
-                        >
-                            {playBtn.icon}
-                            {playBtn.text}
-                        </button>
-                        <button
-                            className="btn secondary"
-                            onClick={() => goToPage(Math.min(numPages, pageNumber + 1))}
-                            disabled={pageNumber === numPages}
-                        >
-                            Next <ChevronDown size={16} />
-                        </button>
-                        <span className="pdf-page-indicator">
-                            Page {pageNumber} of {numPages}
-                        </span>
+                        <div className="pdf-toolbar-controls">
+                            <div className="lang-select-group">
+                                <Languages size={15} />
+                                <select
+                                    id="pdf-lang"
+                                    value={targetLanguage}
+                                    onChange={(e) => handleLanguageChange(e.target.value)}
+                                    disabled={isGenerating || isOcring}
+                                    aria-label="Narration language"
+                                >
+                                    {SUPPORTED_LANGUAGES.map((lang) => (
+                                        <option key={lang.code} value={lang.code}>
+                                            {lang.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={handleForceOcr}
+                                disabled={isGenerating || isOcring}
+                                title="Use OCR for scanned pages"
+                            >
+                                {isOcring ? (
+                                    <Loader2 className="spinner" size={15} />
+                                ) : (
+                                    <ScanText size={15} />
+                                )}
+                                <span>OCR</span>
+                            </button>
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={() => goToPage(Math.max(1, pageNumber - 1))}
+                                disabled={pageNumber === 1}
+                            >
+                                <ChevronUp size={15} />
+                            </button>
+                            <button
+                                className="btn primary"
+                                onClick={handlePlay}
+                                disabled={playBtn.disabled}
+                            >
+                                {playBtn.icon}
+                                {playBtn.text}
+                            </button>
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={() =>
+                                    goToPage(Math.min(numPages, pageNumber + 1))
+                                }
+                                disabled={pageNumber === numPages}
+                            >
+                                <ChevronDown size={15} />
+                            </button>
+                            <span className="pdf-page-indicator">
+                                {pageNumber}/{numPages}
+                            </span>
+                        </div>
                     </div>
 
                     {!modelReady && modelStatusDetail && (
@@ -577,14 +803,9 @@ export default function PdfViewer({ onDirty }) {
                     {deviceInfo === 'cpu' && modelReady && (
                         <div className="model-loading-status-bar error">
                             <span>
-                                TTS is on CPU (very slow). Run fix_cuda_torch.bat so your RTX GPU is used — pages can take minutes on CPU.
+                                TTS is on CPU (very slow). Run fix_cuda_torch.bat so your
+                                RTX GPU is used.
                             </span>
-                        </div>
-                    )}
-                    {isGenerating && modelStatusDetail && (
-                        <div className="model-loading-status-bar">
-                            <Loader2 className="spinner" size={14} />
-                            <span>{modelStatusDetail}</span>
                         </div>
                     )}
 
@@ -651,17 +872,21 @@ export default function PdfViewer({ onDirty }) {
                                 currentWord={currentWord}
                                 isPlaying={isPlaying}
                                 isPaused={!!audioUrl && !isPlaying && !isGenerating}
-                                sessionId={sessionId}
-                                pageIndex={pageNumber}
                                 voiceId={activeVoiceId}
                                 languageId={targetLanguage}
                                 onSeek={handleSeek}
+                                statusHint={
+                                    voiceSwitchHint ||
+                                    (isGenerating
+                                        ? 'Generating narration…'
+                                        : undefined)
+                                }
                             />
                         </div>
                     </div>
                 </>
             )}
-            <audio ref={audioRef} style={{ display: 'none' }} />
+            <audio ref={audioRef} style={{ display: 'none' }} preload="auto" />
         </div>
     );
 }

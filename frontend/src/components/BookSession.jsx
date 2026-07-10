@@ -95,7 +95,7 @@ export default function BookSession({ onDirty }) {
         }
         setIsNarratingUi(true);
         try {
-            const audioUrl = await narrateText(
+            const { audioUrl } = await narrateText(
                 text,
                 sessionId,
                 currentPageIndex,

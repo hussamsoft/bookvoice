@@ -132,6 +132,36 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertNotEqual(snap["status"], "generating")
         self.assertIn("failed", snap["detail"].lower())
 
+    def test_narrate_returns_segment_timings(self):
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        # 0.5s of silence per chunk at 24kHz
+        fake = torch.zeros(1, 12000)
+
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts, "_split_into_chunks", return_value=["Hello.", "World."]
+                ):
+                    with patch.object(self.tts, "_generate_chunk", return_value=fake):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(self.tts, "_data_dirs", return_value=("d", "v", "s")):
+                                with patch("os.makedirs"):
+                                    result = self.tts.narrate_text(
+                                        "Hello. World.", "session1", 0
+                                    )
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("audio_url", result)
+        self.assertEqual(len(result["segments"]), 2)
+        self.assertAlmostEqual(result["segments"][0]["start_s"], 0.0)
+        self.assertAlmostEqual(result["segments"][0]["end_s"], 0.5)
+        self.assertAlmostEqual(result["segments"][1]["start_s"], 0.5)
+        self.assertAlmostEqual(result["duration_s"], 1.0)
+
 
 class KillStaleServersTests(unittest.TestCase):
     """Mocked process-tree handling for launch.kill_stale_servers."""

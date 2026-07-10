@@ -29,8 +29,16 @@ class NarrateRequest(BaseModel):
     language_id: str = "en"
 
 
+class NarrateSegment(BaseModel):
+    text: str
+    start_s: float
+    end_s: float
+
+
 class NarrateResponse(BaseModel):
     audio_url: str
+    segments: list[NarrateSegment] = []
+    duration_s: float = 0.0
 
 
 @router.get("/status")
@@ -61,7 +69,7 @@ async def narrate(request: NarrateRequest):
 
     loop = asyncio.get_running_loop()
     try:
-        audio_url = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             TTS_EXECUTOR,
             narrate_text,
             text,
@@ -70,7 +78,14 @@ async def narrate(request: NarrateRequest):
             request.voice_id,
             language_id,
         )
-        return NarrateResponse(audio_url=audio_url)
+        # Back-compat if a test stub still returns a bare URL string.
+        if isinstance(result, str):
+            return NarrateResponse(audio_url=result)
+        return NarrateResponse(
+            audio_url=result["audio_url"],
+            segments=result.get("segments") or [],
+            duration_s=float(result.get("duration_s") or 0.0),
+        )
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:

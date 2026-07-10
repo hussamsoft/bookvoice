@@ -616,7 +616,10 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     chunks = _split_into_chunks(text)
     total = len(chunks)
     wav_parts: list[torch.Tensor] = []
+    # Real per-chunk durations (seconds) for client word-highlight alignment.
+    segment_meta: list[dict] = []
     device = getattr(model, "device", _resolve_device())
+    sr = float(getattr(model, "sr", 24000) or 24000)
 
     _log(
         f"[tts] narrate page={page_index} chars={len(text)} chunks={total} "
@@ -626,6 +629,7 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     with _generate_lock:
         _model_state["status"] = "generating"
         try:
+            cursor_s = 0.0
             for i, chunk in enumerate(chunks):
                 _model_state["detail"] = (
                     f"Generating audio {i + 1}/{total} on {str(device).upper()}"
@@ -636,9 +640,22 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
                     kwargs.pop("audio_prompt_path", None)
                 part = _generate_chunk(model, chunk, language_id, **kwargs)
                 if isinstance(part, torch.Tensor):
-                    wav_parts.append(part.detach().cpu())
+                    part = part.detach().cpu()
                 else:
-                    wav_parts.append(torch.as_tensor(part).cpu())
+                    part = torch.as_tensor(part).cpu()
+                if part.dim() == 1:
+                    part = part.unsqueeze(0)
+                samples = int(part.shape[-1])
+                dur = samples / sr if sr > 0 else 0.0
+                segment_meta.append(
+                    {
+                        "text": chunk,
+                        "start_s": round(cursor_s, 4),
+                        "end_s": round(cursor_s + dur, 4),
+                    }
+                )
+                cursor_s += dur
+                wav_parts.append(part)
         except Exception as e:
             # Model is still loaded; leave it usable. Never stick on "generating"
             # or Reload will refuse to queue and the UI will poll forever.
@@ -664,4 +681,8 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
         wav = wav.unsqueeze(0)
     ta.save(output_path, wav, model.sr)
 
-    return f"/sessions/{session_id}/{filename}"
+    return {
+        "audio_url": f"/sessions/{session_id}/{filename}",
+        "segments": segment_meta,
+        "duration_s": round(float(wav.shape[-1]) / sr, 4) if sr > 0 else 0.0,
+    }
