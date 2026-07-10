@@ -21,22 +21,22 @@ function renderApp() {
 }
 
 describe('App Component', () => {
-  it('renders correctly and defaults to PDF Mode', () => {
+  it('renders correctly and defaults to PDF Mode', async () => {
     renderApp();
     expect(screen.getByText('BookVoice')).toBeInTheDocument();
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
-  it('switches between PDF Mode and Camera Mode', () => {
+  it('switches between PDF Mode and Camera Mode', async () => {
     renderApp();
 
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Camera Mode'));
-    expect(screen.getByTestId('book-session-mock')).toBeInTheDocument();
+    expect(await screen.findByTestId('book-session-mock')).toBeInTheDocument();
     expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('PDF Mode'));
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 });

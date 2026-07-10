@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWordSpanMap } from './pdfHighlight';
+import { buildWordSpanMap, splitTextLayerWordRuns } from './pdfHighlight';
 
 function fakeSpan(text) {
   return { textContent: text };
@@ -25,5 +25,19 @@ describe('buildWordSpanMap', () => {
     // Second "a" should be the one in the third span, not the first "a"
     expect(map[5]).toBe(spans[2]);
     expect(map[6]).toBe(spans[2]);
+  });
+
+  it('splits multi-word PDF runs into independently highlightable fragments', () => {
+    const layer = document.createElement('div');
+    const run = document.createElement('span');
+    run.textContent = 'Once upon a time';
+    layer.appendChild(run);
+
+    splitTextLayerWordRuns(layer);
+    const map = buildWordSpanMap(['Once', 'upon', 'a', 'time'], layer);
+
+    expect(map.every(Boolean)).toBe(true);
+    expect(new Set(map).size).toBe(4);
+    expect(map.map((span) => span.textContent)).toEqual(['Once', 'upon', 'a', 'time']);
   });
 });

@@ -14,25 +14,16 @@ import {
     ZoomIn,
     ZoomOut,
     Maximize2,
+    Bookmark,
+    BookmarkCheck,
+    Download,
+    Search,
 } from 'lucide-react';
-import { narrateText } from '../utils/api';
-import { extractTextFromImage } from '../utils/ocr';
-import { cleanExtractedText } from '../utils/cleanup';
+import { pronounceText, translateText } from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
-import {
-    estimateWordTimings,
-    estimateWordTimingsFromSegments,
-    stitchPartialTimings,
-    wordIndexAtTime,
-} from '../utils/timings';
-import { detectSpeechOnset, shiftTimingsToOnset } from '../utils/audioOnset';
 import { createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
-import {
-    buildWordSpanMap,
-    applyWordHighlight,
-    clearPdfHighlights,
-} from '../utils/pdfHighlight';
+import { clearPdfHighlights } from '../utils/pdfHighlight';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
@@ -40,10 +31,21 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 import VoiceSettings from './VoiceSettings';
 import Transcript from './Transcript';
+import PlaybackControls from './PlaybackControls';
+import { useAudioTransport } from '../hooks/useAudioTransport';
+import {
+    documentFingerprint,
+    loadReadingProgress,
+    saveReadingProgress,
+    toggleBookmark,
+} from '../utils/readingProgress';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-const PREFETCH_RADIUS = 2;
+import { usePdfDocument } from '../hooks/usePdfDocument';
+import { useWordHighlight } from '../hooks/useWordHighlight';
+import { usePageNarration } from '../hooks/usePageNarration';
+import { usePrefetch } from '../hooks/usePrefetch';
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;
@@ -75,21 +77,25 @@ export default function PdfViewer({ onDirty }) {
     const [showResumeChoice, setShowResumeChoice] = useState(false);
     const [pageText, setPageText] = useState('');
     const [pageWords, setPageWords] = useState([]);
-    const [wordStartTimes, setWordStartTimes] = useState([]);
     const [currentWord, setCurrentWord] = useState(-1);
     const [basePageWidth, setBasePageWidth] = useState(520);
     const [zoom, setZoom] = useState(1);
+    const [displayZoom, setDisplayZoom] = useState(1);
+    const zoomDebounceRef = useRef(null);
     const [statusHint, setStatusHint] = useState('');
     const [sessionId] = useState(() => createSessionId('pdf'));
+    const [isEditingText, setIsEditingText] = useState(false);
+    const [editTextDraft, setEditTextDraft] = useState('');
     const [prefetchHint, setPrefetchHint] = useState('');
+    const [documentId, setDocumentId] = useState('');
+    const [bookmarks, setBookmarks] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
     const containerRef = useRef(null);
-    const pdfDocRef = useRef(null);
     const fileRef = useRef(null);
-    const wordSpanMapRef = useRef([]);
-    const prevHighlightSpanRef = useRef(null);
     const pageWordsRef = useRef([]);
     const wordTimesRef = useRef([]);
     const langRef = useRef(targetLanguage);
@@ -101,13 +107,11 @@ export default function PdfViewer({ onDirty }) {
     const currentWordRef = useRef(-1);
     const voiceSwitchGenRef = useRef(0);
     const segmentsRef = useRef([]);
-    const rafRef = useRef(0);
     const cacheRef = useRef(createPageAudioCache({ maxEntries: 14 }));
-    const textCacheRef = useRef(new Map()); // page -> text
-    const prefetchBusyRef = useRef(false);
-    const prefetchQueueRef = useRef([]);
     const activeVoiceRef = useRef(null);
     const panDragRef = useRef(null);
+    const savedResumeRef = useRef({ page: 0, time: 0 });
+    const transport = useAudioTransport(audioRef);
 
     langRef.current = targetLanguage;
     pageTextRef.current = pageText;
@@ -117,6 +121,70 @@ export default function PdfViewer({ onDirty }) {
     currentWordRef.current = currentWord;
     activeVoiceRef.current = activeVoiceId;
     isGeneratingRef.current = isGenerating;
+
+    const {
+        adoptPdfDocument,
+        cachePageText,
+        findTextInDocument,
+        preparePageText,
+        invalidateTextCache,
+        resetDocument,
+    } = usePdfDocument({ file, fileRef, toast });
+
+    const {
+        rebindWordSpans,
+        buildTimings,
+        syncHighlightAt,
+        startHighlightLoop,
+        stopHighlightLoop,
+        rafRef,
+        prevHighlightSpanRef,
+    } = useWordHighlight({
+        containerRef,
+        langRef,
+        audioRef,
+        setCurrentWord,
+        currentWordRef,
+        pageWordsRef,
+        wordTimesRef,
+    });
+
+    const { narratePage } = usePageNarration({
+        sessionId,
+        activeVoiceRef,
+        langRef,
+        cacheRef,
+        buildTimings,
+    });
+
+    const { cancelPrefetch, schedulePrefetch } = usePrefetch({
+        cacheRef,
+        activeVoiceRef,
+        langRef,
+        modelReady,
+        isGeneratingRef,
+        isPlayingRef,
+        preparePageText: (page, opts) => preparePageText(page, { ...opts, setIsOcring }),
+        narratePage,
+        setPrefetchHint,
+    });
+
+    const schedulePrefetchSafe = useCallback(
+        (centerPage, total) => {
+            if (deviceInfo === 'cpu') return;
+            schedulePrefetch(centerPage, total);
+        },
+        [deviceInfo, schedulePrefetch]
+    );
+
+    // Debounce zoom display for CSS transform (avoids layout thrash)
+    useEffect(() => {
+        if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
+        zoomDebounceRef.current = setTimeout(() => setDisplayZoom(zoom), 80);
+        return () => {
+            if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
+        };
+    }, [zoom]);
 
     const configAppliedRef = useRef(false);
     const userTouchedRef = useRef({ voice: false, language: false });
@@ -137,6 +205,20 @@ export default function PdfViewer({ onDirty }) {
         setPageJumpInput(String(pageNumber));
     }, [pageNumber]);
 
+    useEffect(() => {
+        if (!documentId) return undefined;
+        const timer = setTimeout(() => {
+            saveReadingProgress(documentId, {
+                page: pageNumber,
+                time: transport.currentTime,
+                zoom,
+                playbackRate: transport.playbackRate,
+                bookmarks,
+            });
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [bookmarks, documentId, pageNumber, transport.currentTime, transport.playbackRate, zoom]);
+
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -148,7 +230,7 @@ export default function PdfViewer({ onDirty }) {
             cancelAnimationFrame(rafRef.current);
             rafRef.current = 0;
         }
-    }, []);
+    }, [prevHighlightSpanRef, rafRef]);
 
     const pauseAudio = useCallback(() => {
         if (audioRef.current) audioRef.current.pause();
@@ -158,7 +240,7 @@ export default function PdfViewer({ onDirty }) {
             cancelAnimationFrame(rafRef.current);
             rafRef.current = 0;
         }
-    }, []);
+    }, [rafRef]);
 
     // Fit base page width into the scroll viewport
     useEffect(() => {
@@ -185,124 +267,15 @@ export default function PdfViewer({ onDirty }) {
         return () => ro.disconnect();
     }, [file, numPages]);
 
-    const displayWidth = Math.round(basePageWidth * zoom);
-
-    const extractTextFromPage = async (pdf, pageNum) => {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const items = textContent.items
-            .filter((item) => item.str != null)
-            .map((item) => {
-                const t = item.transform || [1, 0, 0, 1, 0, 0];
-                return { str: item.str, x: t[4], y: t[5] };
-            });
-        items.sort((a, b) => {
-            const dy = b.y - a.y;
-            if (Math.abs(dy) > 4) return dy;
-            return a.x - b.x;
-        });
-        return items
-            .map((i) => i.str)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-    };
-
-    const renderPageToDataUrl = async (pdf, pageNum, scale = 2) => {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        return canvas.toDataURL('image/jpeg', 0.92);
-    };
-
-    const getPdfDocument = async () => {
-        if (pdfDocRef.current) return pdfDocRef.current;
-        const f = fileRef.current || file;
-        if (!f) throw new Error('No PDF loaded');
-        const arrayBuffer = await f.arrayBuffer();
-        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-        pdfDocRef.current = pdf;
-        return pdf;
-    };
-
-    const rebindWordSpans = useCallback(() => {
-        const textLayer = containerRef.current?.querySelector(
-            '.react-pdf__Page__textContent'
-        );
-        if (!textLayer || !pageWordsRef.current.length) {
-            wordSpanMapRef.current = [];
-            return;
-        }
-        wordSpanMapRef.current = buildWordSpanMap(pageWordsRef.current, textLayer);
-    }, []);
-
     const applyWordState = useCallback(
         (words, times) => {
             setPageWords(words);
-            setWordStartTimes(times);
             pageWordsRef.current = words;
             wordTimesRef.current = times;
             requestAnimationFrame(() => rebindWordSpans());
         },
         [rebindWordSpans]
     );
-
-    const buildTimings = useCallback(async (text, segments, duration, audioUrlForOnset) => {
-        let { words, times } = estimateWordTimingsFromSegments(
-            text,
-            segments,
-            langRef.current,
-            duration
-        );
-        if (!words.length) {
-            words = text.split(/\s+/).filter(Boolean);
-            times = estimateWordTimings(words, duration, langRef.current);
-        }
-        if (audioUrlForOnset && times.length) {
-            const onset = await detectSpeechOnset(audioUrlForOnset);
-            if (onset > 0.01) {
-                times = shiftTimingsToOnset(times, onset, duration || Infinity);
-            }
-        }
-        return { words, times };
-    }, []);
-
-    const syncHighlightAt = useCallback((currentTime) => {
-        const idx = wordIndexAtTime(wordTimesRef.current, currentTime);
-        if (idx !== currentWordRef.current) {
-            currentWordRef.current = idx;
-            setCurrentWord(idx);
-        }
-        const textLayer = containerRef.current?.querySelector(
-            '.react-pdf__Page__textContent'
-        );
-        if (textLayer && wordSpanMapRef.current.length) {
-            applyWordHighlight(
-                textLayer,
-                wordSpanMapRef.current,
-                idx,
-                prevHighlightSpanRef
-            );
-        }
-    }, []);
-
-    const startHighlightLoop = useCallback(() => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        const tick = () => {
-            const audio = audioRef.current;
-            if (!audio || audio.paused || audio.ended) {
-                rafRef.current = 0;
-                return;
-            }
-            syncHighlightAt(audio.currentTime);
-            rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-    }, [syncHighlightAt]);
 
     useEffect(() => {
         const audio = audioRef.current;
@@ -334,64 +307,21 @@ export default function PdfViewer({ onDirty }) {
             setCurrentWord(last);
             currentWordRef.current = last;
         };
-        const handleTimeUpdate = () => {
-            if (!audio.paused) syncHighlightAt(audio.currentTime);
-        };
 
         audio.addEventListener('play', handlePlay);
         audio.addEventListener('pause', handlePause);
         audio.addEventListener('ended', handleEnded);
-        audio.addEventListener('timeupdate', handleTimeUpdate);
         return () => {
             audio.removeEventListener('play', handlePlay);
             audio.removeEventListener('pause', handlePause);
             audio.removeEventListener('ended', handleEnded);
-            audio.removeEventListener('timeupdate', handleTimeUpdate);
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+            stopHighlightLoop();
         };
-    }, [startHighlightLoop, syncHighlightAt]);
+    }, [rafRef, startHighlightLoop, stopHighlightLoop, syncHighlightAt]);
 
     const onPageRenderSuccess = useCallback(() => {
         requestAnimationFrame(() => rebindWordSpans());
     }, [rebindWordSpans]);
-
-    const preparePageText = useCallback(
-        async (pageNum, { forceOcr = false, quiet = false } = {}) => {
-            if (!forceOcr && textCacheRef.current.has(pageNum)) {
-                return textCacheRef.current.get(pageNum);
-            }
-            const pdf = await getPdfDocument();
-            let text = '';
-            if (!forceOcr) {
-                text = await extractTextFromPage(pdf, pageNum);
-            }
-            if (!text.trim() || forceOcr) {
-                if (!quiet) setIsOcring(true);
-                try {
-                    if (!quiet) {
-                        toast.info(
-                            forceOcr
-                                ? 'Running OCR on this page…'
-                                : 'No embedded text — running OCR…'
-                        );
-                    }
-                    const dataUrl = await renderPageToDataUrl(pdf, pageNum);
-                    const raw = await extractTextFromImage(dataUrl);
-                    text = cleanExtractedText(raw);
-                } finally {
-                    if (!quiet) setIsOcring(false);
-                }
-            }
-            if (!text.trim()) {
-                throw new Error('No text found on this page.');
-            }
-            textCacheRef.current.set(pageNum, text);
-            return text;
-        },
-        // file is read via fileRef / getPdfDocument; toast is stable enough for UI notes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [toast]
-    );
 
     const waitAudioReady = (audio) =>
         new Promise((resolve) => {
@@ -453,6 +383,14 @@ export default function PdfViewer({ onDirty }) {
             if (entry.partial && entry.fromWord === seekIdx) {
                 seekTime = 0;
             }
+            if (
+                resumeWordIndex === 0 &&
+                savedResumeRef.current.page === entry.page &&
+                savedResumeRef.current.time > 0
+            ) {
+                seekTime = Math.min(savedResumeRef.current.time, audio.duration || Infinity);
+                savedResumeRef.current = { page: 0, time: 0 };
+            }
             try {
                 audio.currentTime = seekTime;
             } catch {
@@ -473,75 +411,6 @@ export default function PdfViewer({ onDirty }) {
             }
         },
         [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt]
-    );
-
-    /**
-     * Narrate a page (or partial remaining text for fast voice switch).
-     * Stores full-page ready entries in the cache.
-     */
-    const narratePage = useCallback(
-        async (pageNum, text, opts = {}) => {
-            const {
-                voiceId = activeVoiceRef.current,
-                languageId = langRef.current,
-                fromWord = 0,
-                storeFullCache = true,
-            } = opts;
-
-            const words = text.split(/\s+/).filter(Boolean);
-            const start = Math.max(0, Math.min(fromWord, Math.max(0, words.length - 1)));
-            const partial = start > 0;
-            const narrateBody = partial ? words.slice(start).join(' ') : text;
-            // Unique page_index for partials so we don't clobber full-page wav.
-            const storageIndex = partial ? pageNum * 100000 + start : pageNum;
-
-            const result = await narrateText(
-                narrateBody,
-                sessionId,
-                storageIndex,
-                voiceId,
-                languageId
-            );
-
-            const duration = result.duration_s || 0;
-            let built = await buildTimings(
-                narrateBody,
-                result.segments,
-                duration,
-                result.audioUrl
-            );
-
-            // For partials, stitch into full-page word arrays for UI continuity.
-            let fullWords = words;
-            let fullTimes = built.times;
-            if (partial) {
-                fullTimes = stitchPartialTimings(words, start, built.times);
-                built = { words: fullWords, times: fullTimes };
-            }
-
-            const entry = {
-                status: 'ready',
-                page: pageNum,
-                voiceId: voiceId ?? null,
-                languageId,
-                text,
-                audioUrl: result.audioUrl,
-                segments: result.segments || [],
-                duration_s: duration,
-                words: built.words,
-                times: built.times,
-                fromWord: start,
-                partial,
-            };
-
-            // Only full-page narrations go into the flip cache (partials are
-            // voice-switch resume clips and shouldn't satisfy "page ready").
-            if (storeFullCache && !partial) {
-                cacheRef.current.set(cacheKey(pageNum, voiceId, languageId), entry);
-            }
-            return entry;
-        },
-        [buildTimings, sessionId]
     );
 
     const generateAndPlay = useCallback(
@@ -590,87 +459,15 @@ export default function PdfViewer({ onDirty }) {
         [applyReadyAudio, narratePage, onDirty, toast]
     );
 
-    // -------- Prefetch queue (single-file TTS; never starve UI) --------
-    const runPrefetchQueue = useCallback(async () => {
-        if (prefetchBusyRef.current) return;
-        prefetchBusyRef.current = true;
-        try {
-            while (prefetchQueueRef.current.length) {
-                // Yield the single TTS worker while the user is generating.
-                if (isGeneratingRef.current) {
-                    await new Promise((r) => setTimeout(r, 350));
-                    continue;
-                }
-                const job = prefetchQueueRef.current.shift();
-                if (!job) break;
-                const { page, voiceId, languageId } = job;
-                const key = cacheKey(page, voiceId, languageId);
-                if (cacheRef.current.hasReady(key)) continue;
-                try {
-                    setPrefetchHint(`Warming page ${page}…`);
-                    const text = await preparePageText(page, { quiet: true });
-                    if (isGeneratingRef.current) {
-                        // User started a narrate; put job back and yield.
-                        prefetchQueueRef.current.unshift(job);
-                        await new Promise((r) => setTimeout(r, 350));
-                        continue;
-                    }
-                    await narratePage(page, text, {
-                        voiceId,
-                        languageId,
-                        fromWord: 0,
-                        storeFullCache: true,
-                    });
-                } catch {
-                    /* prefetch is best-effort */
-                }
-            }
-        } finally {
-            prefetchBusyRef.current = false;
-            setPrefetchHint('');
-        }
-    }, [narratePage, preparePageText]);
-
-    const schedulePrefetch = useCallback(
-        (centerPage, total) => {
-            if (!modelReady || !total) return;
-            const voiceId = activeVoiceRef.current;
-            const languageId = langRef.current;
-            const lo = Math.max(1, centerPage - PREFETCH_RADIUS);
-            const hi = Math.min(total, centerPage + PREFETCH_RADIUS);
-            cacheRef.current.retainPageWindow(lo, hi);
-
-            // Priority: next pages first, then previous (reading direction).
-            const order = [];
-            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
-                if (centerPage + d <= total) order.push(centerPage + d);
-            }
-            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
-                if (centerPage - d >= 1) order.push(centerPage - d);
-            }
-
-            const q = [];
-            for (const p of order) {
-                const key = cacheKey(p, voiceId, languageId);
-                if (!cacheRef.current.hasReady(key)) {
-                    q.push({ page: p, voiceId, languageId });
-                }
-            }
-            prefetchQueueRef.current = q;
-            // Defer so current narrate can finish first.
-            setTimeout(() => runPrefetchQueue(), 400);
-        },
-        [modelReady, runPrefetchQueue]
-    );
-
     const loadPageIntoView = useCallback(
         async (pageNum, { autoplay = false } = {}) => {
+            cancelPrefetch();
             pauseAudio();
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
 
             try {
-                const text = await preparePageText(pageNum);
+                const text = await preparePageText(pageNum, { setIsOcring });
                 setPageText(text);
                 pageTextRef.current = text;
                 setPageWords(text.split(/\s+/).filter(Boolean));
@@ -686,7 +483,6 @@ export default function PdfViewer({ onDirty }) {
                     setAudioUrl(null);
                     setAudioPage(null);
                     audioPageRef.current = null;
-                    setWordStartTimes([]);
                     wordTimesRef.current = [];
                     setCurrentWord(-1);
                     if (autoplay && modelReady) {
@@ -696,19 +492,20 @@ export default function PdfViewer({ onDirty }) {
                         });
                     }
                 }
-                if (numPages) schedulePrefetch(pageNum, numPages);
+                if (numPages) schedulePrefetchSafe(pageNum, numPages);
             } catch (e) {
                 toast.error(e.message);
             }
         },
         [
             applyReadyAudio,
+            cancelPrefetch,
             generateAndPlay,
             modelReady,
             numPages,
             pauseAudio,
             preparePageText,
-            schedulePrefetch,
+            schedulePrefetchSafe,
             toast,
         ]
     );
@@ -801,15 +598,25 @@ export default function PdfViewer({ onDirty }) {
     const handleLanguageChange = useCallback(
         (lang) => {
             userTouchedRef.current.language = true;
+            const prevLang = langRef.current;
             setTargetLanguage(lang);
             updateConfig({ language_id: lang }).catch((e) =>
                 toast.error(e?.message || 'Could not save language preference')
             );
+            if (prevLang !== lang) {
+                cacheRef.current.clear();
+                setAudioUrl(null);
+                setAudioPage(null);
+                audioPageRef.current = null;
+                pauseAudio();
+                toast.info('Language changed — press Read to re-narrate this page.');
+            }
         },
-        [toast, updateConfig]
+        [pauseAudio, toast, updateConfig]
     );
 
     const handlePlay = async () => {
+        cancelPrefetch();
         if (!file || !numPages) return;
 
         if (isPlaying) {
@@ -837,14 +644,14 @@ export default function PdfViewer({ onDirty }) {
         }
 
         try {
-            const text = await preparePageText(pageNumber);
+            const text = await preparePageText(pageNumber, { setIsOcring });
             setPageText(text);
             pageTextRef.current = text;
             await generateAndPlay(pageNumber, text, {
                 autoplay: true,
                 resumeWordIndex: Math.max(0, currentWordRef.current),
             });
-            schedulePrefetch(pageNumber, numPages);
+            schedulePrefetchSafe(pageNumber, numPages);
         } catch (error) {
             toast.error(error.message);
         }
@@ -868,8 +675,8 @@ export default function PdfViewer({ onDirty }) {
     const handleForceOcr = async () => {
         if (!file) return;
         try {
-            textCacheRef.current.delete(pageNumber);
-            const text = await preparePageText(pageNumber, { forceOcr: true });
+            cachePageText(pageNumber, translated);
+            const text = await preparePageText(pageNumber, { forceOcr: true, setIsOcring });
             setPageText(text);
             pageTextRef.current = text;
             toast.success(`OCR extracted ${text.split(/\s+/).length} words`);
@@ -911,10 +718,9 @@ export default function PdfViewer({ onDirty }) {
                 toast.error('Voice model is still loading.');
                 return;
             }
-            const { audioUrl: url } = await narrateText(
+            const { audioUrl: url } = await pronounceText(
                 clean,
                 sessionId,
-                900000 + Math.floor(Math.random() * 1000),
                 activeVoiceRef.current,
                 langRef.current
             );
@@ -933,7 +739,8 @@ export default function PdfViewer({ onDirty }) {
      *  - idle    → pronounce only (+ set resume if we have timings)
      */
     const handleWordActivate = useCallback(
-        async (index, word, { isPlaying: playing, isPaused: paused }) => {
+        async (index, word, { isPlaying: playing }) => {
+            cancelPrefetch();
             if (playing) {
                 const t = wordTimesRef.current[index];
                 if (typeof t === 'number' && audioRef.current) {
@@ -957,36 +764,95 @@ export default function PdfViewer({ onDirty }) {
                 toast.error(e.message || 'Could not pronounce word');
             }
         },
-        [pronounceWord, setResumePoint, syncHighlightAt, toast]
+        [cancelPrefetch, pronounceWord, setResumePoint, syncHighlightAt, toast]
     );
+
+    const handleTranslatePage = async () => {
+        const text = pageTextRef.current || pageText;
+        if (!text.trim()) return;
+        const target = targetLanguage === 'en' ? 'ar' : 'en';
+        try {
+            setStatusHint('Translating…');
+            const translated = await translateText(text, target);
+            setPageText(translated);
+            pageTextRef.current = translated;
+            setPageWords(translated.split(/\s+/).filter(Boolean));
+            pageWordsRef.current = translated.split(/\s+/).filter(Boolean);
+            invalidateTextCache(pageNumber);
+            cacheRef.current.clear();
+            setAudioUrl(null);
+            toast.success('Text translated — press Read to narrate.');
+        } catch (e) {
+            toast.error(e.message || 'Translation failed');
+        } finally {
+            setStatusHint('');
+        }
+    };
+
+    const handleSaveEditedText = () => {
+        const text = editTextDraft.trim();
+        if (!text) return;
+        setPageText(text);
+        pageTextRef.current = text;
+        setPageWords(text.split(/\s+/).filter(Boolean));
+        pageWordsRef.current = text.split(/\s+/).filter(Boolean);
+        cachePageText(pageNumber, text);
+        cacheRef.current.clear();
+        setAudioUrl(null);
+        setIsEditingText(false);
+        toast.info('Text updated — press Read to narrate.');
+    };
 
     const handleFileChange = (e) => {
         const f = e.target.files[0];
         if (!f) return;
+        cancelPrefetch();
+        const nextDocumentId = documentFingerprint(f);
+        const progress = loadReadingProgress(nextDocumentId);
+        setDocumentId(nextDocumentId);
+        setBookmarks(progress.bookmarks);
+        savedResumeRef.current = { page: progress.page, time: progress.time };
+        transport.setRate(progress.playbackRate);
         setFile(f);
         fileRef.current = f;
-        pdfDocRef.current = null;
+        resetDocument();
         setNumPages(null);
-        setPageNumber(1);
-        pageNumberRef.current = 1;
+        setPageNumber(progress.page);
+        pageNumberRef.current = progress.page;
         setAudioUrl(null);
         setAudioPage(null);
         audioPageRef.current = null;
         setPageText('');
         pageTextRef.current = '';
         setPageWords([]);
-        setWordStartTimes([]);
         pageWordsRef.current = [];
         wordTimesRef.current = [];
-        wordSpanMapRef.current = [];
         segmentsRef.current = [];
-        textCacheRef.current.clear();
         cacheRef.current.clear();
-        prefetchQueueRef.current = [];
         audioVoiceRef.current = null;
-        setZoom(1);
+        setZoom(progress.zoom);
+        setDisplayZoom(progress.zoom);
         clearPlaybackState();
         onDirty?.();
+    };
+
+    const handleSearch = async (event) => {
+        event?.preventDefault?.();
+        if (!searchQuery.trim() || !numPages) return;
+        setIsSearching(true);
+        try {
+            const found = await findTextInDocument(searchQuery, pageNumber + 1);
+            if (found) {
+                await loadPageIntoView(found, { autoplay: false });
+                toast.success(`Found on page ${found}`);
+            } else {
+                toast.info('Text was not found in the PDF text layer.');
+            }
+        } catch (error) {
+            toast.error(error.message || 'Search failed');
+        } finally {
+            setIsSearching(false);
+        }
     };
 
     // Pan via drag when zoomed
@@ -1073,120 +939,13 @@ export default function PdfViewer({ onDirty }) {
                         Select PDF Book
                     </label>
                     <p className="pdf-upload-hint">
-                        Text PDFs read instantly. Nearby pages warm in the background for
-                        seamless flipping.
+                        {deviceInfo === 'cpu'
+                            ? 'Text PDFs read instantly. TTS on CPU is slow — nearby page prefetch is disabled.'
+                            : 'Text PDFs read instantly. Nearby pages warm in the background for seamless flipping.'}
                     </p>
                 </div>
             ) : (
                 <>
-                    <div className="pdf-toolbar">
-                        <div className="pdf-toolbar-voice">
-                            <VoiceSettings
-                                activeVoiceId={activeVoiceId}
-                                onVoiceChange={handleVoiceChange}
-                            />
-                        </div>
-                        <div className="pdf-toolbar-controls">
-                            <div className="lang-select-group">
-                                <Languages size={15} />
-                                <select
-                                    id="pdf-lang"
-                                    value={targetLanguage}
-                                    onChange={(e) => handleLanguageChange(e.target.value)}
-                                    disabled={isGenerating || isOcring}
-                                    aria-label="Narration language"
-                                >
-                                    {SUPPORTED_LANGUAGES.map((lang) => (
-                                        <option key={lang.code} value={lang.code}>
-                                            {lang.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <form className="page-jump" onSubmit={handlePageJump}>
-                                <label htmlFor="page-jump-input">Page</label>
-                                <input
-                                    id="page-jump-input"
-                                    type="number"
-                                    min={1}
-                                    max={numPages || 1}
-                                    value={pageJumpInput}
-                                    onChange={(e) => setPageJumpInput(e.target.value)}
-                                    onBlur={handlePageJump}
-                                />
-                                <span className="page-jump-total">/ {numPages || '—'}</span>
-                            </form>
-
-                            <div className="zoom-controls" title="Zoom & pan (drag when zoomed)">
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() =>
-                                        setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))
-                                    }
-                                    aria-label="Zoom out"
-                                >
-                                    <ZoomOut size={15} />
-                                </button>
-                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() =>
-                                        setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))
-                                    }
-                                    aria-label="Zoom in"
-                                >
-                                    <ZoomIn size={15} />
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() => setZoom(1)}
-                                    aria-label="Reset zoom"
-                                >
-                                    <Maximize2 size={15} />
-                                </button>
-                            </div>
-
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={handleForceOcr}
-                                disabled={isGenerating || isOcring}
-                                title="OCR this page"
-                            >
-                                {isOcring ? (
-                                    <Loader2 className="spinner" size={15} />
-                                ) : (
-                                    <ScanText size={15} />
-                                )}
-                            </button>
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={() => goToPage(pageNumber - 1)}
-                                disabled={pageNumber <= 1}
-                            >
-                                <ChevronUp size={15} />
-                            </button>
-                            <button
-                                className="btn primary"
-                                onClick={handlePlay}
-                                disabled={playBtn.disabled}
-                            >
-                                {playBtn.icon}
-                                {playBtn.text}
-                            </button>
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={() => goToPage(pageNumber + 1)}
-                                disabled={pageNumber >= numPages}
-                            >
-                                <ChevronDown size={15} />
-                            </button>
-                        </div>
-                    </div>
-
                     {!modelReady && modelStatusDetail && (
                         <div className="model-loading-status-bar">
                             <Loader2 className="spinner" size={14} />
@@ -1254,9 +1013,16 @@ export default function PdfViewer({ onDirty }) {
                             >
                                 <Document
                                     file={file}
-                                    onLoadSuccess={({ numPages: n }) => {
-                                        setNumPages(n);
-                                        schedulePrefetch(1, n);
+                                    onLoadSuccess={(pdf) => {
+                                        adoptPdfDocument(pdf);
+                                        setNumPages(pdf.numPages);
+                                        const restoredPage = Math.max(
+                                            1,
+                                            Math.min(pdf.numPages, pageNumberRef.current)
+                                        );
+                                        setPageNumber(restoredPage);
+                                        pageNumberRef.current = restoredPage;
+                                        schedulePrefetchSafe(restoredPage, pdf.numPages);
                                     }}
                                     loading={
                                         <div className="pdf-loading">
@@ -1264,10 +1030,16 @@ export default function PdfViewer({ onDirty }) {
                                         </div>
                                     }
                                 >
-                                    <div className="pdf-page-wrapper pdf-page-current">
+                                    <div
+                                        className="pdf-page-wrapper pdf-page-current"
+                                        style={{
+                                            transform: `scale(${displayZoom})`,
+                                            transformOrigin: 'top center',
+                                        }}
+                                    >
                                         <Page
                                             pageNumber={pageNumber}
-                                            width={displayWidth}
+                                            width={basePageWidth}
                                             renderAnnotationLayer={false}
                                             renderTextLayer={true}
                                             onRenderSuccess={onPageRenderSuccess}
@@ -1278,6 +1050,43 @@ export default function PdfViewer({ onDirty }) {
                             </div>
                         </div>
                         <div className="pdf-transcript">
+                            <div className="pdf-transcript-actions">
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => {
+                                        setEditTextDraft(pageText);
+                                        setIsEditingText((v) => !v);
+                                    }}
+                                    disabled={!pageText}
+                                >
+                                    {isEditingText ? 'Cancel edit' : 'Edit text'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={handleTranslatePage}
+                                    disabled={!pageText || isGenerating}
+                                >
+                                    Translate
+                                </button>
+                            </div>
+                            {isEditingText ? (
+                                <div className="pdf-text-edit-wrap">
+                                    <textarea
+                                        className="pdf-text-edit"
+                                        value={editTextDraft}
+                                        onChange={(e) => setEditTextDraft(e.target.value)}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="btn primary btn-compact"
+                                        onClick={handleSaveEditedText}
+                                    >
+                                        Save text
+                                    </button>
+                                </div>
+                            ) : (
                             <Transcript
                                 words={pageWords}
                                 currentWord={currentWord}
@@ -1295,6 +1104,167 @@ export default function PdfViewer({ onDirty }) {
                                     (isGenerating ? 'Generating narration…' : undefined)
                                 }
                             />
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="pdf-toolbar">
+                        <div className="pdf-toolbar-voice">
+                            <VoiceSettings
+                                compact
+                                activeVoiceId={activeVoiceId}
+                                onVoiceChange={handleVoiceChange}
+                            />
+                        </div>
+                        <div className="pdf-toolbar-controls">
+                            <div className="lang-select-group">
+                                <Languages size={15} />
+                                <select
+                                    id="pdf-lang"
+                                    value={targetLanguage}
+                                    onChange={(e) => handleLanguageChange(e.target.value)}
+                                    disabled={isGenerating || isOcring}
+                                    aria-label="Narration language"
+                                >
+                                    {SUPPORTED_LANGUAGES.map((lang) => (
+                                        <option key={lang.code} value={lang.code}>
+                                            {lang.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <form className="page-jump" onSubmit={handlePageJump}>
+                                <label htmlFor="page-jump-input">Page</label>
+                                <input
+                                    id="page-jump-input"
+                                    type="number"
+                                    min={1}
+                                    max={numPages || 1}
+                                    value={pageJumpInput}
+                                    onChange={(e) => setPageJumpInput(e.target.value)}
+                                    onBlur={handlePageJump}
+                                />
+                                <span className="page-jump-total">/ {numPages || '—'}</span>
+                            </form>
+
+                            <form className="page-search" onSubmit={handleSearch}>
+                                <Search size={14} />
+                                <input
+                                    type="search"
+                                    value={searchQuery}
+                                    onChange={(event) => setSearchQuery(event.target.value)}
+                                    placeholder="Find in book"
+                                    aria-label="Find text in book"
+                                />
+                                <button
+                                    type="submit"
+                                    className="btn secondary btn-compact"
+                                    disabled={!searchQuery.trim() || isSearching}
+                                >
+                                    {isSearching ? <Loader2 className="spinner" size={14} /> : 'Find'}
+                                </button>
+                            </form>
+
+                            <div className="bookmark-controls">
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
+                                    aria-label={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
+                                    title={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
+                                >
+                                    {bookmarks.includes(pageNumber) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
+                                </button>
+                                {bookmarks.length ? (
+                                    <select
+                                        value=""
+                                        onChange={(event) => {
+                                            if (event.target.value) goToPage(Number(event.target.value));
+                                        }}
+                                        aria-label="Go to bookmark"
+                                    >
+                                        <option value="">Bookmarks</option>
+                                        {bookmarks.map((page) => <option key={page} value={page}>Page {page}</option>)}
+                                    </select>
+                                ) : null}
+                            </div>
+
+                            <div className="zoom-controls" title="Zoom & pan (drag when zoomed)">
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() =>
+                                        setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))
+                                    }
+                                    aria-label="Zoom out"
+                                >
+                                    <ZoomOut size={15} />
+                                </button>
+                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() =>
+                                        setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))
+                                    }
+                                    aria-label="Zoom in"
+                                >
+                                    <ZoomIn size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => setZoom(1)}
+                                    aria-label="Reset zoom"
+                                >
+                                    <Maximize2 size={15} />
+                                </button>
+                            </div>
+
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={handleForceOcr}
+                                disabled={isGenerating || isOcring}
+                                title="OCR this page"
+                            >
+                                {isOcring ? (
+                                    <Loader2 className="spinner" size={15} />
+                                ) : (
+                                    <ScanText size={15} />
+                                )}
+                            </button>
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={() => goToPage(pageNumber - 1)}
+                                disabled={pageNumber <= 1}
+                            >
+                                <ChevronUp size={15} />
+                            </button>
+                            <PlaybackControls
+                                compact
+                                transport={{ ...transport, isPlaying }}
+                                onToggle={handlePlay}
+                                disabled={playBtn.disabled}
+                            />
+                            {audioUrl && audioPage === pageNumber ? (
+                                <a
+                                    className="btn secondary btn-compact"
+                                    href={audioUrl}
+                                    download={`${(file?.name || 'book').replace(/\.pdf$/i, '')}-page-${pageNumber}.wav`}
+                                    aria-label="Download page audio"
+                                    title="Download page audio"
+                                >
+                                    <Download size={15} />
+                                </a>
+                            ) : null}
+                            <button
+                                className="btn secondary btn-compact"
+                                onClick={() => goToPage(pageNumber + 1)}
+                                disabled={pageNumber >= numPages}
+                            >
+                                <ChevronDown size={15} />
+                            </button>
                         </div>
                     </div>
                 </>

@@ -10,6 +10,32 @@ function normalizeToken(s) {
         .trim();
 }
 
+/** Split each PDF.js text run into visual word fragments without changing text. */
+export function splitTextLayerWordRuns(textLayerEl) {
+    if (!textLayerEl?.children) return;
+    const runs = Array.from(textLayerEl.children).filter(
+        (el) => el.tagName === 'SPAN' && !el.dataset.wordRunSplit
+    );
+    for (const run of runs) {
+        const text = run.textContent || '';
+        const parts = text.match(/\s+|\S+/gu) || [];
+        if (parts.filter((part) => !/^\s+$/u.test(part)).length < 2) continue;
+        const fragment = document.createDocumentFragment();
+        for (const part of parts) {
+            if (/^\s+$/u.test(part)) {
+                fragment.appendChild(document.createTextNode(part));
+            } else {
+                const word = document.createElement('span');
+                word.className = 'pdf-word-fragment';
+                word.textContent = part;
+                fragment.appendChild(word);
+            }
+        }
+        run.replaceChildren(fragment);
+        run.dataset.wordRunSplit = 'true';
+    }
+}
+
 /**
  * Build a map: wordIndex → DOM span element (best effort sequential alignment).
  */
@@ -17,7 +43,8 @@ export function buildWordSpanMap(words, textLayerEl) {
     const map = new Array(words.length).fill(null);
     if (!textLayerEl || !words?.length) return map;
 
-    const spans = Array.from(textLayerEl.querySelectorAll('span')).filter(
+    const fragments = Array.from(textLayerEl.querySelectorAll('.pdf-word-fragment'));
+    const spans = (fragments.length ? fragments : Array.from(textLayerEl.querySelectorAll('span'))).filter(
         (s) => s.textContent && s.textContent.trim()
     );
 
