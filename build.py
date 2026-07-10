@@ -22,6 +22,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows consoles often default to cp1252; keep arrows/ellipses printable.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+
 ROOT = Path(__file__).resolve().parent
 FRONTEND = ROOT / "frontend"
 BACKEND = ROOT / "backend"
@@ -90,6 +98,8 @@ fix_cuda_torch.bat
 
 - Writable data (sessions, custom voices, `.venv`) lives in
   `%LocalAppData%\\BookVoice` — same as the MSI install.
+- User settings (voice, language, GPU options) persist in
+  `%LocalAppData%\\BookVoice\\data\\config.json`, shared by MSI and portable.
 - For a fully self-contained portable data folder next to the app, set
   environment variable `BOOKVOICE_PORTABLE=1` before launching.
 - English TTS is offline once `data/models/en` is present. Arabic may download
@@ -161,20 +171,28 @@ def assemble_dist():
 
     (DIST / "requirements.txt").write_text(REQUIREMENTS, encoding="utf-8")
     (DIST / "RUN.md").write_text(RUN_MD, encoding="utf-8")
+    shutil.copy2(ROOT / "VERSION", DIST / "VERSION")
 
+    # No .env in the package: the MSI already excludes it, and user settings
+    # now live in %LocalAppData%\BookVoice\data\config.json. Keep an example
+    # for developers who run uvicorn manually.
     env_example = DIST / ".env.example"
-    if not env_example.exists():
-        env_example.write_text(
-            'CORS_ORIGINS=["*"]\nOCR_USE_GPU=false\n', encoding="utf-8"
-        )
+    env_example.write_text('CORS_ORIGINS=["*"]\nOCR_USE_GPU=false\n', encoding="utf-8")
     env = DIST / ".env"
-    if not env.exists():
-        shutil.copy2(env_example, env)
+    if env.exists():
+        env.unlink()
 
     for name in ("setup_venv.bat", "fix_cuda_torch.bat", "BookVoice.bat"):
         src = ROOT / name
         if src.is_file():
             shutil.copy2(src, DIST / name)
+
+    # Portable bat uses this helper to terminate the full stale uvicorn tree.
+    scripts_src = ROOT / "scripts" / "kill_stale_bookvoice.ps1"
+    if scripts_src.is_file():
+        scripts_dst = DIST / "scripts"
+        scripts_dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(scripts_src, scripts_dst / "kill_stale_bookvoice.ps1")
 
     ico = ROOT / "bookvoice.ico"
     if ico.is_file():
@@ -195,14 +213,25 @@ def assemble_dist():
     else:
         print("[build] WARNING: backend/data/models missing — TTS will fail offline")
 
-    # Clean confusing stale artifacts
-    for stale in (DIST / "index.html", DIST / "assets"):
+    # Clean confusing stale artifacts. data/voices and data/sessions are
+    # runtime state (%LocalAppData%), not package payload — the MSI excludes
+    # them, so the portable dist must not ship them either.
+    for stale in (
+        DIST / "index.html",
+        DIST / "assets",
+        DIST / "favicon.svg",
+        DIST / "icons.svg",
+        DIST / "data" / "voices",
+        DIST / "data" / "sessions",
+    ):
         if stale.is_file():
             stale.unlink()
         elif stale.is_dir():
             shutil.rmtree(stale, ignore_errors=True)
     for pycache in DIST.rglob("__pycache__"):
         shutil.rmtree(pycache, ignore_errors=True)
+    for log in DIST.glob("*.log"):
+        log.unlink()
 
     return launcher_backup
 
@@ -278,14 +307,18 @@ def validate():
 
     required = [
         "main.py",
+        "VERSION",
         "requirements.txt",
         "setup_venv.bat",
         "fix_cuda_torch.bat",
         "BookVoice.bat",
+        "scripts/kill_stale_bookvoice.ps1",
         "Launcher.exe",
         "routes/tts.py",
         "routes/voices.py",
+        "routes/config.py",
         "services/tts_service.py",
+        "services/config_service.py",
         "services/path_utils.py",
         "static/index.html",
         "data/models/en/tokenizer.json",
@@ -296,6 +329,11 @@ def validate():
         p = DIST / rel
         if not p.exists():
             errors.append(f"required missing: {rel}")
+
+    # Parity with the MSI payload: no runtime state in the package
+    for forbidden in (".env", "data/voices", "data/sessions"):
+        if (DIST / forbidden).exists():
+            errors.append(f"stale runtime artifact in dist: {forbidden}")
 
     # No stale hashed assets left only if index points at them — already checked
 

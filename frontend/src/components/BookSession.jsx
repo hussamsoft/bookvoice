@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CameraCapture from './CameraCapture';
 import TextEditor from './TextEditor';
 import AudioPlayer from './AudioPlayer';
@@ -9,16 +9,17 @@ import { narrateText } from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
-import { Loader2 } from 'lucide-react';
+import { useUserConfig } from '../hooks/useUserConfig';
+import { Loader2, RotateCcw } from 'lucide-react';
 
 const STEPS = ['capture', 'processing', 'review', 'playback'];
 
 export default function BookSession({ onDirty }) {
     const toast = useToast();
     const [isNarratingUi, setIsNarratingUi] = useState(false);
-    const { modelReady, modelError, modelStatusDetail, deviceInfo } = useTtsStatus({
-        pollWhileGenerating: isNarratingUi,
-    });
+    const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
+        useTtsStatus({ pollWhileGenerating: isNarratingUi });
+    const { config, updateConfig } = useUserConfig();
     const [sessionId] = useState(() => createSessionId('session'));
     const [pages, setPages] = useState([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -26,6 +27,44 @@ export default function BookSession({ onDirty }) {
     const [currentText, setCurrentText] = useState('');
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
+
+    // Apply saved user settings once, when config arrives — but never clobber
+    // a choice the user already made while config was still loading.
+    const configAppliedRef = useRef(false);
+    const userTouchedRef = useRef({ voice: false, language: false });
+    useEffect(() => {
+        if (config && !configAppliedRef.current) {
+            configAppliedRef.current = true;
+            if (!userTouchedRef.current.voice && config.voice_id) {
+                setActiveVoiceId(config.voice_id);
+            }
+            if (!userTouchedRef.current.language && config.language_id) {
+                setTargetLanguage(config.language_id);
+            }
+        }
+    }, [config]);
+
+    const handleVoiceChange = useCallback(
+        (id) => {
+            userTouchedRef.current.voice = true;
+            setActiveVoiceId(id);
+            updateConfig({ voice_id: id }).catch((e) =>
+                toast.error(e?.message || 'Could not save voice preference')
+            );
+        },
+        [toast, updateConfig]
+    );
+
+    const handleLanguageChange = useCallback(
+        (lang) => {
+            userTouchedRef.current.language = true;
+            setTargetLanguage(lang);
+            updateConfig({ language_id: lang }).catch((e) =>
+                toast.error(e?.message || 'Could not save language preference')
+            );
+        },
+        [toast, updateConfig]
+    );
 
     const handleCapture = async (imageDataUrl) => {
         setStep('processing');
@@ -108,7 +147,7 @@ export default function BookSession({ onDirty }) {
                     ))}
                 </div>
 
-                <VoiceSettings activeVoiceId={activeVoiceId} onVoiceChange={setActiveVoiceId} />
+                <VoiceSettings activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 
                 {!modelReady && modelStatusDetail && (
                     <div className="model-loading-status-bar">
@@ -119,6 +158,9 @@ export default function BookSession({ onDirty }) {
                 {modelError && (
                     <div className="model-loading-status-bar error">
                         <span>Error: {modelError}</span>
+                        <button className="btn secondary" onClick={retryLoad}>
+                            <RotateCcw size={14} /> Retry
+                        </button>
                     </div>
                 )}
                 {deviceInfo === 'cpu' && modelReady && (
@@ -151,7 +193,7 @@ export default function BookSession({ onDirty }) {
                         key={`review-${currentPageIndex}-${sessionId}`}
                         initialText={currentText}
                         targetLanguage={targetLanguage}
-                        onTranslateChange={setTargetLanguage}
+                        onTranslateChange={handleLanguageChange}
                         onNarrate={handleNarrate}
                         onRetake={() => setStep('capture')}
                     />

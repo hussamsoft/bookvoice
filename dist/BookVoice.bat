@@ -22,7 +22,11 @@ if not exist "%APP_DIR%\data\models\en\tokenizer.json" (
   pause & exit /b 1
 )
 
-set "RUNTIME=%LOCALAPPDATA%\BookVoice"
+if /i "%BOOKVOICE_PORTABLE%"=="1" (
+  set "RUNTIME=%APP_DIR%\.bookvoice"
+) else (
+  set "RUNTIME=%LOCALAPPDATA%\BookVoice"
+)
 mkdir "%RUNTIME%" 2>nul
 mkdir "%RUNTIME%\data" 2>nul
 mkdir "%RUNTIME%\data\voices" 2>nul
@@ -66,10 +70,16 @@ if not errorlevel 1 (
   )
 )
 
-REM Stop previous BookVoice on 8000
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":8000" ^| findstr "LISTENING"') do (
-  taskkill /F /PID %%P >nul 2>nul
+REM Stop previous BookVoice servers and their full process tree (never other apps on the port).
+REM The venv python.exe is a shim; the real uvicorn child may not contain the venv path.
+if exist "%APP_DIR%\scripts\kill_stale_bookvoice.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\scripts\kill_stale_bookvoice.ps1" -RuntimeDir "%RUNTIME%" >nul 2>nul
+) else (
+  echo WARNING: scripts\kill_stale_bookvoice.ps1 missing — stale server cleanup skipped.
 )
+
+REM Give Windows / the GPU driver a moment to release port 8000 and VRAM.
+timeout /t 2 /nobreak >nul
 
 echo Starting server...
 echo   APP_DIR=%APP_DIR%

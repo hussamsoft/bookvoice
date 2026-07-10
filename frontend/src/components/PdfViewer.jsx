@@ -25,6 +25,7 @@ import {
 } from '../utils/pdfHighlight';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
+import { useUserConfig } from '../hooks/useUserConfig';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 import VoiceSettings from './VoiceSettings';
@@ -35,9 +36,9 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 export default function PdfViewer({ onDirty }) {
     const toast = useToast();
     const [isGenerating, setIsGenerating] = useState(false);
-    const { modelReady, modelError, modelStatusDetail, deviceInfo } = useTtsStatus({
-        pollWhileGenerating: isGenerating,
-    });
+    const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
+        useTtsStatus({ pollWhileGenerating: isGenerating });
+    const { config, updateConfig } = useUserConfig();
 
     const [file, setFile] = useState(null);
     const [numPages, setNumPages] = useState(null);
@@ -67,6 +68,44 @@ export default function PdfViewer({ onDirty }) {
     const langRef = useRef(targetLanguage);
 
     langRef.current = targetLanguage;
+
+    // Apply saved user settings once, when config arrives — but never clobber
+    // a choice the user already made while config was still loading.
+    const configAppliedRef = useRef(false);
+    const userTouchedRef = useRef({ voice: false, language: false });
+    useEffect(() => {
+        if (config && !configAppliedRef.current) {
+            configAppliedRef.current = true;
+            if (!userTouchedRef.current.voice && config.voice_id) {
+                setActiveVoiceId(config.voice_id);
+            }
+            if (!userTouchedRef.current.language && config.language_id) {
+                setTargetLanguage(config.language_id);
+            }
+        }
+    }, [config]);
+
+    const handleVoiceChange = useCallback(
+        (id) => {
+            userTouchedRef.current.voice = true;
+            setActiveVoiceId(id);
+            updateConfig({ voice_id: id }).catch((e) =>
+                toast.error(e?.message || 'Could not save voice preference')
+            );
+        },
+        [toast, updateConfig]
+    );
+
+    const handleLanguageChange = useCallback(
+        (lang) => {
+            userTouchedRef.current.language = true;
+            setTargetLanguage(lang);
+            updateConfig({ language_id: lang }).catch((e) =>
+                toast.error(e?.message || 'Could not save language preference')
+            );
+        },
+        [toast, updateConfig]
+    );
 
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
@@ -454,7 +493,7 @@ export default function PdfViewer({ onDirty }) {
                     <div className="voice-settings-bar">
                         <VoiceSettings
                             activeVoiceId={activeVoiceId}
-                            onVoiceChange={setActiveVoiceId}
+                            onVoiceChange={handleVoiceChange}
                         />
                     </div>
 
@@ -465,7 +504,7 @@ export default function PdfViewer({ onDirty }) {
                             <select
                                 id="pdf-lang"
                                 value={targetLanguage}
-                                onChange={(e) => setTargetLanguage(e.target.value)}
+                                onChange={(e) => handleLanguageChange(e.target.value)}
                                 disabled={isGenerating || isOcring}
                             >
                                 {SUPPORTED_LANGUAGES.map((lang) => (
@@ -530,6 +569,9 @@ export default function PdfViewer({ onDirty }) {
                     {modelError && (
                         <div className="model-loading-status-bar error">
                             <span>Error: {modelError}</span>
+                            <button className="btn secondary" onClick={retryLoad}>
+                                Retry
+                            </button>
                         </div>
                     )}
                     {deviceInfo === 'cpu' && modelReady && (

@@ -123,14 +123,21 @@ Or manual: `cd dist && setup_venv.bat && uvicorn main:app --host 127.0.0.1 --por
 session data (same as MSI). It will upgrade a CPU-only torch install to CUDA
 when an NVIDIA GPU is present.
 
+User settings (selected voice, narration language, GPU toggles) persist in
+`%LocalAppData%\BookVoice\data\config.json` via `GET/PUT /api/config` — one
+universal per-user config shared by the MSI install, the portable dist and
+dev runs.
+
 
 ## Packaging (Windows installer)
 
 `build_msi.py` produces a standard Windows MSI (`installer/BookVoice.msi`) using
-the WiX Toolset binaries vendored in `tools/wix`. It installs **per-user** into
-`%LocalAppData%\BookVoice` by default (writable without admin rights, so the
-app can create its `.venv` and `data/` at runtime), with a proper install
-wizard (folder selection, shortcuts, progress).
+the WiX Toolset binaries vendored in `tools/wix`. It installs **per-machine**
+into `Program Files\BookVoice` (requires admin during install), with a proper
+install wizard (folder selection, shortcuts, progress). All writable state —
+the `.venv`, sessions, custom voices and the per-user `config.json` — lives in
+`%LocalAppData%\BookVoice`, so no admin rights are needed at runtime and the
+MSI and portable formats share the exact same user data and settings.
 
 ```bash
 python build.py        # (re)generate dist/

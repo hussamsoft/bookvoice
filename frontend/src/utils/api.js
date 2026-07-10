@@ -96,6 +96,35 @@ export async function getTtsStatus() {
     return response.json();
 }
 
+export async function reloadTtsModel() {
+    const response = await fetch(`${API_BASE_URL}/tts/reload`, { method: 'POST' });
+    if (!response.ok) {
+        throw new Error('Failed to reload the TTS model');
+    }
+    return response.json();
+}
+
+export async function getUserConfig() {
+    const response = await fetch(`${API_BASE_URL}/config/`);
+    if (!response.ok) {
+        throw new Error('Failed to fetch config');
+    }
+    return response.json(); // { version, config }
+}
+
+export async function saveUserConfig(partial) {
+    const response = await fetch(`${API_BASE_URL}/config/`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to save config'));
+    }
+    return response.json();
+}
+
 export async function extractTextFromImageApi(imageSrc) {
     const response = await fetch(`${API_BASE_URL}/ocr`, {
         method: 'POST',

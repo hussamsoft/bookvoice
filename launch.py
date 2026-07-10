@@ -228,31 +228,58 @@ def ensure_venv(app_dir: str, runtime_dir: str, log: Logger, status_cb) -> str |
     return py
 
 
-def free_port(port: int, log: Logger) -> None:
+def kill_stale_servers(runtime_dir: str, log: Logger) -> None:
+    """Kill leftover BookVoice backends on ANY port.
+
+    A stale server keeps ~4GB of VRAM allocated, which makes the next model
+    load hang or fail on 8GB GPUs — the main cause of "stuck on loading".
+    Matches strictly: uvicorn running main:app from the BookVoice venv.
+    """
     if psutil is None:
         return
+    venv_marker = os.path.join(runtime_dir, ".venv").lower()
+    victims = []
     try:
-        for conn in psutil.net_connections(kind="inet"):
-            if conn.laddr.port == port and conn.status == "LISTEN" and conn.pid:
-                try:
-                    proc = psutil.Process(conn.pid)
-                    cmd = " ".join(proc.cmdline()).lower()
-                    if "uvicorn" in cmd or "main:app" in cmd:
-                        log.write(f"Killing old server pid={conn.pid} on port {port}")
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=2)
-                        except Exception:
-                            proc.kill()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+            try:
+                name = (proc.info["name"] or "").lower()
+                if not name.startswith("python"):
+                    continue
+                cmd = " ".join(proc.info["cmdline"] or "").lower()
+                exe = (proc.info["exe"] or "").lower()
+                if "uvicorn" in cmd and "main:app" in cmd and venv_marker in (exe + " " + cmd):
+                    victims.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
     except Exception as e:
-        log.write(f"free_port error: {e}")
+        log.write(f"stale server scan error: {e}")
+        return
+
+    for proc in victims:
+        try:
+            log.write(f"Killing stale BookVoice server pid={proc.pid}")
+            children = proc.children(recursive=True)
+            proc.terminate()
+            for c in children:
+                try:
+                    c.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+            gone, alive = psutil.wait_procs([proc, *children], timeout=5)
+            for p in alive:
+                try:
+                    p.kill()
+                except psutil.NoSuchProcess:
+                    pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    if victims:
+        # Give the GPU driver a moment to reclaim VRAM from killed processes.
+        time.sleep(1.5)
 
 
 def pick_port(log: Logger) -> int:
     for port in range(PORT_START, PORT_END + 1):
-        free_port(port, log)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 s.bind(("127.0.0.1", port))
@@ -311,14 +338,16 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
             return
         except Exception:
             pass
-    # Fallback message box via PowerShell
+    # Fallback message box via PowerShell (assembly must be loaded explicitly)
     try:
+        safe_msg = message[:500].replace('"', "'")
         subprocess.run(
             [
                 "powershell",
                 "-NoProfile",
                 "-Command",
-                f'[System.Windows.MessageBox]::Show("{message[:500]}")',
+                "Add-Type -AssemblyName PresentationFramework; "
+                f'[System.Windows.MessageBox]::Show("{safe_msg}", "BookVoice")',
             ],
             creationflags=_no_window(),
         )
@@ -380,6 +409,7 @@ def main() -> int:
                 show_error(window, state["error"], os.path.join(runtime_dir, "bookvoice_setup.log"))
                 return
 
+            kill_stale_servers(runtime_dir, log)
             port = pick_port(log)
             env = build_env(app_dir, runtime_dir)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
@@ -390,6 +420,16 @@ def main() -> int:
 
             status("Starting AI Engine", f"Launching backend on 127.0.0.1:{port}…")
             server_log = os.path.join(runtime_dir, "bookvoice_server.log")
+            # Keep the previous run's log — it is the only evidence when a
+            # launch fails and the user restarts.
+            try:
+                if os.path.isfile(server_log):
+                    prev = os.path.join(runtime_dir, "bookvoice_server.prev.log")
+                    if os.path.isfile(prev):
+                        os.remove(prev)
+                    os.replace(server_log, prev)
+            except OSError:
+                pass
             log_file = open(server_log, "w", encoding="utf-8", errors="replace")
             cmd = [
                 py,
@@ -453,14 +493,33 @@ def main() -> int:
             except Exception:
                 pass
 
-    # Shutdown
+    # Shutdown: terminate the whole backend tree (the venv python.exe is a
+    # shim that spawns the real interpreter as a child).
     try:
         if process is not None and process.poll() is None:
+            children = []
+            if psutil is not None:
+                try:
+                    children = psutil.Process(process.pid).children(recursive=True)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    children = []
             process.terminate()
+            for c in children:
+                try:
+                    c.terminate()
+                except Exception:
+                    pass
             try:
                 process.wait(timeout=3)
             except Exception:
                 process.kill()
+            if psutil is not None and children:
+                gone, alive = psutil.wait_procs(children, timeout=3)
+                for p in alive:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
     finally:
         if log_file is not None:
             try:

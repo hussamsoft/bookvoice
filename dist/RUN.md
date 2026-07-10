@@ -42,6 +42,8 @@ fix_cuda_torch.bat
 
 - Writable data (sessions, custom voices, `.venv`) lives in
   `%LocalAppData%\BookVoice` — same as the MSI install.
+- User settings (voice, language, GPU options) persist in
+  `%LocalAppData%\BookVoice\data\config.json`, shared by MSI and portable.
 - For a fully self-contained portable data folder next to the app, set
   environment variable `BOOKVOICE_PORTABLE=1` before launching.
 - English TTS is offline once `data/models/en` is present. Arabic may download

@@ -2,7 +2,6 @@ import json
 import mimetypes
 import os
 import sys
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,9 +23,9 @@ except Exception:
 
 load_dotenv()
 
-from routes import ocr, translation, tts, voices
+from routes import config, ocr, translation, tts, voices
 from services.path_utils import safe_join
-from services.tts_service import maybe_cleanup_sessions
+from services.tts_service import TTS_EXECUTOR, preload_model
 
 # Seed default voices on startup (paths resolved from env at call time).
 try:
@@ -63,34 +62,11 @@ VOICES_DIR = os.path.join(DATA_DIR, "voices")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
 
-_preload_attempted = False
-_preload_error = None
-
-
-def _try_preload_model():
-    global _preload_attempted, _preload_error
-    _preload_attempted = True
-    try:
-        maybe_cleanup_sessions(force=True)
-        from services.tts_service import get_model
-
-        get_model("en")
-        print("TTS model preloaded successfully.")
-    except Exception as e:
-        _preload_error = str(e)
-        print(f"TTS model preload failed (will retry on first request): {e}")
-        try:
-            from services.tts_service import _model_state
-
-            _model_state["status"] = "error"
-            _model_state["detail"] = f"Preload failed: {e}"
-        except Exception:
-            pass
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    threading.Thread(target=_try_preload_model, daemon=True).start()
+    # Preload on the dedicated TTS thread — the same thread that serves
+    # narration — so CUDA is only ever touched from one thread.
+    TTS_EXECUTOR.submit(preload_model, "en")
     yield
 
 
@@ -116,6 +92,7 @@ app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
 app.include_router(translation.router, prefix="/api/translate", tags=["translation"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
+app.include_router(config.router, prefix="/api/config", tags=["config"])
 
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 

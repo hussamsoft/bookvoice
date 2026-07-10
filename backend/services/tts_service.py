@@ -4,11 +4,13 @@ import re
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import torch
 import torchaudio as ta
 
+from services.config_service import config_value
 from services.path_utils import (
     safe_join,
     validate_language_id,
@@ -18,6 +20,12 @@ from services.path_utils import (
     validate_voice_id,
 )
 
+# Single dedicated thread for ALL torch/CUDA work (preload, model switches and
+# generation). Splitting CUDA calls across ad-hoc threads has caused
+# hard-to-reproduce load hangs on Windows, so every entry point must funnel
+# through this executor.
+TTS_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
+
 _model = None
 _model_type = None
 _model_state = {
@@ -25,6 +33,7 @@ _model_state = {
     "detail": "",
     "device": "unknown",
     "cuda": False,
+    "loading_started": None,
 }
 _model_lock = threading.Lock()
 _generate_lock = threading.Lock()
@@ -59,6 +68,10 @@ def _log(msg: str) -> None:
 def _resolve_device() -> str:
     """Prefer CUDA when a real GPU build of torch is installed."""
     force = os.getenv("TTS_DEVICE", "").strip().lower()
+    if not force or force == "auto":
+        cfg = str(config_value("tts_device", "auto") or "auto").strip().lower()
+        if cfg in ("cpu", "cuda", "mps"):
+            force = cfg
     if force in ("cpu", "cuda", "mps"):
         if force == "cuda" and not torch.cuda.is_available():
             _log("TTS_DEVICE=cuda requested but CUDA is not available; using CPU.")
@@ -100,9 +113,12 @@ def _estimate_max_new_tokens(text: str) -> int:
     # ~1.6 speech tokens per character is generous for English/Arabic TTS.
     est = int(n * 1.6) + 48
     if _is_cuda_build():
-        return max(80, min(600, est))
+        # Cap at the stock 1000 so long chunks are never cut off mid-sentence;
+        # the estimate (not the cap) is what saves time on typical chunks.
+        return max(80, min(1000, est))
     # CPU: keep the budget tight so a chunk finishes in a reasonable time.
-    return max(64, min(320, est))
+    # 500 covers the largest CPU chunk (260 chars -> ~464 tokens estimated).
+    return max(64, min(500, est))
 
 
 def _load_local_en(ckpt_dir, device):
@@ -146,11 +162,8 @@ def _load_local_en(ckpt_dir, device):
 
 
 def _load_local_mtl(ckpt_dir, device):
-    from chatterbox.mtl_tts import (
-        ChatterboxMultilingualTTS,
-        Conditionals,
-        _resolve_multilingual_t3_model,
-    )
+    import chatterbox.mtl_tts as mtl_mod
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS, Conditionals
     from chatterbox.models.voice_encoder import VoiceEncoder
     from chatterbox.models.t3 import T3
     from chatterbox.models.t3.modules.t3_config import T3Config
@@ -159,7 +172,12 @@ def _load_local_mtl(ckpt_dir, device):
     from safetensors.torch import load_file as load_safetensors
 
     ckpt_dir = Path(ckpt_dir)
-    t3_model = _resolve_multilingual_t3_model(None)
+    # Stock chatterbox-tts (0.1.x) ships a single multilingual T3 checkpoint;
+    # newer forks expose a resolver. Support both.
+    if hasattr(mtl_mod, "_resolve_multilingual_t3_model"):
+        t3_model = mtl_mod._resolve_multilingual_t3_model(None)
+    else:
+        t3_model = "t3_mtl23ls_v2.safetensors"
     map_location = torch.device("cpu") if device in ["cpu", "mps"] else None
 
     ve_path = ckpt_dir / "ve.pt"
@@ -349,14 +367,17 @@ def get_model(language_id="en"):
             _log(f"Switching models from {_model_type} to {target_type}. Freeing VRAM...")
             _model_state["status"] = "loading"
             _model_state["detail"] = f"Switching to {target_type} model..."
+            _model_state["loading_started"] = time.time()
             _model = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
         if _model is None:
+            load_started = time.time()
             _model_state["status"] = "loading"
             _model_state["detail"] = "Searching local model..."
+            _model_state["loading_started"] = load_started
             device = _resolve_device()
             _model_state["device"] = device
             _model_state["cuda"] = device == "cuda"
@@ -406,18 +427,54 @@ def get_model(language_id="en"):
 
                 _model_type = target_type
                 _model_state["status"] = "ready"
+                _model_state["loading_started"] = None
                 dev_label = device.upper()
                 if device == "cuda":
                     dev_label = f"CUDA ({torch.cuda.get_device_name(0)})"
                 _model_state["detail"] = f"Model ready on {dev_label}."
-                _log("Model loaded.")
+                _log(f"Model loaded in {time.time() - load_started:.1f}s.")
             except Exception as e:
                 _model_state["status"] = "error"
                 _model_state["detail"] = str(e)
+                _model_state["loading_started"] = None
                 _log(f"Model load failed: {e}")
                 raise
 
     return _model
+
+
+def state_snapshot() -> dict:
+    """Public view of the model state, with elapsed load time while loading."""
+    snap = {k: v for k, v in _model_state.items() if k != "loading_started"}
+    started = _model_state.get("loading_started")
+    if snap.get("status") == "loading" and started:
+        snap["elapsed_s"] = int(time.time() - started)
+    return snap
+
+
+def preload_model(language_id: str = "en") -> None:
+    """Load the model, downgrading failures to an error state (no raise)."""
+    try:
+        maybe_cleanup_sessions(force=True)
+        get_model(language_id)
+        _log("TTS model preloaded successfully.")
+    except Exception as e:  # noqa: BLE001 - surfaced via _model_state
+        _model_state["status"] = "error"
+        _model_state["detail"] = f"Model load failed: {e}"
+        _log(f"TTS model preload failed (retry from the app or next request): {e}")
+
+
+def request_reload(language_id: str = "en") -> dict:
+    """Queue a model (re)load on the TTS thread unless one is already running."""
+    with _model_lock:
+        if _model_state["status"] not in ("error", "idle"):
+            return state_snapshot()
+        _model_state["status"] = "loading"
+        _model_state["detail"] = "Reloading model..."
+        _model_state["loading_started"] = time.time()
+    # Submit outside the lock so preload_model → get_model can acquire it.
+    TTS_EXECUTOR.submit(preload_model, language_id)
+    return state_snapshot()
 
 
 def _split_into_chunks(text: str) -> list[str]:
@@ -543,22 +600,32 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
 
     with _generate_lock:
         _model_state["status"] = "generating"
-        for i, chunk in enumerate(chunks):
+        try:
+            for i, chunk in enumerate(chunks):
+                _model_state["detail"] = (
+                    f"Generating audio {i + 1}/{total} on {str(device).upper()}"
+                    + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
+                )
+                kwargs = dict(generate_kwargs)
+                if i > 0:
+                    kwargs.pop("audio_prompt_path", None)
+                part = _generate_chunk(model, chunk, language_id, **kwargs)
+                if isinstance(part, torch.Tensor):
+                    wav_parts.append(part.detach().cpu())
+                else:
+                    wav_parts.append(torch.as_tensor(part).cpu())
+        except Exception as e:
+            # Model is still loaded; leave it usable. Never stick on "generating"
+            # or Reload will refuse to queue and the UI will poll forever.
+            _model_state["status"] = "ready"
             _model_state["detail"] = (
-                f"Generating audio {i + 1}/{total} on {str(device).upper()}"
-                + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
+                f"Model ready on {str(device).upper()} "
+                f"(last generation failed: {e})"
             )
-            kwargs = dict(generate_kwargs)
-            if i > 0:
-                kwargs.pop("audio_prompt_path", None)
-            part = _generate_chunk(model, chunk, language_id, **kwargs)
-            if isinstance(part, torch.Tensor):
-                wav_parts.append(part.detach().cpu())
-            else:
-                wav_parts.append(torch.as_tensor(part).cpu())
-
-        _model_state["status"] = "ready"
-        _model_state["detail"] = f"Model ready on {str(device).upper()}."
+            raise
+        else:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
 
     wav = _concat_wavs(wav_parts)
 

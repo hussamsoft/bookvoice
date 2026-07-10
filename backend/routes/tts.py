@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -11,10 +10,15 @@ from services.path_utils import (
     validate_session_id,
     validate_text_length,
 )
-from services.tts_service import narrate_text, _model_state
+from services.config_service import config_value
+from services.tts_service import (
+    TTS_EXECUTOR,
+    narrate_text,
+    request_reload,
+    state_snapshot,
+)
 
 router = APIRouter()
-_executor = ThreadPoolExecutor(max_workers=1)
 
 
 class NarrateRequest(BaseModel):
@@ -31,7 +35,18 @@ class NarrateResponse(BaseModel):
 
 @router.get("/status")
 async def tts_status():
-    return _model_state
+    return state_snapshot()
+
+
+@router.post("/reload")
+async def tts_reload():
+    """Retry loading the model after an error (e.g. VRAM was busy)."""
+    language_id = str(config_value("language_id", "en") or "en")
+    try:
+        language_id = validate_language_id(language_id)
+    except ValueError:
+        language_id = "en"
+    return request_reload(language_id)
 
 
 @router.post("/narrate", response_model=NarrateResponse)
@@ -47,7 +62,7 @@ async def narrate(request: NarrateRequest):
     loop = asyncio.get_running_loop()
     try:
         audio_url = await loop.run_in_executor(
-            _executor,
+            TTS_EXECUTOR,
             narrate_text,
             text,
             session_id,

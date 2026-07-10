@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getVoices, uploadVoice } from '../utils/api';
 import { recordStreamToWav } from '../utils/wav';
 import { useToast } from './Toast';
@@ -15,15 +15,41 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
     const recorderRef = useRef(null);
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
+    // Avoid re-clearing the same missing id (prevents update loops).
+    const clearedMissingRef = useRef(null);
 
-    const fetchVoices = async () => {
+    const validateActiveVoice = useCallback(
+        (list, voiceId) => {
+            if (!voiceId) {
+                clearedMissingRef.current = null;
+                return;
+            }
+            if (list.some((v) => v.id === voiceId)) {
+                clearedMissingRef.current = null;
+                return;
+            }
+            // Saved voice was deleted since the previous session (or refresh).
+            if (clearedMissingRef.current === voiceId) {
+                return;
+            }
+            clearedMissingRef.current = voiceId;
+            onVoiceChange(null);
+        },
+        [onVoiceChange]
+    );
+
+    const fetchVoices = useCallback(async () => {
         try {
             const data = await getVoices();
             setVoices(data);
+            validateActiveVoice(data, activeVoiceId);
+            return data;
         } catch (error) {
             console.error(error);
+            toast.error('Could not load voices. Is the backend still starting?');
+            return null;
         }
-    };
+    }, [activeVoiceId, toast, validateActiveVoice]);
 
     useEffect(() => {
         fetchVoices();
@@ -32,7 +58,15 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
                 streamRef.current.getTracks().forEach((t) => t.stop());
             }
         };
+        // Mount-only: voice list is revalidated when activeVoiceId changes below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Revalidate after async config restores a saved voice (or user selection).
+    useEffect(() => {
+        if (!voices.length) return;
+        validateActiveVoice(voices, activeVoiceId);
+    }, [activeVoiceId, voices, validateActiveVoice]);
 
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];

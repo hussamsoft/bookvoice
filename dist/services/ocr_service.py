@@ -5,6 +5,7 @@ from io import BytesIO
 import numpy as np
 from PIL import Image
 
+from services.config_service import config_value
 from services.path_utils import MAX_OCR_IMAGE_BYTES
 
 _reader = None
@@ -23,10 +24,12 @@ def get_reader(languages=None):
     import easyocr
     import torch
 
-    use_gpu = (
-        os.getenv("OCR_USE_GPU", "false").lower() == "true"
-        and torch.cuda.is_available()
-    )
+    env_gpu = os.getenv("OCR_USE_GPU", "").strip().lower()
+    if env_gpu in ("true", "false"):
+        want_gpu = env_gpu == "true"
+    else:
+        want_gpu = bool(config_value("ocr_use_gpu", False))
+    use_gpu = want_gpu and torch.cuda.is_available()
     print(f"Loading EasyOCR model (gpu={use_gpu}, langs={langs})...")
     _reader = easyocr.Reader(langs, gpu=use_gpu)
     _reader_langs = langs
