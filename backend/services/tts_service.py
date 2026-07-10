@@ -539,6 +539,12 @@ def state_snapshot() -> dict:
     started = _model_state.get("loading_started")
     if snap.get("status") == "loading" and started:
         snap["elapsed_s"] = int(time.time() - started)
+    try:
+        from services.alignment_service import alignment_mode
+
+        snap["alignment_mode"] = alignment_mode()
+    except Exception:  # noqa: BLE001 - status must never fail
+        snap["alignment_mode"] = "estimate"
     return snap
 
 
@@ -762,8 +768,8 @@ def _synthesize_audio(
         word_timings = align_words(text, output_path, language_id)
         if word_timings:
             result["word_timings"] = word_timings
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - alignment is optional; timing falls back
+        _log(f"Forced alignment skipped, falling back to estimates: {exc}")
 
     return result
 

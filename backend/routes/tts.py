@@ -11,6 +11,7 @@ from services.path_utils import (
     validate_text_length,
 )
 from services.config_service import config_value
+from services.alignment_service import alignment_mode
 from services.tts_service import (
     TtsPriority,
     narrate_text,
@@ -57,6 +58,7 @@ class NarrateResponse(BaseModel):
     segments: list[NarrateSegment] = []
     duration_s: float = 0.0
     word_timings: list[WordTiming] = []
+    alignment_mode: str = "estimate"
 
 
 def _priority_from_str(value: str) -> TtsPriority:
@@ -79,6 +81,7 @@ def _build_response(result: dict) -> NarrateResponse:
             for w in word_timings
             if isinstance(w, dict) and "word" in w
         ],
+        alignment_mode=alignment_mode(),
     )
 
 

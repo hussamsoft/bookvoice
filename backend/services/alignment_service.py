@@ -1,6 +1,7 @@
 """Optional forced-alignment for word-level timestamps via Whisper."""
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import re
@@ -9,6 +10,20 @@ _log = logging.getLogger(__name__)
 
 _whisper_model = None
 _whisper_lock = __import__("threading").Lock()
+
+
+def alignment_mode() -> str:
+    """Report how word timings are being produced.
+
+    Returns one of:
+      - "disabled": DISABLED_FORCED_ALIGNMENT is set.
+      - "whisper":   the openai-whisper package is importable (real alignment).
+      - "estimate":  whisper is unavailable; timings come from client-side estimates.
+    """
+    if os.getenv("DISABLE_FORCED_ALIGNMENT", "").strip().lower() in ("1", "true", "yes"):
+        return "disabled"
+    return "whisper" if importlib.util.find_spec("whisper") is not None else "estimate"
+
 
 
 def _normalize_word(w: str) -> str:
