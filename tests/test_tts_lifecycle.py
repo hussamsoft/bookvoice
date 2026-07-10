@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -67,18 +68,19 @@ class TtsLifecycleTests(unittest.TestCase):
     def test_request_reload_from_error_to_loading(self):
         self.tts._model_state["status"] = "error"
         self.tts._model_state["detail"] = "boom"
-        with patch.object(self.tts.TTS_EXECUTOR, "submit") as submit:
+        with patch.object(self.tts, "submit_tts") as submit:
             snap = self.tts.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         self.assertIn("eload", snap["detail"].lower())
         submit.assert_called_once()
         args, _kwargs = submit.call_args
-        self.assertEqual(args[0], self.tts.preload_model)
-        self.assertEqual(args[1], "en")
+        self.assertEqual(args[0], self.tts.TtsPriority.INTERACTIVE)
+        self.assertEqual(args[1], self.tts.preload_model)
+        self.assertEqual(args[2], "en")
 
     def test_request_reload_from_idle(self):
         self.tts._model_state["status"] = "idle"
-        with patch.object(self.tts.TTS_EXECUTOR, "submit") as submit:
+        with patch.object(self.tts, "submit_tts") as submit:
             snap = self.tts.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         submit.assert_called_once()
@@ -87,14 +89,14 @@ class TtsLifecycleTests(unittest.TestCase):
         self.tts._model_state["status"] = "loading"
         self.tts._model_state["detail"] = "already"
         self.tts._model_state["loading_started"] = time.time()
-        with patch.object(self.tts.TTS_EXECUTOR, "submit") as submit:
+        with patch.object(self.tts, "submit_tts") as submit:
             snap = self.tts.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         submit.assert_not_called()
 
     def test_reload_while_ready_does_not_queue(self):
         self.tts._model_state["status"] = "ready"
-        with patch.object(self.tts.TTS_EXECUTOR, "submit") as submit:
+        with patch.object(self.tts, "submit_tts") as submit:
             snap = self.tts.request_reload("en")
         self.assertEqual(snap["status"], "ready")
         submit.assert_not_called()
@@ -110,6 +112,20 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertEqual(snap["status"], "error")
         self.assertIn("CUDA OOM", snap["detail"])
         self.assertNotIn("loading_started", snap)
+
+    def test_session_cleanup_completes_without_synthesis_state(self):
+        """Cleanup is independent from narration locals and returns nothing."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sessions_dir = Path(temp_dir) / "sessions"
+            sessions_dir.mkdir()
+            with patch.object(
+                self.tts,
+                "_data_dirs",
+                return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(sessions_dir)),
+            ):
+                result = self.tts.maybe_cleanup_sessions(force=True)
+
+        self.assertIsNone(result)
 
     def test_narrate_failure_does_not_stick_on_generating(self):
         model = MagicMock()
@@ -161,6 +177,17 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(result["segments"][0]["end_s"], 0.5)
         self.assertAlmostEqual(result["segments"][1]["start_s"], 0.5)
         self.assertAlmostEqual(result["duration_s"], 1.0)
+
+    def test_audio_filename_changes_with_voice_language_and_text(self):
+        base = self.tts._audio_filename(2, "hello", "voice-a", "en", None)
+        other_voice = self.tts._audio_filename(2, "hello", "voice-b", "en", None)
+        other_language = self.tts._audio_filename(2, "hello", "voice-a", "ar", None)
+        other_text = self.tts._audio_filename(2, "goodbye", "voice-a", "en", None)
+
+        self.assertEqual(base, self.tts._audio_filename(2, "hello", "voice-a", "en", None))
+        self.assertEqual(len({base, other_voice, other_language, other_text}), 4)
+        self.assertTrue(base.startswith("page_2_"))
+        self.assertTrue(base.endswith(".wav"))
 
 
 class KillStaleServersTests(unittest.TestCase):

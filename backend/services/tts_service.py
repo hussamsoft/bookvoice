@@ -1,11 +1,15 @@
 import gc
+import hashlib
 import os
 import re
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+import uuid
+from concurrent.futures import Future
+from enum import IntEnum
 from pathlib import Path
+from queue import PriorityQueue
 
 import torch
 import torchaudio as ta
@@ -20,11 +24,57 @@ from services.path_utils import (
     validate_voice_id,
 )
 
-# Single dedicated thread for ALL torch/CUDA work (preload, model switches and
-# generation). Splitting CUDA calls across ad-hoc threads has caused
-# hard-to-reproduce load hangs on Windows, so every entry point must funnel
-# through this executor.
-TTS_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
+# Priority levels for TTS jobs (lower number = higher priority).
+class TtsPriority(IntEnum):
+    INTERACTIVE = 0  # word pronounce, voice-switch partials
+    CURRENT = 1      # active page narration
+    PREFETCH = 2     # background prefetch
+
+
+_tts_job_queue: PriorityQueue | None = None
+_tts_queue_lock = threading.Lock()
+_tts_seq = 0
+_tts_worker_started = False
+
+
+def _next_tts_seq() -> int:
+    global _tts_seq
+    with _tts_queue_lock:
+        _tts_seq += 1
+        return _tts_seq
+
+
+def _tts_queue_worker() -> None:
+    while True:
+        _priority, _seq, fn, args, kwargs, future = _tts_job_queue.get()  # type: ignore[union-attr]
+        try:
+            if not future.cancelled():
+                result = fn(*args, **kwargs)
+                future.set_result(result)
+        except Exception as exc:
+            if not future.cancelled():
+                future.set_exception(exc)
+        finally:
+            _tts_job_queue.task_done()  # type: ignore[union-attr]
+
+
+def _ensure_tts_worker() -> None:
+    global _tts_job_queue, _tts_worker_started
+    with _tts_queue_lock:
+        if _tts_worker_started:
+            return
+        _tts_job_queue = PriorityQueue()
+        threading.Thread(target=_tts_queue_worker, name="tts-priority", daemon=True).start()
+        _tts_worker_started = True
+
+
+def submit_tts(priority: TtsPriority, fn, *args, **kwargs) -> Future:
+    """Submit a TTS job with priority (lower = sooner). Returns a Future."""
+    _ensure_tts_worker()
+    future: Future = Future()
+    seq = _next_tts_seq()
+    _tts_job_queue.put((int(priority), seq, fn, args, kwargs, future))  # type: ignore[union-attr]
+    return future
 
 _model = None
 _model_type = None
@@ -513,7 +563,7 @@ def request_reload(language_id: str = "en") -> dict:
         _model_state["detail"] = "Reloading model..."
         _model_state["loading_started"] = time.time()
     # Submit outside the lock so preload_model → get_model can acquire it.
-    TTS_EXECUTOR.submit(preload_model, language_id)
+    submit_tts(TtsPriority.INTERACTIVE, preload_model, language_id)
     return state_snapshot()
 
 
@@ -604,10 +654,16 @@ def maybe_cleanup_sessions(force: bool = False) -> None:
             _log(f"Session cleanup skipped for {name}: {e}")
 
 
-def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
+def _synthesize_audio(
+    text: str,
+    session_id: str,
+    filename: str,
+    voice_id=None,
+    language_id: str = "en",
+) -> dict:
+    """Core TTS synthesis; writes WAV to session dir with the given filename."""
     text = validate_text_length(text)
     session_id = validate_session_id(session_id)
-    page_index = validate_page_index(page_index)
     language_id = validate_language_id(language_id)
 
     maybe_cleanup_sessions()
@@ -631,13 +687,12 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
     chunks = _split_into_chunks(text)
     total = len(chunks)
     wav_parts: list[torch.Tensor] = []
-    # Real per-chunk durations (seconds) for client word-highlight alignment.
     segment_meta: list[dict] = []
     device = getattr(model, "device", _resolve_device())
     sr = float(getattr(model, "sr", 24000) or 24000)
 
     _log(
-        f"[tts] narrate page={page_index} chars={len(text)} chunks={total} "
+        f"[tts] synthesize file={filename} chars={len(text)} chunks={total} "
         f"device={device} lang={language_id}"
     )
 
@@ -651,8 +706,6 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
                 )
                 kwargs = dict(generate_kwargs)
-                # First chunk of a narrate call prepares (or reuses cached) voice;
-                # later chunks keep the loaded conditionals without re-encoding.
                 if i > 0:
                     kwargs.pop("audio_prompt_path", None)
                 elif i == 0 and audio_prompt_path:
@@ -676,8 +729,6 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
                 cursor_s += dur
                 wav_parts.append(part)
         except Exception as e:
-            # Model is still loaded; leave it usable. Never stick on "generating"
-            # or Reload will refuse to queue and the UI will poll forever.
             _model_state["status"] = "ready"
             _model_state["detail"] = (
                 f"Model ready on {str(device).upper()} "
@@ -692,16 +743,82 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
 
     output_dir = safe_join(sessions_dir, session_id)
     os.makedirs(output_dir, exist_ok=True)
-
-    filename = f"page_{page_index}.wav"
     output_path = safe_join(output_dir, filename)
 
     if wav.dim() == 1:
         wav = wav.unsqueeze(0)
     ta.save(output_path, wav, model.sr)
 
-    return {
+    result = {
         "audio_url": f"/sessions/{session_id}/{filename}",
         "segments": segment_meta,
         "duration_s": round(float(wav.shape[-1]) / sr, 4) if sr > 0 else 0.0,
     }
+
+    # Optional forced alignment (Whisper) for accurate word timestamps.
+    try:
+        from services.alignment_service import align_words
+
+        word_timings = align_words(text, output_path, language_id)
+        if word_timings:
+            result["word_timings"] = word_timings
+    except Exception:
+        pass
+
+    return result
+
+
+def narrate_text(
+    text,
+    session_id,
+    page_index,
+    voice_id=None,
+    language_id="en",
+    clip_suffix: str | None = None,
+):
+    session_id = validate_session_id(session_id)
+    page_index = validate_page_index(page_index)
+    language_id = validate_language_id(language_id)
+    filename = _audio_filename(
+        page_index,
+        text,
+        voice_id,
+        language_id,
+        clip_suffix,
+    )
+
+    return _synthesize_audio(text, session_id, filename, voice_id, language_id)
+
+
+def _audio_filename(
+    page_index: int,
+    text: str,
+    voice_id: str | None,
+    language_id: str,
+    clip_suffix: str | None,
+) -> str:
+    """Return an immutable filename for one narration input revision."""
+    identity = "\0".join(
+        (
+            str(page_index),
+            text,
+            voice_id or "default",
+            language_id,
+            str(clip_suffix or ""),
+        )
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    partial = ""
+    if clip_suffix:
+        safe_suffix = re.sub(r"[^a-zA-Z0-9_-]", "", str(clip_suffix))[:24]
+        if safe_suffix:
+            partial = f"_p{safe_suffix}"
+    return f"page_{page_index}{partial}_{digest}.wav"
+
+
+def pronounce_text(text, session_id, voice_id=None, language_id="en"):
+    """Short interactive clip for word pronunciation (no page_index)."""
+    session_id = validate_session_id(session_id)
+    clip_id = uuid.uuid4().hex[:12]
+    filename = f"clip_{clip_id}.wav"
+    return _synthesize_audio(text, session_id, filename, voice_id, language_id)

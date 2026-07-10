@@ -16,6 +16,8 @@ Full release (dist + MSI):  python build.py --msi
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -34,6 +36,38 @@ ROOT = Path(__file__).resolve().parent
 FRONTEND = ROOT / "frontend"
 BACKEND = ROOT / "backend"
 DIST = ROOT / "dist"
+
+
+def tree_fingerprint(root: Path, excluded_top_level: set[str] | None = None) -> str:
+    """Hash relative paths and bytes for deterministic release provenance."""
+    excluded = excluded_top_level or set()
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in excluded:
+            continue
+        if "__pycache__" in relative.parts or path.suffix in {".pyc", ".pyo"}:
+            continue
+        digest.update(relative.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def write_release_manifest(
+    target: Path,
+    version: str,
+    source_dir: Path,
+    static_dir: Path,
+) -> dict:
+    payload = {
+        "version": version.strip(),
+        "source_sha256": tree_fingerprint(source_dir, {"data", "static"}),
+        "static_sha256": tree_fingerprint(static_dir),
+    }
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 REQUIREMENTS = """\
 fastapi==0.139.0
@@ -172,6 +206,12 @@ def assemble_dist():
     (DIST / "requirements.txt").write_text(REQUIREMENTS, encoding="utf-8")
     (DIST / "RUN.md").write_text(RUN_MD, encoding="utf-8")
     shutil.copy2(ROOT / "VERSION", DIST / "VERSION")
+    write_release_manifest(
+        DIST / "release-manifest.json",
+        (ROOT / "VERSION").read_text(encoding="utf-8"),
+        BACKEND,
+        DIST / "static",
+    )
 
     # No .env in the package: the MSI already excludes it, and user settings
     # now live in %LocalAppData%\BookVoice\data\config.json. Keep an example
@@ -308,6 +348,7 @@ def validate():
     required = [
         "main.py",
         "VERSION",
+        "release-manifest.json",
         "requirements.txt",
         "setup_venv.bat",
         "fix_cuda_torch.bat",
@@ -329,6 +370,21 @@ def validate():
         p = DIST / rel
         if not p.exists():
             errors.append(f"required missing: {rel}")
+
+    source_pairs = [(BACKEND / "main.py", DIST / "main.py")]
+    for source_dir in (BACKEND / "routes", BACKEND / "services"):
+        for source in source_dir.glob("*.py"):
+            source_pairs.append((source, DIST / source_dir.name / source.name))
+    for source, packaged in source_pairs:
+        if not packaged.is_file() or source.read_bytes() != packaged.read_bytes():
+            errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
+
+    if (FRONTEND / "dist").is_dir():
+        frontend_hash = tree_fingerprint(FRONTEND / "dist")
+        dist_hash = tree_fingerprint(DIST / "static")
+        backend_hash = tree_fingerprint(BACKEND / "static")
+        if frontend_hash != dist_hash or dist_hash != backend_hash:
+            errors.append("frontend/dist, dist/static and backend/static are not identical")
 
     # Parity with the MSI payload: no runtime state in the package
     for forbidden in (".env", "data/voices", "data/sessions"):

@@ -25,7 +25,7 @@ load_dotenv()
 
 from routes import config, ocr, translation, tts, voices
 from services.path_utils import safe_join
-from services.tts_service import TTS_EXECUTOR, preload_model
+from services.tts_service import TtsPriority, preload_model, submit_tts
 
 # Seed default voices on startup (paths resolved from env at call time).
 try:
@@ -66,7 +66,7 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 async def lifespan(app: FastAPI):
     # Preload on the dedicated TTS thread — the same thread that serves
     # narration — so CUDA is only ever touched from one thread.
-    TTS_EXECUTOR.submit(preload_model, "en")
+    submit_tts(TtsPriority.CURRENT, preload_model, "en")
     yield
 
 
