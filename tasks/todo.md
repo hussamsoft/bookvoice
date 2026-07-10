@@ -9,8 +9,8 @@ Work in this order. Do not begin product additions until the stabilization and p
 ## Phase 0 — truth and baselines
 
 - [x] Task 1: make full test discovery safe and enforce source/static/dist release provenance.
-- [ ] Task 2: add English/Arabic PDF, scan, layout, audio timing, and performance fixtures. *(open — future perf-fixture suite)*
-- [x] Record cold/warm baseline JSON on the target machine. *(bundle-size baseline: tasks/bundle-baseline.json; full cold/warm perf JSON pending Task 2)*
+- [x] Task 2: add English/Arabic PDF, scan, layout, audio timing, and performance fixtures. *(scripts/make_fixtures.py generates tests/fixtures/*; scripts/benchmark.py writes tasks/perf-baseline.json in offline-mock mode with a --real flag for GPU runs)*
+- [x] Record cold/warm baseline JSON on the target machine. *(bundle: tasks/bundle-baseline.json; TTS pipeline: tasks/perf-baseline.json)*
 
 ## Phase 1 — correctness
 

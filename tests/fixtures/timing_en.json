@@ -1,0 +1,41 @@
+{
+  "file": "timing_en.wav",
+  "sample_rate": 24000,
+  "words": [
+    {
+      "word": "The",
+      "start_s": 0.0,
+      "end_s": 0.18
+    },
+    {
+      "word": "lighthouse",
+      "start_s": 0.23,
+      "end_s": 0.85
+    },
+    {
+      "word": "stood",
+      "start_s": 0.9,
+      "end_s": 1.2
+    },
+    {
+      "word": "at",
+      "start_s": 1.25,
+      "end_s": 1.39
+    },
+    {
+      "word": "the",
+      "start_s": 1.44,
+      "end_s": 1.6
+    },
+    {
+      "word": "edge",
+      "start_s": 1.65,
+      "end_s": 1.99
+    },
+    {
+      "word": "cliff",
+      "start_s": 2.04,
+      "end_s": 2.52
+    }
+  ]
+}
