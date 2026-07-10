@@ -29,8 +29,13 @@ export default React.memo(function Transcript({
             `[data-word-index="${currentWord}"]`
         );
         if (!el) return;
+        const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         try {
-            el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+            el.scrollIntoView({
+                block: 'center',
+                inline: 'nearest',
+                behavior: prefersReduced ? 'auto' : 'smooth',
+            });
         } catch {
             /* ignore */
         }
@@ -45,6 +50,13 @@ export default React.memo(function Transcript({
             });
         } finally {
             setPronouncing(null);
+        }
+    };
+
+    const handleWordKeyDown = (event, index, word) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+            event.preventDefault();
+            handleWordClick(index, word);
         }
     };
 
@@ -93,9 +105,17 @@ export default React.memo(function Transcript({
                             } ${isHovered ? 'hovered' : ''} ${
                                 isPronouncing ? 'pronouncing' : ''
                             }`}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => handleWordClick(i, word)}
+                            onKeyDown={(e) => handleWordKeyDown(e, i, word)}
                             onMouseEnter={() => setHoveredWord(i)}
                             onMouseLeave={() => setHoveredWord(null)}
+                            aria-label={
+                                isPlaying
+                                    ? `Jump to word ${i + 1}: ${word}`
+                                    : `Hear word ${i + 1}: ${word}`
+                            }
                             title={
                                 isPlaying
                                     ? 'Jump to this word'

@@ -120,6 +120,7 @@ export default function PdfViewer({ onDirty }) {
     const playlistIndexRef = useRef(0); // current chunk index in the playlist
     const streamAbortRef = useRef(null); // AbortController for an in-flight stream
     const advancePlaylistRef = useRef(() => {}); // set by the streaming effect
+    const handlePlayRef = useRef(() => {});
     const transport = useAudioTransport(audioRef);
 
     langRef.current = targetLanguage;
@@ -213,6 +214,46 @@ export default function PdfViewer({ onDirty }) {
     useEffect(() => {
         setPageJumpInput(String(pageNumber));
     }, [pageNumber]);
+
+    // Propagate narration language to the document direction for RTL/LTR chrome.
+    useEffect(() => {
+        const previousDir = document.documentElement.dir;
+        const previousLang = document.documentElement.lang;
+        document.documentElement.dir = targetLanguage === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = targetLanguage || 'en';
+        return () => {
+            document.documentElement.dir = previousDir;
+            document.documentElement.lang = previousLang;
+        };
+    }, [targetLanguage]);
+
+    // Keyboard shortcuts: Space = play/pause, ←/→ = seek ±10s.
+    // Ignored while typing in inputs/textareas/contenteditable.
+    useEffect(() => {
+        const handler = (e) => {
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (e.target?.isContentEditable) return;
+            const audio = audioRef.current;
+            if (!audio) return;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handlePlayRef.current();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const t = Math.max(0, (audio.currentTime || 0) - 10);
+                audio.currentTime = t;
+                syncHighlightAt(t);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                const t = Math.min(audio.duration || Infinity, (audio.currentTime || 0) + 10);
+                audio.currentTime = t;
+                syncHighlightAt(t);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [syncHighlightAt]);
 
     useEffect(() => {
         if (!documentId) return undefined;
@@ -453,7 +494,7 @@ export default function PdfViewer({ onDirty }) {
 
             // Playlist advance: called by the `ended` handler when a chunk ends.
             advancePlaylistRef.current = () => {
-                const playlist = buildPlaylist(collectedChunks);
+                const playlist = buildPlaylist(playlistRef.current);
                 const next = nextChunkIndex(playlist, playlistIndexRef.current);
                 if (next == null) return false;
                 const chunk = playlist.chunks[next];
@@ -475,6 +516,7 @@ export default function PdfViewer({ onDirty }) {
                     onChunk: async (event) => {
                         if (event.type === 'chunk') {
                             collectedChunks.push(event);
+                            playlistRef.current = collectedChunks;
                             // Preload the next chunk while the current one plays.
                             const playlist = buildPlaylist(collectedChunks);
                             const next = nextChunkIndex(playlist, event.index);
@@ -820,6 +862,7 @@ export default function PdfViewer({ onDirty }) {
             toast.error(error.message);
         }
     };
+    handlePlayRef.current = handlePlay;
 
     const handleResume = async () => {
         setShowResumeChoice(false);
@@ -1395,6 +1438,7 @@ export default function PdfViewer({ onDirty }) {
                                 onClick={handleForceOcr}
                                 disabled={isGenerating || isOcring}
                                 title="OCR this page"
+                                aria-label="Re-run OCR on this page"
                             >
                                 {isOcring ? (
                                     <Loader2 className="spinner" size={15} />
@@ -1406,6 +1450,8 @@ export default function PdfViewer({ onDirty }) {
                                 className="btn secondary btn-compact"
                                 onClick={() => goToPage(pageNumber - 1)}
                                 disabled={pageNumber <= 1}
+                                aria-label="Previous page"
+                                title="Previous page"
                             >
                                 <ChevronUp size={15} />
                             </button>
@@ -1430,6 +1476,8 @@ export default function PdfViewer({ onDirty }) {
                                 className="btn secondary btn-compact"
                                 onClick={() => goToPage(pageNumber + 1)}
                                 disabled={pageNumber >= numPages}
+                                aria-label="Next page"
+                                title="Next page"
                             >
                                 <ChevronDown size={15} />
                             </button>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { pronounceText } from './api';
+import { narrateTextStream, pronounceText } from './api';
 
 describe('pronounceText', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -22,5 +22,26 @@ describe('pronounceText', () => {
       voice_id: 'voice-a',
     });
     expect(body).not.toHaveProperty('page_index');
+  });
+});
+
+describe('narrateTextStream', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('awaits chunk handling and rejects an error event', async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"type":"chunk","url":"/sessions/s/one.wav"}\n'));
+        controller.enqueue(encoder.encode('{"type":"error","detail":"model failed"}\n'));
+        controller.close();
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, body })));
+    const onChunk = vi.fn(async () => {});
+
+    await expect(narrateTextStream('text', 'session-1', 1, null, 'en', { onChunk }))
+      .rejects.toThrow('model failed');
+    expect(onChunk).toHaveBeenCalledTimes(2);
   });
 });

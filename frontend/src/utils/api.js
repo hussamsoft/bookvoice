@@ -211,8 +211,11 @@ export async function narrateTextStream(
             const event = JSON.parse(line);
             if (event.url) event.url = `${AUDIO_BASE_URL}${event.url}`;
             if (event.audio_url) event.audio_url = `${AUDIO_BASE_URL}${event.audio_url}`;
-            onChunk(event);
-            if (event.type === 'done' || event.type === 'error' || event.type === 'cancelled') {
+            await onChunk(event);
+            if (event.type === 'error') {
+                throw new Error(event.detail || 'Narration stream failed');
+            }
+            if (event.type === 'done' || event.type === 'cancelled') {
                 return event;
             }
         }
