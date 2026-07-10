@@ -35,7 +35,7 @@ Work in this order. Do not begin product additions until the stabilization and p
 - [x] Task 13: separate original, edited, translated, source-language, target-language, and narration-language state.
 - [x] Task 14a: persist reading position and session state.
 - [x] Task 14b: add bookmarks and continue-reading.
-- [~] Task 14c: add search/outline and audio export as independent slices. *(embedded-text search shipped; audio export not yet wired)*
+- [x] Task 14c: add search/outline and audio export as independent slices. *(embedded-text search shipped; cached canonical full-page audio can be exported from page 1 through the current page; missing pages are reported rather than silently omitted)*
 - [x] Task 15: simplify settings and centralize voice management/device diagnostics.
 
 ## Phase 4 — release

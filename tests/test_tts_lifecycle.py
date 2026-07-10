@@ -1,6 +1,7 @@
 """TTS status/reload lifecycle tests — never load the real model or CUDA."""
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import time
@@ -319,6 +320,41 @@ class TtsLifecycleTests(unittest.TestCase):
                                         )
 
         self.assertEqual(count["n"], 1)
+
+    def test_export_cached_pages_concatenates_latest_full_page_audio(self):
+        """Export uses one canonical full-page WAV per requested page, never chunks."""
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sessions_dir = Path(temp_dir) / "sessions"
+            session_dir = sessions_dir / "session1"
+            session_dir.mkdir(parents=True)
+            # Page 1 has two revisions; the newest full-page file must win.
+            old = session_dir / "page_1_aaaaaaaaaaaaaaaa.wav"
+            latest = session_dir / "page_1_bbbbbbbbbbbbbbbb.wav"
+            page_two = session_dir / "page_2_cccccccccccccccc.wav"
+            chunk = session_dir / "page_2_c0_cccccccccccccccc.wav"
+            for path in (old, latest, page_two, chunk):
+                path.touch()
+            os.utime(old, (1, 1))
+            os.utime(latest, (2, 2))
+
+            fake_wav = torch.zeros(1, 120)
+            with patch.object(
+                self.tts,
+                "_data_dirs",
+                return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(sessions_dir)),
+            ):
+                with patch.object(self.tts.ta, "load", return_value=(fake_wav, 24000)) as load:
+                    with patch.object(self.tts.ta, "save") as save:
+                        result = self.tts.export_cached_pages("session1", 1, 2)
+
+        self.assertEqual(load.call_count, 2)
+        self.assertEqual(load.call_args_list[0].args[0], str(latest))
+        self.assertEqual(load.call_args_list[1].args[0], str(page_two))
+        self.assertTrue(result["audio_url"].startswith("/sessions/session1/export_1-2_"))
+        self.assertEqual(result["pages"], [1, 2])
+        save.assert_called_once()
 
 
 class KillStaleServersTests(unittest.TestCase):

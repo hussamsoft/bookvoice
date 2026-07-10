@@ -1021,3 +1021,68 @@ def narrate_text_streaming(
 
     result["type"] = "done"
     yield result
+
+
+def export_cached_pages(session_id, start_page, end_page):
+    """Concatenate the newest canonical full-page WAV for each requested page.
+
+    Export deliberately operates only on completed full-page cache files. Chunk
+    files and partial clips are excluded, and pages without an audio cache entry
+    produce an actionable error instead of silently creating an incomplete book.
+    """
+    session_id = validate_session_id(session_id)
+    start_page = validate_page_index(start_page)
+    end_page = validate_page_index(end_page)
+    if end_page < start_page:
+        raise ValueError("end_page must be greater than or equal to start_page.")
+
+    _, _, sessions_dir = _data_dirs()
+    session_dir = safe_join(sessions_dir, session_id)
+    if not os.path.isdir(session_dir):
+        raise FileNotFoundError("No cached audio exists for this reading session.")
+
+    full_page_re = re.compile(r"^page_(\d+)_([0-9a-f]{16})\.wav$")
+    newest_by_page = {}
+    for name in os.listdir(session_dir):
+        match = full_page_re.match(name)
+        if not match:
+            continue
+        page = int(match.group(1))
+        if not start_page <= page <= end_page:
+            continue
+        path = safe_join(session_dir, name)
+        previous = newest_by_page.get(page)
+        if previous is None or os.path.getmtime(path) > os.path.getmtime(previous):
+            newest_by_page[page] = path
+
+    pages = list(range(start_page, end_page + 1))
+    missing = [page for page in pages if page not in newest_by_page]
+    if missing:
+        missing_text = ", ".join(str(page) for page in missing)
+        raise FileNotFoundError(f"Generate audio for page(s) {missing_text} before exporting.")
+
+    wav_parts = []
+    sample_rate = None
+    source_names = []
+    for page in pages:
+        path = newest_by_page[page]
+        wav, rate = ta.load(path)
+        if sample_rate is None:
+            sample_rate = rate
+        elif rate != sample_rate:
+            raise ValueError("Cached pages use incompatible audio sample rates.")
+        wav_parts.append(wav)
+        source_names.append(os.path.basename(path))
+
+    combined = _concat_wavs(wav_parts)
+    if combined.dim() == 1:
+        combined = combined.unsqueeze(0)
+    digest = hashlib.sha256("\0".join(source_names).encode("utf-8")).hexdigest()[:12]
+    filename = f"export_{start_page}-{end_page}_{digest}.wav"
+    output_path = safe_join(session_dir, filename)
+    ta.save(output_path, combined, sample_rate)
+    return {
+        "audio_url": f"/sessions/{session_id}/{filename}",
+        "pages": pages,
+        "duration_s": round(float(combined.shape[-1]) / sample_rate, 4),
+    }

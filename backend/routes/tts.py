@@ -18,6 +18,7 @@ from services.tts_service import (
     GenerationCancelled,
     TtsPriority,
     bump_generation,
+    export_cached_pages,
     narrate_text,
     narrate_text_streaming,
     pronounce_text,
@@ -44,6 +45,18 @@ class PronounceRequest(BaseModel):
     session_id: str
     voice_id: str | None = None
     language_id: str = "en"
+
+
+class ExportRequest(BaseModel):
+    session_id: str
+    start_page: int
+    end_page: int
+
+
+class ExportResponse(BaseModel):
+    audio_url: str
+    pages: list[int]
+    duration_s: float
 
 
 class WordTiming(BaseModel):
@@ -176,6 +189,27 @@ async def cancel_generation():
     """Invalidate in-flight TTS work (page change / voice switch / document close)."""
     token = bump_generation()
     return {"cancelled_token": token}
+
+
+@router.post("/export", response_model=ExportResponse)
+async def export_audio(request: ExportRequest):
+    """Export already-generated, canonical full-page audio for an inclusive range."""
+    try:
+        session_id = validate_session_id(request.session_id)
+        start_page = validate_page_index(request.start_page)
+        end_page = validate_page_index(request.end_page)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    loop = asyncio.get_running_loop()
+    try:
+        future = submit_tts(TtsPriority.CURRENT, export_cached_pages, session_id, start_page, end_page)
+        result = await loop.run_in_executor(None, future.result)
+        return ExportResponse(**result)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/narrate-stream")

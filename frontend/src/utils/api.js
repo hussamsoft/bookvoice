@@ -155,6 +155,29 @@ export async function translateText(text, targetLang) {
     return data.translated_text;
 }
 
+/** Export the inclusive range of already-generated full-page audio for a session. */
+export async function exportCachedAudio(sessionId, startPage, endPage) {
+    const response = await fetch(`${API_BASE_URL}/tts/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            start_page: startPage,
+            end_page: endPage,
+        }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Could not export cached page audio'));
+    }
+    const data = await response.json();
+    return {
+        audioUrl: `${AUDIO_BASE_URL}${data.audio_url}`,
+        pages: Array.isArray(data.pages) ? data.pages : [],
+        duration_s: typeof data.duration_s === 'number' ? data.duration_s : 0,
+    };
+}
+
 /**
  * Stream per-chunk narration as NDJSON. Calls onChunk(event) for each line:
  *   {type:'chunk', index, total, url, text, start_s, end_s} per chunk, then

@@ -19,7 +19,7 @@ import {
     Download,
     Search,
 } from 'lucide-react';
-import { pronounceText, translateText, narrateTextStream } from '../utils/api';
+import { exportCachedAudio, pronounceText, translateText, narrateTextStream } from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
 import { createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
@@ -93,6 +93,7 @@ export default function PdfViewer({ onDirty }) {
     const [bookmarks, setBookmarks] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
@@ -864,6 +865,25 @@ export default function PdfViewer({ onDirty }) {
     };
     handlePlayRef.current = handlePlay;
 
+    const handleExportThroughCurrentPage = async () => {
+        if (!file || isExporting) return;
+        setIsExporting(true);
+        try {
+            const { audioUrl, pages } = await exportCachedAudio(sessionId, 1, pageNumber);
+            const link = document.createElement('a');
+            link.href = audioUrl;
+            link.download = `${(file.name || 'book').replace(/\.pdf$/i, '')}-pages-1-${pageNumber}.wav`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success(`Exported ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
+        } catch (error) {
+            toast.error(error?.message || 'Could not export cached page audio.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const handleResume = async () => {
         setShowResumeChoice(false);
         if (audioRef.current) {
@@ -1471,6 +1491,17 @@ export default function PdfViewer({ onDirty }) {
                                 >
                                     <Download size={15} />
                                 </a>
+                            ) : null}
+                            {pageNumber > 1 ? (
+                                <button
+                                    className="btn secondary btn-compact"
+                                    onClick={handleExportThroughCurrentPage}
+                                    disabled={isExporting}
+                                    aria-label={`Export cached audio for pages 1 through ${pageNumber}`}
+                                    title={`Export cached audio for pages 1–${pageNumber}`}
+                                >
+                                    {isExporting ? <Loader2 className="spinner" size={15} /> : <Download size={15} />}
+                                </button>
                             ) : null}
                             <button
                                 className="btn secondary btn-compact"

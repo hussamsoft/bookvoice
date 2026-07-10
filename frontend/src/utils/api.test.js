@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { narrateTextStream, pronounceText } from './api';
+import { exportCachedAudio, narrateTextStream, pronounceText } from './api';
 
 describe('pronounceText', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -43,5 +43,25 @@ describe('narrateTextStream', () => {
     await expect(narrateTextStream('text', 'session-1', 1, null, 'en', { onChunk }))
       .rejects.toThrow('model failed');
     expect(onChunk).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('exportCachedAudio', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('requests an inclusive page range and returns a usable audio URL', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ audio_url: '/sessions/s/export.wav', pages: [1, 2], duration_s: 4 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await exportCachedAudio('session-1', 1, 2);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      session_id: 'session-1', start_page: 1, end_page: 2,
+    });
+    expect(result.pages).toEqual([1, 2]);
+    expect(result.audioUrl).toContain('/sessions/s/export.wav');
   });
 });
