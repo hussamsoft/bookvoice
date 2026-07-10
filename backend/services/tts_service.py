@@ -92,6 +92,29 @@ _generate_lock = threading.Lock()
 _last_voice_prompt: str | None = None
 _last_voice_exaggeration: float | None = None
 
+# Cooperative generation cancellation: bumped on page change / voice switch /
+# document close so an in-flight multi-chunk synthesis can abort at the next
+# chunk boundary instead of blocking newer work.
+_generation_token = 0
+_generation_lock = threading.Lock()
+
+
+class GenerationCancelled(RuntimeError):
+    """Raised when a synthesis is superseded by a newer generation."""
+
+
+def bump_generation() -> int:
+    """Invalidate all in-flight generations; returns the new token value."""
+    global _generation_token
+    with _generation_lock:
+        _generation_token += 1
+        return _generation_token
+
+
+def _current_generation() -> int:
+    with _generation_lock:
+        return _generation_token
+
 # Chunk sizes — GPU can handle larger pieces (fewer slow generate() calls).
 _CHUNK_TARGET_CHARS_GPU = 480
 _CHUNK_HARD_MAX_GPU = 700
@@ -704,9 +727,16 @@ def _synthesize_audio(
 
     with _generate_lock:
         _model_state["status"] = "generating"
+        started_token = _current_generation()
         try:
             cursor_s = 0.0
             for i, chunk in enumerate(chunks):
+                # Cooperative cancellation: a newer generation (page change,
+                # voice switch, document close) supersedes this synthesis.
+                if _current_generation() != started_token:
+                    raise GenerationCancelled(
+                        f"generation {started_token} superseded by {_current_generation()}"
+                    )
                 _model_state["detail"] = (
                     f"Generating audio {i + 1}/{total} on {str(device).upper()}"
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
@@ -734,6 +764,11 @@ def _synthesize_audio(
                 )
                 cursor_s += dur
                 wav_parts.append(part)
+        except GenerationCancelled:
+            # Cancellation is not a failure: restore ready state and propagate.
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+            raise
         except Exception as e:
             _model_state["status"] = "ready"
             _model_state["detail"] = (
@@ -828,3 +863,226 @@ def pronounce_text(text, session_id, voice_id=None, language_id="en"):
     clip_id = uuid.uuid4().hex[:12]
     filename = f"clip_{clip_id}.wav"
     return _synthesize_audio(text, session_id, filename, voice_id, language_id)
+
+
+def narrate_text_streaming(
+    text,
+    session_id,
+    page_index,
+    voice_id=None,
+    language_id="en",
+):
+    """Generator yielding progressive chunk events for first-audio-early playback.
+
+    Yields dicts of shape {"type": "chunk", "index", "total", "url", "text",
+    "start_s", "end_s"} as each chunk is synthesized, then a final
+    {"type": "done", "audio_url", "segments", "duration_s", "word_timings"}.
+    Respects the cooperative generation token (raises GenerationCancelled).
+
+    The per-chunk files are saved immediately; the full-page concatenated file
+    is also saved at the end so the existing cache-hit path and alignment still
+    work unchanged.
+    """
+    text = validate_text_length(text)
+    session_id = validate_session_id(session_id)
+    page_index = validate_page_index(page_index)
+    language_id = validate_language_id(language_id)
+
+    maybe_cleanup_sessions()
+    model = get_model(language_id)
+    _, voices_dir, sessions_dir = _data_dirs()
+
+    audio_prompt_path = None
+    if voice_id:
+        safe_id = validate_voice_id(
+            "".join(c for c in voice_id if c.isalnum() or c in ("-", "_")).strip()
+        )
+        audio_prompt_path = safe_join(voices_dir, f"{safe_id}.wav")
+        if not os.path.exists(audio_prompt_path):
+            raise FileNotFoundError(f"Voice profile '{safe_id}' not found.")
+
+    generate_kwargs = {}
+    if audio_prompt_path:
+        generate_kwargs["audio_prompt_path"] = audio_prompt_path
+
+    chunks = _split_into_chunks(text)
+    total = len(chunks)
+    device = getattr(model, "device", _resolve_device())
+    sr = float(getattr(model, "sr", 24000) or 24000)
+
+    page_hash = hashlib.sha256(
+        "\0".join((str(page_index), text, voice_id or "default", language_id)).encode("utf-8")
+    ).hexdigest()[:16]
+
+    output_dir = safe_join(sessions_dir, session_id)
+    os.makedirs(output_dir, exist_ok=True)
+
+    _log(
+        f"[tts] stream file=page_{page_index}_{page_hash}.wav chars={len(text)} "
+        f"chunks={total} device={device} lang={language_id}"
+    )
+
+    wav_parts: list[torch.Tensor] = []
+    segment_meta: list[dict] = []
+    chunk_urls: list[str] = []
+
+    with _generate_lock:
+        _model_state["status"] = "generating"
+        started_token = _current_generation()
+        try:
+            cursor_s = 0.0
+            for i, chunk in enumerate(chunks):
+                if _current_generation() != started_token:
+                    raise GenerationCancelled(
+                        f"generation {started_token} superseded by {_current_generation()}"
+                    )
+                _model_state["detail"] = (
+                    f"Generating audio {i + 1}/{total} on {str(device).upper()}"
+                    + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
+                )
+                kwargs = dict(generate_kwargs)
+                if i > 0:
+                    kwargs.pop("audio_prompt_path", None)
+                elif i == 0 and audio_prompt_path:
+                    kwargs["force_prepare"] = False
+                part = _generate_chunk(model, chunk, language_id, **kwargs)
+                if isinstance(part, torch.Tensor):
+                    part = part.detach().cpu()
+                else:
+                    part = torch.as_tensor(part).cpu()
+                if part.dim() == 1:
+                    part = part.unsqueeze(0)
+                samples = int(part.shape[-1])
+                dur = samples / sr if sr > 0 else 0.0
+
+                # Save this chunk immediately so the client can play it now.
+                chunk_file = f"page_{page_index}_c{i}_{page_hash}.wav"
+                chunk_path = safe_join(output_dir, chunk_file)
+                if part.dim() == 1:
+                    save_part = part.unsqueeze(0)
+                else:
+                    save_part = part
+                ta.save(chunk_path, save_part, model.sr)
+
+                start_s = round(cursor_s, 4)
+                end_s = round(cursor_s + dur, 4)
+                chunk_url = f"/sessions/{session_id}/{chunk_file}"
+                chunk_urls.append(chunk_url)
+                segment_meta.append({"text": chunk, "start_s": start_s, "end_s": end_s})
+                cursor_s += dur
+                wav_parts.append(part)
+
+                yield {
+                    "type": "chunk",
+                    "index": i,
+                    "total": total,
+                    "url": chunk_url,
+                    "text": chunk,
+                    "start_s": start_s,
+                    "end_s": end_s,
+                }
+        except GenerationCancelled:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+            raise
+        except Exception as e:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = (
+                f"Model ready on {str(device).upper()} "
+                f"(last generation failed: {e})"
+            )
+            raise
+        else:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+
+    # Save the full concatenated file for cache hits + alignment.
+    wav = _concat_wavs(wav_parts)
+    if wav.dim() == 1:
+        wav = wav.unsqueeze(0)
+    full_filename = f"page_{page_index}_{page_hash}.wav"
+    full_path = safe_join(output_dir, full_filename)
+    ta.save(full_path, wav, model.sr)
+
+    result = {
+        "audio_url": f"/sessions/{session_id}/{full_filename}",
+        "segments": segment_meta,
+        "duration_s": round(float(wav.shape[-1]) / sr, 4) if sr > 0 else 0.0,
+    }
+
+    try:
+        from services.alignment_service import align_words
+
+        word_timings = align_words(text, full_path, language_id)
+        if word_timings:
+            result["word_timings"] = word_timings
+    except Exception as exc:  # noqa: BLE001 - alignment is optional
+        _log(f"Forced alignment skipped, falling back to estimates: {exc}")
+
+    result["type"] = "done"
+    yield result
+
+
+def export_cached_pages(session_id, start_page, end_page):
+    """Concatenate the newest canonical full-page WAV for each requested page.
+
+    Export deliberately operates only on completed full-page cache files. Chunk
+    files and partial clips are excluded, and pages without an audio cache entry
+    produce an actionable error instead of silently creating an incomplete book.
+    """
+    session_id = validate_session_id(session_id)
+    start_page = validate_page_index(start_page)
+    end_page = validate_page_index(end_page)
+    if end_page < start_page:
+        raise ValueError("end_page must be greater than or equal to start_page.")
+
+    _, _, sessions_dir = _data_dirs()
+    session_dir = safe_join(sessions_dir, session_id)
+    if not os.path.isdir(session_dir):
+        raise FileNotFoundError("No cached audio exists for this reading session.")
+
+    full_page_re = re.compile(r"^page_(\d+)_([0-9a-f]{16})\.wav$")
+    newest_by_page = {}
+    for name in os.listdir(session_dir):
+        match = full_page_re.match(name)
+        if not match:
+            continue
+        page = int(match.group(1))
+        if not start_page <= page <= end_page:
+            continue
+        path = safe_join(session_dir, name)
+        previous = newest_by_page.get(page)
+        if previous is None or os.path.getmtime(path) > os.path.getmtime(previous):
+            newest_by_page[page] = path
+
+    pages = list(range(start_page, end_page + 1))
+    missing = [page for page in pages if page not in newest_by_page]
+    if missing:
+        missing_text = ", ".join(str(page) for page in missing)
+        raise FileNotFoundError(f"Generate audio for page(s) {missing_text} before exporting.")
+
+    wav_parts = []
+    sample_rate = None
+    source_names = []
+    for page in pages:
+        path = newest_by_page[page]
+        wav, rate = ta.load(path)
+        if sample_rate is None:
+            sample_rate = rate
+        elif rate != sample_rate:
+            raise ValueError("Cached pages use incompatible audio sample rates.")
+        wav_parts.append(wav)
+        source_names.append(os.path.basename(path))
+
+    combined = _concat_wavs(wav_parts)
+    if combined.dim() == 1:
+        combined = combined.unsqueeze(0)
+    digest = hashlib.sha256("\0".join(source_names).encode("utf-8")).hexdigest()[:12]
+    filename = f"export_{start_page}-{end_page}_{digest}.wav"
+    output_path = safe_join(session_dir, filename)
+    ta.save(output_path, combined, sample_rate)
+    return {
+        "audio_url": f"/sessions/{session_id}/{filename}",
+        "pages": pages,
+        "duration_s": round(float(combined.shape[-1]) / sample_rate, 4),
+    }

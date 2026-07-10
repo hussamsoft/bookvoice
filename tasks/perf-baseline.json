@@ -1,0 +1,26 @@
+{
+  "machine": {
+    "machine": "HussamHPLaptop",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.5",
+    "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel"
+  },
+  "mode": "mock",
+  "phases": {
+    "full_page_mock": {
+      "phase": "full_page_mock",
+      "elapsed_s": 0.3623,
+      "peak_alloc_mib": 0.475
+    },
+    "page_switch_mock": {
+      "phase": "page_switch_mock",
+      "elapsed_s": 0.0153,
+      "peak_alloc_mib": 0.133
+    }
+  },
+  "vram": {
+    "total_mib": 8188.0,
+    "used_mib": 3187.0
+  },
+  "captured_at": "2026-07-10T15:32:15"
+}

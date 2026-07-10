@@ -24,8 +24,11 @@ vi.mock('./Toast', () => ({
 
 describe('PdfViewer Component', () => {
   it('renders upload state initially', () => {
-    render(<PdfViewer />);
+    const { unmount } = render(<PdfViewer />);
     expect(screen.getByText('Select PDF Book')).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute('dir', 'ltr');
+    expect(document.documentElement).toHaveAttribute('lang', 'en');
+    unmount();
   });
 
   it('renders the PDF control dock after the reading workspace', async () => {

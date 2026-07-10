@@ -46,6 +46,9 @@ export async function narrateText(
     });
 
     if (!response.ok) {
+        if (response.status === 499) {
+            throw new GenerationSupersededError();
+        }
         const error = await response.json().catch(() => ({}));
         throw new Error(detailMessage(error, 'Failed to narrate text'));
     }
@@ -152,12 +155,126 @@ export async function translateText(text, targetLang) {
     return data.translated_text;
 }
 
+/** Export the inclusive range of already-generated full-page audio for a session. */
+export async function exportCachedAudio(sessionId, startPage, endPage) {
+    const response = await fetch(`${API_BASE_URL}/tts/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            start_page: startPage,
+            end_page: endPage,
+        }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Could not export cached page audio'));
+    }
+    const data = await response.json();
+    return {
+        audioUrl: `${AUDIO_BASE_URL}${data.audio_url}`,
+        pages: Array.isArray(data.pages) ? data.pages : [],
+        duration_s: typeof data.duration_s === 'number' ? data.duration_s : 0,
+    };
+}
+
+/**
+ * Stream per-chunk narration as NDJSON. Calls onChunk(event) for each line:
+ *   {type:'chunk', index, total, url, text, start_s, end_s} per chunk, then
+ *   {type:'done', audio_url, segments, duration_s, word_timings, alignment_mode}.
+ * The first chunk arrives as soon as chunk 0 is synthesized. Supports an AbortSignal.
+ *
+ * @returns {Promise<void>} resolves when the stream completes or is aborted.
+ */
+export async function narrateTextStream(
+    text,
+    sessionId,
+    pageIndex,
+    voiceId = null,
+    languageId = 'en',
+    { clipSuffix = null, priority = 'current', onChunk = () => {} } = {},
+    signal
+) {
+    const requestBody = {
+        text,
+        session_id: sessionId,
+        page_index: pageIndex,
+        language_id: languageId,
+        priority,
+    };
+    if (voiceId) requestBody.voice_id = voiceId;
+    if (clipSuffix != null) requestBody.clip_suffix = String(clipSuffix);
+
+    const response = await fetch(`${API_BASE_URL}/tts/narrate-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal,
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Failed to stream narration'));
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            const event = JSON.parse(line);
+            if (event.url) event.url = `${AUDIO_BASE_URL}${event.url}`;
+            if (event.audio_url) event.audio_url = `${AUDIO_BASE_URL}${event.audio_url}`;
+            await onChunk(event);
+            if (event.type === 'error') {
+                throw new Error(event.detail || 'Narration stream failed');
+            }
+            if (event.type === 'done' || event.type === 'cancelled') {
+                return event;
+            }
+        }
+    }
+}
+
 export async function getTtsStatus() {
     const response = await fetch(`${API_BASE_URL}/tts/status`);
     if (!response.ok) {
         throw new Error('Failed to fetch TTS status');
     }
     return response.json();
+}
+
+/**
+ * Invalidate in-flight TTS work on the server (page change / voice switch /
+ * document close). Best-effort: never rejects so callers can fire-and-forget.
+ */
+export async function cancelGeneration() {
+    try {
+        await fetch(`${API_BASE_URL}/tts/cancel-generation`, { method: 'POST' });
+    } catch {
+        /* best-effort: the generation token will still age out */
+    }
+}
+
+/**
+ * Error raised when a narration is superseded by newer work (HTTP 499).
+ * Callers can check `err.isSuperseded` to distinguish cancellation from failure.
+ */
+export class GenerationSupersededError extends Error {
+    constructor(message = 'Narration was superseded by newer work') {
+        super(message);
+        this.name = 'GenerationSupersededError';
+        this.isSuperseded = true;
+    }
 }
 
 export async function reloadTtsModel() {

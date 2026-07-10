@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { narrateText } from '../utils/api';
+import { cancelGeneration, narrateText } from '../utils/api';
 import { stitchPartialTimings } from '../utils/timings';
 import { cacheKey } from '../utils/pageAudioCache';
 
@@ -28,17 +28,23 @@ export function usePageNarration({
             const partial = start > 0;
             const narrateBody = partial ? words.slice(start).join(' ') : text;
 
-            const result = await narrateText(
-                narrateBody,
-                sessionId,
-                pageNum,
-                voiceId,
-                languageId,
-                {
-                    clipSuffix: partial ? String(start) : null,
-                    priority: partial ? 'interactive' : priority,
-                }
-            );
+            let result;
+            try {
+                result = await narrateText(
+                    narrateBody,
+                    sessionId,
+                    pageNum,
+                    voiceId,
+                    languageId,
+                    {
+                        clipSuffix: partial ? String(start) : null,
+                        priority: partial ? 'interactive' : priority,
+                    }
+                );
+            } catch (err) {
+                if (err.isSuperseded) return null; // silently drop superseded work
+                throw err;
+            }
 
             const duration = result.duration_s || 0;
             let built = await buildTimings(
@@ -79,5 +85,13 @@ export function usePageNarration({
         [activeVoiceRef, buildTimings, cacheRef, langRef, sessionId]
     );
 
-    return { narratePage };
+    /**
+     * Tell the server to abort in-flight generation (page change / voice switch /
+     * document close). Fire-and-forget; prefetch already bumps its own generation.
+     */
+    const cancelGenerationOnServer = useCallback(() => {
+        cancelGeneration();
+    }, []);
+
+    return { narratePage, cancelGeneration: cancelGenerationOnServer };
 }

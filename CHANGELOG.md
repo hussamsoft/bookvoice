@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.0 - 2026-07-10
+
+### Added
+
+- Progressive TTS chunk streaming for earlier first audio, with cooperative cancellation and gap-safe playlist handling.
+- Cached multi-page audio export from page 1 through the current reader page.
+
+### Fixed
+
+- Wait for the backend health endpoint before opening the reader, preventing an initial false “Could not load voices” message during portable startup.
+- Completed keyboard, focus, reduced-motion, and RTL hardening for reader controls.
+
 ## 1.8.0 - 2026-07-10
 
 ### Added

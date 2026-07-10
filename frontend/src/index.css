@@ -809,6 +809,27 @@ body {
   .toast {
     animation: none;
   }
+  .highlight-active {
+    transition: none;
+  }
+  .transcript-word {
+    transition: none;
+  }
+}
+
+/* Keyboard focus visibility for all interactive elements */
+:focus-visible {
+  outline: 2px solid var(--primary, #c9956b);
+  outline-offset: 2px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--primary, #c9956b);
+  outline-offset: 2px;
 }
 
 /* PDF Viewer Enhancements */
@@ -1246,7 +1267,7 @@ body {
 }
 
 .word-pronounce-spinner {
-  margin-left: 4px;
+  margin-inline-start: 4px;
   vertical-align: middle;
 }
 

@@ -1,6 +1,7 @@
 """TTS status/reload lifecycle tests — never load the real model or CUDA."""
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import time
@@ -189,6 +190,172 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertTrue(base.startswith("page_2_"))
         self.assertTrue(base.endswith(".wav"))
 
+    def test_bump_generation_aborts_in_flight_chunks(self):
+        """A generation-token bump mid-synthesis cancels remaining chunks."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)
+
+        call_count = {"n": 0}
+
+        def slow_generate(_model, _chunk, _lang, **_kw):
+            call_count["n"] += 1
+            # After the first chunk, bump the generation token to simulate a
+            # page change / voice switch superseding this synthesis.
+            if call_count["n"] == 1:
+                self.tts.bump_generation()
+            return fake
+
+        self.tts._model_state["status"] = "ready"
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts,
+                    "_split_into_chunks",
+                    return_value=["one.", "two.", "three.", "four."],
+                ):
+                    with patch.object(self.tts, "_generate_chunk", side_effect=slow_generate):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(self.tts, "_data_dirs", return_value=("d", "v", "s")):
+                                with patch("os.makedirs"):
+                                    with self.assertRaises(self.tts.GenerationCancelled):
+                                        self.tts.narrate_text(
+                                            "one. two. three. four.", "session1", 0
+                                        )
+
+        # Only the first chunk should have generated; the token bump is detected
+        # at the start of chunk 1's iteration, before _generate_chunk is called.
+        self.assertEqual(call_count["n"], 1)
+        # The model should be back to ready (cancellation is not a failure).
+        snap = self.tts.state_snapshot()
+        self.assertEqual(snap["status"], "ready")
+        self.assertNotIn("failed", snap["detail"].lower())
+
+    def test_bump_generation_returns_monotonic_tokens(self):
+        first = self.tts.bump_generation()
+        second = self.tts.bump_generation()
+        self.assertGreater(second, first)
+
+    def test_streaming_yields_chunks_then_done(self):
+        """narrate_text_streaming emits one chunk event per chunk, then done."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)  # 0.5s per chunk
+
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts,
+                    "_split_into_chunks",
+                    return_value=["one.", "two.", "three."],
+                ):
+                    with patch.object(self.tts, "_generate_chunk", return_value=fake):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(
+                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                            ):
+                                with patch("os.makedirs"):
+                                    events = list(
+                                        self.tts.narrate_text_streaming(
+                                            "one. two. three.", "session1", 0
+                                        )
+                                    )
+
+        # 3 chunk events + 1 done event
+        chunk_events = [e for e in events if e["type"] == "chunk"]
+        done_events = [e for e in events if e["type"] == "done"]
+        self.assertEqual(len(chunk_events), 3)
+        self.assertEqual(len(done_events), 1)
+        # Chunks are indexed 0..2 with cumulative start_s offsets
+        self.assertEqual(chunk_events[0]["index"], 0)
+        self.assertAlmostEqual(chunk_events[0]["start_s"], 0.0)
+        self.assertAlmostEqual(chunk_events[0]["end_s"], 0.5)
+        self.assertEqual(chunk_events[1]["index"], 1)
+        self.assertAlmostEqual(chunk_events[1]["start_s"], 0.5)
+        self.assertEqual(chunk_events[2]["index"], 2)
+        self.assertAlmostEqual(chunk_events[2]["start_s"], 1.0)
+        # Done event carries the full-page metadata
+        self.assertIn("audio_url", done_events[0])
+        self.assertAlmostEqual(done_events[0]["duration_s"], 1.5)
+        self.assertEqual(len(done_events[0]["segments"]), 3)
+
+    def test_streaming_respects_generation_cancellation(self):
+        """A mid-stream bump_generation aborts remaining chunks."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)
+        count = {"n": 0}
+
+        def slow(_m, _c, _l, **_k):
+            count["n"] += 1
+            if count["n"] == 1:
+                self.tts.bump_generation()
+            return fake
+
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts, "_split_into_chunks", return_value=["a.", "b.", "c."]
+                ):
+                    with patch.object(self.tts, "_generate_chunk", side_effect=slow):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(
+                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                            ):
+                                with patch("os.makedirs"):
+                                    with self.assertRaises(self.tts.GenerationCancelled):
+                                        list(
+                                            self.tts.narrate_text_streaming(
+                                                "a. b. c.", "session1", 0
+                                            )
+                                        )
+
+        self.assertEqual(count["n"], 1)
+
+    def test_export_cached_pages_concatenates_latest_full_page_audio(self):
+        """Export uses one canonical full-page WAV per requested page, never chunks."""
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sessions_dir = Path(temp_dir) / "sessions"
+            session_dir = sessions_dir / "session1"
+            session_dir.mkdir(parents=True)
+            # Page 1 has two revisions; the newest full-page file must win.
+            old = session_dir / "page_1_aaaaaaaaaaaaaaaa.wav"
+            latest = session_dir / "page_1_bbbbbbbbbbbbbbbb.wav"
+            page_two = session_dir / "page_2_cccccccccccccccc.wav"
+            chunk = session_dir / "page_2_c0_cccccccccccccccc.wav"
+            for path in (old, latest, page_two, chunk):
+                path.touch()
+            os.utime(old, (1, 1))
+            os.utime(latest, (2, 2))
+
+            fake_wav = torch.zeros(1, 120)
+            with patch.object(
+                self.tts,
+                "_data_dirs",
+                return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(sessions_dir)),
+            ):
+                with patch.object(self.tts.ta, "load", return_value=(fake_wav, 24000)) as load:
+                    with patch.object(self.tts.ta, "save") as save:
+                        result = self.tts.export_cached_pages("session1", 1, 2)
+
+        self.assertEqual(load.call_count, 2)
+        self.assertEqual(load.call_args_list[0].args[0], str(latest))
+        self.assertEqual(load.call_args_list[1].args[0], str(page_two))
+        self.assertTrue(result["audio_url"].startswith("/sessions/session1/export_1-2_"))
+        self.assertEqual(result["pages"], [1, 2])
+        save.assert_called_once()
+
 
 class KillStaleServersTests(unittest.TestCase):
     """Mocked process-tree handling for launch.kill_stale_servers."""
@@ -295,6 +462,29 @@ class KillStaleServersTests(unittest.TestCase):
             with patch.object(self.launch.time, "sleep"):
                 self.launch.kill_stale_servers(r"C:\Users\u\AppData\Local\BookVoice", log)
         other.terminate.assert_not_called()
+
+
+class LauncherReadinessTests(unittest.TestCase):
+    def test_backend_is_ready_requires_a_successful_health_response(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        response = MagicMock()
+        response.status = 200
+        response.__enter__.return_value = response
+        with patch.object(launch.urllib.request, "urlopen", return_value=response) as urlopen:
+            self.assertTrue(launch.backend_is_ready("http://127.0.0.1:8000"))
+
+        urlopen.assert_called_once_with("http://127.0.0.1:8000/api/health", timeout=1)
+
+    def test_backend_is_ready_rejects_a_connection_error(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        with patch.object(launch.urllib.request, "urlopen", side_effect=OSError("not ready")):
+            self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
 
 
 if __name__ == "__main__":

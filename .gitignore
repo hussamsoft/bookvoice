@@ -31,6 +31,8 @@ backend/data/
 
 # Media
 *.wav
+# ...except committed test fixtures
+!tests/fixtures/*.wav
 
 # Build artifacts (PyInstaller output)
 installer/

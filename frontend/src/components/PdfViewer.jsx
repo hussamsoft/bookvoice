@@ -19,7 +19,7 @@ import {
     Download,
     Search,
 } from 'lucide-react';
-import { pronounceText, translateText } from '../utils/api';
+import { exportCachedAudio, pronounceText, translateText, narrateTextStream } from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
 import { createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
@@ -47,6 +47,7 @@ import { usePdfDocument } from '../hooks/usePdfDocument';
 import { useWordHighlight } from '../hooks/useWordHighlight';
 import { usePageNarration } from '../hooks/usePageNarration';
 import { usePrefetch } from '../hooks/usePrefetch';
+import { buildPlaylist, nextChunkIndex } from '../utils/playlistController';
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;
@@ -92,6 +93,7 @@ export default function PdfViewer({ onDirty }) {
     const [bookmarks, setBookmarks] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
@@ -112,6 +114,14 @@ export default function PdfViewer({ onDirty }) {
     const activeVoiceRef = useRef(null);
     const panDragRef = useRef(null);
     const savedResumeRef = useRef({ page: 0, time: 0 });
+    // Progressive chunk streaming: the current chunk's start_s offset (added to
+    // audio.currentTime for global highlight lookup). 0 for single-shot audio.
+    const audioTimeOffsetRef = useRef(0);
+    const playlistRef = useRef([]); // [{url, start_s, end_s}] for the active page
+    const playlistIndexRef = useRef(0); // current chunk index in the playlist
+    const streamAbortRef = useRef(null); // AbortController for an in-flight stream
+    const advancePlaylistRef = useRef(() => {}); // set by the streaming effect
+    const handlePlayRef = useRef(() => {});
     const transport = useAudioTransport(audioRef);
 
     langRef.current = targetLanguage;
@@ -148,9 +158,10 @@ export default function PdfViewer({ onDirty }) {
         currentWordRef,
         pageWordsRef,
         wordTimesRef,
+        audioTimeOffsetRef,
     });
 
-    const { narratePage } = usePageNarration({
+    const { narratePage, cancelGeneration } = usePageNarration({
         sessionId,
         activeVoiceRef,
         langRef,
@@ -204,6 +215,46 @@ export default function PdfViewer({ onDirty }) {
     useEffect(() => {
         setPageJumpInput(String(pageNumber));
     }, [pageNumber]);
+
+    // Propagate narration language to the document direction for RTL/LTR chrome.
+    useEffect(() => {
+        const previousDir = document.documentElement.dir;
+        const previousLang = document.documentElement.lang;
+        document.documentElement.dir = targetLanguage === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = targetLanguage || 'en';
+        return () => {
+            document.documentElement.dir = previousDir;
+            document.documentElement.lang = previousLang;
+        };
+    }, [targetLanguage]);
+
+    // Keyboard shortcuts: Space = play/pause, ←/→ = seek ±10s.
+    // Ignored while typing in inputs/textareas/contenteditable.
+    useEffect(() => {
+        const handler = (e) => {
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (e.target?.isContentEditable) return;
+            const audio = audioRef.current;
+            if (!audio) return;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handlePlayRef.current();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const t = Math.max(0, (audio.currentTime || 0) - 10);
+                audio.currentTime = t;
+                syncHighlightAt(t);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                const t = Math.min(audio.duration || Infinity, (audio.currentTime || 0) + 10);
+                audio.currentTime = t;
+                syncHighlightAt(t);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [syncHighlightAt]);
 
     useEffect(() => {
         if (!documentId) return undefined;
@@ -296,6 +347,11 @@ export default function PdfViewer({ onDirty }) {
             if (audio.currentTime != null) syncHighlightAt(audio.currentTime);
         };
         const handleEnded = () => {
+            // If a next playlist chunk exists, advance to it (gapless streaming).
+            if (playlistRef.current.length > 0) {
+                const advanced = advancePlaylistRef.current();
+                if (advanced) return;
+            }
             // Soft end: leave resume on last word
             setIsPlaying(false);
             isPlayingRef.current = false;
@@ -406,6 +462,139 @@ export default function PdfViewer({ onDirty }) {
         [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt, toast]
     );
 
+    /**
+     * Stream progressive TTS chunks so the first audio plays before the whole
+     * page is synthesized. Builds a playlist; the `ended` handler advances.
+     * On `done`, assembles full-page timings + caches the entry.
+     */
+    const generateAndPlayStreamed = useCallback(
+        async (pageNum, text, { autoplay = true, voiceId = activeVoiceRef.current } = {}) => {
+            const audio = audioRef.current;
+            if (!audio) return null;
+
+            // Reset playlist state for the new page.
+            if (streamAbortRef.current) streamAbortRef.current.abort();
+            streamAbortRef.current = new AbortController();
+            const signal = streamAbortRef.current.signal;
+            playlistRef.current = [];
+            playlistIndexRef.current = 0;
+            audioTimeOffsetRef.current = 0;
+
+            setAudioPage(pageNum);
+            audioPageRef.current = pageNum;
+            audioVoiceRef.current = voiceId ?? null;
+            setPageText(text);
+            pageTextRef.current = text;
+            const words = text.split(/\s+/).filter(Boolean);
+            setPageWords(words);
+            pageWordsRef.current = words;
+
+            let firstChunkPlayed = false;
+            let doneEvent = null;
+            const collectedChunks = [];
+
+            // Playlist advance: called by the `ended` handler when a chunk ends.
+            advancePlaylistRef.current = () => {
+                const playlist = buildPlaylist(playlistRef.current);
+                const next = nextChunkIndex(playlist, playlistIndexRef.current);
+                if (next == null) return false;
+                const chunk = playlist.chunks[next];
+                playlistIndexRef.current = next;
+                audioTimeOffsetRef.current = chunk.start_s;
+                audio.src = chunk.url;
+                // Best-effort gapless: the next chunk preloaded while the prior played.
+                audio.play().catch(() => {});
+                return true;
+            };
+
+            await narrateTextStream(
+                text,
+                sessionId,
+                pageNum,
+                voiceId,
+                langRef.current,
+                {
+                    onChunk: async (event) => {
+                        if (event.type === 'chunk') {
+                            collectedChunks.push(event);
+                            playlistRef.current = collectedChunks;
+                            // Preload the next chunk while the current one plays.
+                            const playlist = buildPlaylist(collectedChunks);
+                            const next = nextChunkIndex(playlist, event.index);
+                            if (next != null) {
+                                const preloadAudio = new Audio(playlist.chunks[next].url);
+                                preloadAudio.preload = 'auto';
+                            }
+                            if (!firstChunkPlayed) {
+                                firstChunkPlayed = true;
+                                audioTimeOffsetRef.current = event.start_s;
+                                playlistIndexRef.current = event.index;
+                                audio.src = event.url;
+                                await waitForAudioMetadata(audio);
+                                if (autoplay) {
+                                    try {
+                                        await audio.play();
+                                        setIsPlaying(true);
+                                        isPlayingRef.current = true;
+                                        startHighlightLoop();
+                                    } catch (error) {
+                                        toast.error(
+                                            error?.message ||
+                                                'Audio playback was blocked. Press Play again.'
+                                        );
+                                    }
+                                }
+                            }
+                        } else if (event.type === 'done') {
+                            doneEvent = event;
+                        }
+                    },
+                },
+                signal
+            );
+
+            // Preload the next chunk while current plays (gapless transition).
+            if (collectedChunks.length > 1) {
+                const preloadAudio = new Audio(collectedChunks[1].url);
+                preloadAudio.preload = 'auto';
+            }
+
+            // Assemble full-page timings from the done event (if it arrived).
+            if (!doneEvent) {
+                return null; // stream was cancelled or errored
+            }
+
+            const duration = doneEvent.duration_s || 0;
+            const built = await buildTimings(
+                text,
+                doneEvent.segments || [],
+                duration,
+                doneEvent.audio_url,
+                doneEvent.word_timings
+            );
+
+            const entry = {
+                status: 'ready',
+                page: pageNum,
+                voiceId: voiceId ?? null,
+                languageId: langRef.current,
+                text,
+                audioUrl: doneEvent.audio_url,
+                segments: doneEvent.segments || [],
+                duration_s: duration,
+                words: built.words,
+                times: built.times,
+                fromWord: 0,
+                partial: false,
+            };
+
+            const key = cacheKey(pageNum, voiceId, langRef.current);
+            cacheRef.current.set(key, entry);
+            return entry;
+        },
+        [buildTimings, sessionId, startHighlightLoop, toast]
+    );
+
     const generateAndPlay = useCallback(
         async (pageNum, text, opts = {}) => {
             const {
@@ -426,6 +615,21 @@ export default function PdfViewer({ onDirty }) {
             setIsGenerating(true);
             isGeneratingRef.current = true;
             try {
+                // Full-page, non-cached narration: stream chunks for first-audio-early.
+                // Partial clips and cache misses fall back to single-shot narratePage.
+                if (!partialFromResume) {
+                    try {
+                        const entry = await generateAndPlayStreamed(pageNum, text, {
+                            autoplay,
+                            voiceId,
+                        });
+                        onDirty?.();
+                        return entry;
+                    } catch (streamErr) {
+                        if (streamErr?.name === 'AbortError') return null;
+                        // Fall back to the single-shot path on stream failure.
+                    }
+                }
                 const fromWord = partialFromResume ? resumeWordIndex : 0;
                 const entry = await narratePage(pageNum, text, {
                     voiceId,
@@ -449,12 +653,17 @@ export default function PdfViewer({ onDirty }) {
                 setStatusHint('');
             }
         },
-        [applyReadyAudio, narratePage, onDirty, toast]
+        [applyReadyAudio, generateAndPlayStreamed, narratePage, onDirty, toast]
     );
 
     const loadPageIntoView = useCallback(
         async (pageNum, { autoplay = false } = {}) => {
             cancelPrefetch();
+            cancelGeneration();
+            if (streamAbortRef.current) streamAbortRef.current.abort();
+            playlistRef.current = [];
+            playlistIndexRef.current = 0;
+            audioTimeOffsetRef.current = 0;
             pauseAudio();
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
@@ -492,6 +701,7 @@ export default function PdfViewer({ onDirty }) {
         },
         [
             applyReadyAudio,
+            cancelGeneration,
             cancelPrefetch,
             generateAndPlay,
             modelReady,
@@ -651,6 +861,26 @@ export default function PdfViewer({ onDirty }) {
             schedulePrefetchSafe(pageNumber, numPages);
         } catch (error) {
             toast.error(error.message);
+        }
+    };
+    handlePlayRef.current = handlePlay;
+
+    const handleExportThroughCurrentPage = async () => {
+        if (!file || isExporting) return;
+        setIsExporting(true);
+        try {
+            const { audioUrl, pages } = await exportCachedAudio(sessionId, 1, pageNumber);
+            const link = document.createElement('a');
+            link.href = audioUrl;
+            link.download = `${(file.name || 'book').replace(/\.pdf$/i, '')}-pages-1-${pageNumber}.wav`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success(`Exported ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
+        } catch (error) {
+            toast.error(error?.message || 'Could not export cached page audio.');
+        } finally {
+            setIsExporting(false);
         }
     };
 
@@ -1228,6 +1458,7 @@ export default function PdfViewer({ onDirty }) {
                                 onClick={handleForceOcr}
                                 disabled={isGenerating || isOcring}
                                 title="OCR this page"
+                                aria-label="Re-run OCR on this page"
                             >
                                 {isOcring ? (
                                     <Loader2 className="spinner" size={15} />
@@ -1239,6 +1470,8 @@ export default function PdfViewer({ onDirty }) {
                                 className="btn secondary btn-compact"
                                 onClick={() => goToPage(pageNumber - 1)}
                                 disabled={pageNumber <= 1}
+                                aria-label="Previous page"
+                                title="Previous page"
                             >
                                 <ChevronUp size={15} />
                             </button>
@@ -1259,10 +1492,23 @@ export default function PdfViewer({ onDirty }) {
                                     <Download size={15} />
                                 </a>
                             ) : null}
+                            {pageNumber > 1 ? (
+                                <button
+                                    className="btn secondary btn-compact"
+                                    onClick={handleExportThroughCurrentPage}
+                                    disabled={isExporting}
+                                    aria-label={`Export cached audio for pages 1 through ${pageNumber}`}
+                                    title={`Export cached audio for pages 1–${pageNumber}`}
+                                >
+                                    {isExporting ? <Loader2 className="spinner" size={15} /> : <Download size={15} />}
+                                </button>
+                            ) : null}
                             <button
                                 className="btn secondary btn-compact"
                                 onClick={() => goToPage(pageNumber + 1)}
                                 disabled={pageNumber >= numPages}
+                                aria-label="Next page"
+                                title="Next page"
                             >
                                 <ChevronDown size={15} />
                             </button>
