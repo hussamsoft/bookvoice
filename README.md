@@ -22,6 +22,8 @@ This MVP was built across three development phases:
    - Supported languages: **English** and **Arabic** only.
    - Dynamic VRAM management: switches between the English TTS model and the Multilingual model (for Arabic) to reduce OOM risk on 8GB GPUs.
    - PDF mode: embedded text layer when available; **OCR fallback** for scanned pages.
+   - Follow-along PDF highlighting with click-to-pronounce, bookmarks, search, and continue-reading.
+   - Playback progress, seeking, speed control, skip controls, and page-audio export.
    - Desktop launcher binds to **localhost only** (not exposed on the LAN).
 
 ## Technology Stack
@@ -127,6 +129,11 @@ User settings (selected voice, narration language, GPU toggles) persist in
 `%LocalAppData%\BookVoice\data\config.json` via `GET/PUT /api/config` — one
 universal per-user config shared by the MSI install, the portable dist and
 dev runs.
+
+PDF reading position, bookmarks, zoom and playback speed are stored locally in
+the app browser profile. Translation uses the `deep-translator` Google backend
+and therefore sends the selected page text to that external service; narration,
+OCR and PDF viewing otherwise run locally after model setup.
 
 
 ## Packaging (Windows installer)

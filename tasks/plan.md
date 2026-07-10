@@ -1,5 +1,10 @@
 # BookVoice stabilization and optimization plan
 
+> **Status — 1.8.0 (2026-07-10):** this roadmap shipped. See `tasks/todo.md` for the
+> reconciled checklist (open items: Tasks 2 & 8, plus the packaging half of Task 7 and
+> the MSI/smoke half of Task 17). The text below is the original audit and is retained
+> as the design rationale.
+
 ## Objective
 
 Make BookVoice reliable as an installed Windows reading app: the shipped UI must match source, PDF controls must sit below the reading surface, click-to-pronounce must work while paused, spoken audio and highlighting must remain perceptually synchronized, and common reading actions must feel immediate even when TTS generation itself is expensive.
