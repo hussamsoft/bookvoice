@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # Windows consoles often default to cp1252 ("charmap"). Force UTF-8 on stdio so
@@ -25,6 +25,7 @@ load_dotenv()
 
 from routes import config, ocr, translation, tts, voices
 from services.path_utils import safe_join
+from services.security import is_allowed_browser_origin
 from services.tts_service import TtsPriority, preload_model, submit_tts
 
 # Seed default voices on startup (paths resolved from env at call time).
@@ -76,17 +77,38 @@ cors_origins_str = os.getenv("CORS_ORIGINS", '["*"]')
 try:
     origins = json.loads(cors_origins_str)
 except Exception:
-    origins = ["*"]
+    origins = []
 
-allow_credentials = origins != ["*"]
+if not isinstance(origins, list):
+    origins = []
+origins = [str(origin) for origin in origins if origin and origin != "*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=allow_credentials,
+    allow_origin_regex=r"https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def protect_local_api(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if request.url.path.startswith("/api/") and not is_allowed_browser_origin(origin):
+        response = JSONResponse({"detail": "Browser origin is not allowed."}, status_code=403)
+    else:
+        response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+        "style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+    )
+    return response
 
 app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
