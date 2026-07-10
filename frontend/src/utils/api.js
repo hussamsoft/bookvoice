@@ -155,6 +155,70 @@ export async function translateText(text, targetLang) {
     return data.translated_text;
 }
 
+/**
+ * Stream per-chunk narration as NDJSON. Calls onChunk(event) for each line:
+ *   {type:'chunk', index, total, url, text, start_s, end_s} per chunk, then
+ *   {type:'done', audio_url, segments, duration_s, word_timings, alignment_mode}.
+ * The first chunk arrives as soon as chunk 0 is synthesized. Supports an AbortSignal.
+ *
+ * @returns {Promise<void>} resolves when the stream completes or is aborted.
+ */
+export async function narrateTextStream(
+    text,
+    sessionId,
+    pageIndex,
+    voiceId = null,
+    languageId = 'en',
+    { clipSuffix = null, priority = 'current', onChunk = () => {} } = {},
+    signal
+) {
+    const requestBody = {
+        text,
+        session_id: sessionId,
+        page_index: pageIndex,
+        language_id: languageId,
+        priority,
+    };
+    if (voiceId) requestBody.voice_id = voiceId;
+    if (clipSuffix != null) requestBody.clip_suffix = String(clipSuffix);
+
+    const response = await fetch(`${API_BASE_URL}/tts/narrate-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal,
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Failed to stream narration'));
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            const event = JSON.parse(line);
+            if (event.url) event.url = `${AUDIO_BASE_URL}${event.url}`;
+            if (event.audio_url) event.audio_url = `${AUDIO_BASE_URL}${event.audio_url}`;
+            onChunk(event);
+            if (event.type === 'done' || event.type === 'error' || event.type === 'cancelled') {
+                return event;
+            }
+        }
+    }
+}
+
 export async function getTtsStatus() {
     const response = await fetch(`${API_BASE_URL}/tts/status`);
     if (!response.ok) {

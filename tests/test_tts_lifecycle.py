@@ -238,6 +238,88 @@ class TtsLifecycleTests(unittest.TestCase):
         second = self.tts.bump_generation()
         self.assertGreater(second, first)
 
+    def test_streaming_yields_chunks_then_done(self):
+        """narrate_text_streaming emits one chunk event per chunk, then done."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)  # 0.5s per chunk
+
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts,
+                    "_split_into_chunks",
+                    return_value=["one.", "two.", "three."],
+                ):
+                    with patch.object(self.tts, "_generate_chunk", return_value=fake):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(
+                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                            ):
+                                with patch("os.makedirs"):
+                                    events = list(
+                                        self.tts.narrate_text_streaming(
+                                            "one. two. three.", "session1", 0
+                                        )
+                                    )
+
+        # 3 chunk events + 1 done event
+        chunk_events = [e for e in events if e["type"] == "chunk"]
+        done_events = [e for e in events if e["type"] == "done"]
+        self.assertEqual(len(chunk_events), 3)
+        self.assertEqual(len(done_events), 1)
+        # Chunks are indexed 0..2 with cumulative start_s offsets
+        self.assertEqual(chunk_events[0]["index"], 0)
+        self.assertAlmostEqual(chunk_events[0]["start_s"], 0.0)
+        self.assertAlmostEqual(chunk_events[0]["end_s"], 0.5)
+        self.assertEqual(chunk_events[1]["index"], 1)
+        self.assertAlmostEqual(chunk_events[1]["start_s"], 0.5)
+        self.assertEqual(chunk_events[2]["index"], 2)
+        self.assertAlmostEqual(chunk_events[2]["start_s"], 1.0)
+        # Done event carries the full-page metadata
+        self.assertIn("audio_url", done_events[0])
+        self.assertAlmostEqual(done_events[0]["duration_s"], 1.5)
+        self.assertEqual(len(done_events[0]["segments"]), 3)
+
+    def test_streaming_respects_generation_cancellation(self):
+        """A mid-stream bump_generation aborts remaining chunks."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)
+        count = {"n": 0}
+
+        def slow(_m, _c, _l, **_k):
+            count["n"] += 1
+            if count["n"] == 1:
+                self.tts.bump_generation()
+            return fake
+
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts, "_split_into_chunks", return_value=["a.", "b.", "c."]
+                ):
+                    with patch.object(self.tts, "_generate_chunk", side_effect=slow):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(
+                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                            ):
+                                with patch("os.makedirs"):
+                                    with self.assertRaises(self.tts.GenerationCancelled):
+                                        list(
+                                            self.tts.narrate_text_streaming(
+                                                "a. b. c.", "session1", 0
+                                            )
+                                        )
+
+        self.assertEqual(count["n"], 1)
+
 
 class KillStaleServersTests(unittest.TestCase):
     """Mocked process-tree handling for launch.kill_stale_servers."""

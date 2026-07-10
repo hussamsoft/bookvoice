@@ -24,6 +24,7 @@ export function useWordHighlight({
     currentWordRef,
     pageWordsRef,
     wordTimesRef,
+    audioTimeOffsetRef,
 }) {
     const wordSpanMapRef = useRef([]);
     const prevHighlightSpanRef = useRef(null);
@@ -70,9 +71,11 @@ export function useWordHighlight({
     );
 
     const syncHighlightAt = useCallback(
-        (currentTime) => {
+        (localTime) => {
             const lag = highlightLagMs(langRef.current);
-            const idx = wordIndexAtTime(wordTimesRef.current, currentTime, lag);
+            const offset = audioTimeOffsetRef ? audioTimeOffsetRef.current : 0;
+            const globalTime = localTime + offset;
+            const idx = wordIndexAtTime(wordTimesRef.current, globalTime, lag);
             if (idx !== currentWordRef.current) {
                 currentWordRef.current = idx;
                 setCurrentWord(idx);
@@ -89,7 +92,14 @@ export function useWordHighlight({
                 );
             }
         },
-        [containerRef, currentWordRef, langRef, setCurrentWord, wordTimesRef]
+        [
+            audioTimeOffsetRef,
+            containerRef,
+            currentWordRef,
+            langRef,
+            setCurrentWord,
+            wordTimesRef,
+        ]
     );
 
     const startHighlightLoop = useCallback(() => {
