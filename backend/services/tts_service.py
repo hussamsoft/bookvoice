@@ -92,6 +92,29 @@ _generate_lock = threading.Lock()
 _last_voice_prompt: str | None = None
 _last_voice_exaggeration: float | None = None
 
+# Cooperative generation cancellation: bumped on page change / voice switch /
+# document close so an in-flight multi-chunk synthesis can abort at the next
+# chunk boundary instead of blocking newer work.
+_generation_token = 0
+_generation_lock = threading.Lock()
+
+
+class GenerationCancelled(RuntimeError):
+    """Raised when a synthesis is superseded by a newer generation."""
+
+
+def bump_generation() -> int:
+    """Invalidate all in-flight generations; returns the new token value."""
+    global _generation_token
+    with _generation_lock:
+        _generation_token += 1
+        return _generation_token
+
+
+def _current_generation() -> int:
+    with _generation_lock:
+        return _generation_token
+
 # Chunk sizes — GPU can handle larger pieces (fewer slow generate() calls).
 _CHUNK_TARGET_CHARS_GPU = 480
 _CHUNK_HARD_MAX_GPU = 700
@@ -704,9 +727,16 @@ def _synthesize_audio(
 
     with _generate_lock:
         _model_state["status"] = "generating"
+        started_token = _current_generation()
         try:
             cursor_s = 0.0
             for i, chunk in enumerate(chunks):
+                # Cooperative cancellation: a newer generation (page change,
+                # voice switch, document close) supersedes this synthesis.
+                if _current_generation() != started_token:
+                    raise GenerationCancelled(
+                        f"generation {started_token} superseded by {_current_generation()}"
+                    )
                 _model_state["detail"] = (
                     f"Generating audio {i + 1}/{total} on {str(device).upper()}"
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
@@ -734,6 +764,11 @@ def _synthesize_audio(
                 )
                 cursor_s += dur
                 wav_parts.append(part)
+        except GenerationCancelled:
+            # Cancellation is not a failure: restore ready state and propagate.
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+            raise
         except Exception as e:
             _model_state["status"] = "ready"
             _model_state["detail"] = (

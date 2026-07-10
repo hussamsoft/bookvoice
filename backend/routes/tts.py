@@ -13,7 +13,9 @@ from services.path_utils import (
 from services.config_service import config_value
 from services.alignment_service import alignment_mode
 from services.tts_service import (
+    GenerationCancelled,
     TtsPriority,
+    bump_generation,
     narrate_text,
     pronounce_text,
     request_reload,
@@ -159,5 +161,15 @@ async def narrate(request: NarrateRequest):
         return _build_response(result)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except GenerationCancelled as e:
+        # 499 Client Closed Request (de facto "superseded by newer work").
+        raise HTTPException(status_code=499, detail="superseded") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/cancel-generation")
+async def cancel_generation():
+    """Invalidate in-flight TTS work (page change / voice switch / document close)."""
+    token = bump_generation()
+    return {"cancelled_token": token}

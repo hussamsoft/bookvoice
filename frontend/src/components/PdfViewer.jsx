@@ -150,7 +150,7 @@ export default function PdfViewer({ onDirty }) {
         wordTimesRef,
     });
 
-    const { narratePage } = usePageNarration({
+    const { narratePage, cancelGeneration } = usePageNarration({
         sessionId,
         activeVoiceRef,
         langRef,
@@ -455,6 +455,7 @@ export default function PdfViewer({ onDirty }) {
     const loadPageIntoView = useCallback(
         async (pageNum, { autoplay = false } = {}) => {
             cancelPrefetch();
+            cancelGeneration();
             pauseAudio();
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
@@ -492,6 +493,7 @@ export default function PdfViewer({ onDirty }) {
         },
         [
             applyReadyAudio,
+            cancelGeneration,
             cancelPrefetch,
             generateAndPlay,
             modelReady,

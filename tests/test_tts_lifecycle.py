@@ -189,6 +189,55 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertTrue(base.startswith("page_2_"))
         self.assertTrue(base.endswith(".wav"))
 
+    def test_bump_generation_aborts_in_flight_chunks(self):
+        """A generation-token bump mid-synthesis cancels remaining chunks."""
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24000
+        fake = torch.zeros(1, 12000)
+
+        call_count = {"n": 0}
+
+        def slow_generate(_model, _chunk, _lang, **_kw):
+            call_count["n"] += 1
+            # After the first chunk, bump the generation token to simulate a
+            # page change / voice switch superseding this synthesis.
+            if call_count["n"] == 1:
+                self.tts.bump_generation()
+            return fake
+
+        self.tts._model_state["status"] = "ready"
+        with patch.object(self.tts, "get_model", return_value=model):
+            with patch.object(self.tts, "maybe_cleanup_sessions"):
+                with patch.object(
+                    self.tts,
+                    "_split_into_chunks",
+                    return_value=["one.", "two.", "three.", "four."],
+                ):
+                    with patch.object(self.tts, "_generate_chunk", side_effect=slow_generate):
+                        with patch.object(self.tts.ta, "save"):
+                            with patch.object(self.tts, "_data_dirs", return_value=("d", "v", "s")):
+                                with patch("os.makedirs"):
+                                    with self.assertRaises(self.tts.GenerationCancelled):
+                                        self.tts.narrate_text(
+                                            "one. two. three. four.", "session1", 0
+                                        )
+
+        # Only the first chunk should have generated; the token bump is detected
+        # at the start of chunk 1's iteration, before _generate_chunk is called.
+        self.assertEqual(call_count["n"], 1)
+        # The model should be back to ready (cancellation is not a failure).
+        snap = self.tts.state_snapshot()
+        self.assertEqual(snap["status"], "ready")
+        self.assertNotIn("failed", snap["detail"].lower())
+
+    def test_bump_generation_returns_monotonic_tokens(self):
+        first = self.tts.bump_generation()
+        second = self.tts.bump_generation()
+        self.assertGreater(second, first)
+
 
 class KillStaleServersTests(unittest.TestCase):
     """Mocked process-tree handling for launch.kill_stale_servers."""

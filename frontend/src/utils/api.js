@@ -46,6 +46,9 @@ export async function narrateText(
     });
 
     if (!response.ok) {
+        if (response.status === 499) {
+            throw new GenerationSupersededError();
+        }
         const error = await response.json().catch(() => ({}));
         throw new Error(detailMessage(error, 'Failed to narrate text'));
     }
@@ -158,6 +161,30 @@ export async function getTtsStatus() {
         throw new Error('Failed to fetch TTS status');
     }
     return response.json();
+}
+
+/**
+ * Invalidate in-flight TTS work on the server (page change / voice switch /
+ * document close). Best-effort: never rejects so callers can fire-and-forget.
+ */
+export async function cancelGeneration() {
+    try {
+        await fetch(`${API_BASE_URL}/tts/cancel-generation`, { method: 'POST' });
+    } catch {
+        /* best-effort: the generation token will still age out */
+    }
+}
+
+/**
+ * Error raised when a narration is superseded by newer work (HTTP 499).
+ * Callers can check `err.isSuperseded` to distinguish cancellation from failure.
+ */
+export class GenerationSupersededError extends Error {
+    constructor(message = 'Narration was superseded by newer work') {
+        super(message);
+        this.name = 'GenerationSupersededError';
+        this.isSuperseded = true;
+    }
 }
 
 export async function reloadTtsModel() {

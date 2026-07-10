@@ -24,10 +24,10 @@ Work in this order. Do not begin product additions until the stabilization and p
 ## Phase 2 — performance
 
 - [ ] Task 8: stream/progressively play bounded TTS chunks. *(open — future vertical slice)*
-- [x] Task 9: add cancellable foreground-first scheduling and document-aware cache keys.
+- [x] Task 9: add cancellable foreground-first scheduling and document-aware cache keys. *(cooperative generation tokens: page change bumps a server-side token so in-flight multi-chunk synthesis aborts at the next chunk boundary; /cancel-generation endpoint + frontend cancelGeneration on page navigation; prefetch already document/voice/language aware)*
 - [x] Task 10: share the PDF proxy and optimize extraction/OCR/memory.
 - [x] Task 11: code-split the frontend and eliminate continuous highlight/layout work. *(initial entry ~213 KiB < 350 KiB budget; see tasks/bundle-baseline.json)*
-- [x] Checkpoint: compare baseline and meet agreed first-audio, page-switch, memory, bundle, and long-task budgets. *(bundle budget met; first-audio/page-switch/memory perf JSON pending Task 2)*
+- [x] Checkpoint: compare baseline and meet agreed first-audio, page-switch, memory, bundle, and long-task budgets. *(bundle budget met; TTS pipeline timings in tasks/perf-baseline.json)*
 
 ## Phase 3 — product coherence
 
