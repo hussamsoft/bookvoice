@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   estimateWordTimings,
   estimateWordTimingsFromSegments,
+  stitchPartialTimings,
   wordIndexAtTime,
 } from './timings';
 
@@ -49,6 +50,15 @@ describe('estimateWordTimingsFromSegments', () => {
   });
 });
 
+describe('stitchPartialTimings', () => {
+  it('marks earlier words as sentinels and maps partial audio times', () => {
+    const full = ['a', 'b', 'c', 'd'];
+    const partial = [0, 0.3];
+    const times = stitchPartialTimings(full, 2, partial);
+    expect(times).toEqual([-1, -1, 0, 0.3]);
+  });
+});
+
 describe('wordIndexAtTime', () => {
   it('finds the correct index', () => {
     const times = [0, 1, 2, 3];
@@ -60,7 +70,13 @@ describe('wordIndexAtTime', () => {
 
   it('applies a small lead lag so highlight can lead the ear', () => {
     const times = [0, 1, 2];
-    // At t=0.97 with 40ms lag → effectively 1.01 → word 1
-    expect(wordIndexAtTime(times, 0.97, 40)).toBe(1);
+    // At t=0.98 with 25ms lag → effectively 1.005 → word 1
+    expect(wordIndexAtTime(times, 0.98, 25)).toBe(1);
+  });
+
+  it('skips sentinel -1 slots used by partial voice-switch clips', () => {
+    const times = [-1, -1, 0, 0.4, 0.9];
+    expect(wordIndexAtTime(times, 0, 0)).toBe(2);
+    expect(wordIndexAtTime(times, 0.5, 0)).toBe(3);
   });
 });

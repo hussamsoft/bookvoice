@@ -2,8 +2,7 @@
  * Estimate per-word start times for TTS playback highlighting.
  *
  * Prefer estimateWordTimingsFromSegments() when the backend returns real
- * per-chunk audio durations — that keeps drift local to each phrase instead
- * of accumulating across an entire page.
+ * per-chunk audio durations — that keeps drift local to each phrase.
  */
 
 export function estimateWordTimings(words, duration, languageId = 'en') {
@@ -15,11 +14,10 @@ export function estimateWordTimings(words, duration, languageId = 'en') {
     const weights = words.map((word) => wordWeight(word, lang));
     const totalWeight = weights.reduce((sum, w) => sum + w, 0) || 1;
 
-    // Chatterbox has very little silence at the head; keep lead-in tiny so the
-    // first word highlights with the first audible phoneme.
-    const leadIn = Math.min(0.08, duration * 0.01);
-    const trail = Math.min(0.18, duration * 0.02);
-    const usable = Math.max(duration - leadIn - trail, duration * 0.94);
+    // Chatterbox: almost no head silence after onset correction; keep residual tiny.
+    const leadIn = Math.min(0.04, duration * 0.008);
+    const trail = Math.min(0.12, duration * 0.015);
+    const usable = Math.max(duration - leadIn - trail, duration * 0.96);
 
     let t = leadIn;
     return weights.map((w) => {
@@ -30,8 +28,7 @@ export function estimateWordTimings(words, duration, languageId = 'en') {
 }
 
 /**
- * Build absolute word start times using measured chunk durations from the TTS
- * pipeline. Falls back to a single full-duration estimate on mismatch.
+ * Build absolute word start times using measured chunk durations.
  *
  * @param {string} pageText
  * @param {{ text: string, start_s: number, end_s: number }[]} segments
@@ -81,7 +78,6 @@ export function estimateWordTimingsFromSegments(
         wordOffset += segWords.length;
     }
 
-    // If chunking split words differently than a full-page split, fall back.
     if (aligned < words.length * 0.85 || wordOffset !== words.length) {
         const lastEnd = Math.max(
             fallbackDuration || 0,
@@ -96,6 +92,24 @@ export function estimateWordTimingsFromSegments(
     return { words, times };
 }
 
+/**
+ * Build full-page timing array for a partial narration clip that starts at
+ * `startWordIndex`. Words before the clip use a sentinel (-1) so
+ * wordIndexAtTime never selects them while the partial audio plays from t=0.
+ */
+export function stitchPartialTimings(fullWords, startWordIndex, partialTimes) {
+    const times = new Array(fullWords.length);
+    for (let i = 0; i < fullWords.length; i++) {
+        if (i < startWordIndex) {
+            times[i] = -1;
+        } else {
+            const local = partialTimes[i - startWordIndex];
+            times[i] = typeof local === 'number' ? local : 0;
+        }
+    }
+    return times;
+}
+
 function wordWeight(word, lang) {
     const raw = String(word || '');
     const clean = raw.replace(/[^\p{L}\p{N}']/gu, '');
@@ -103,35 +117,44 @@ function wordWeight(word, lang) {
 
     let speech;
     if (lang === 'ar') {
-        speech = Math.max(1, chars / 2.0);
+        // Arabic TTS is more char-linear than English syllable timing.
+        speech = Math.max(0.9, chars * 0.55);
     } else {
         const vowelGroups = clean.match(/[aeiouy]+/gi);
         const syllables = vowelGroups
             ? vowelGroups.length
-            : Math.max(1, Math.ceil(chars / 3));
-        // Heavier char contribution — closer to actual speech rate for neural TTS.
-        speech = Math.max(0.85, syllables * 0.72 + chars * 0.12);
+            : Math.max(1, Math.ceil(chars / 3.2));
+        // Calibrated toward Chatterbox: slightly longer short words, less
+        // exaggerated sentence-final pauses than classic heuristics.
+        speech = Math.max(0.7, syllables * 0.68 + chars * 0.14);
     }
 
     let pause = 0;
-    if (/[.!?؟。…]$/.test(raw)) pause = 2.2;
-    else if (/[,;:،؛]$/.test(raw)) pause = 0.95;
-    else if (/[-–—]$/.test(raw)) pause = 0.5;
-    else if (raw.endsWith('…')) pause = 1.8;
+    if (/[.!?؟。…]$/.test(raw)) pause = 1.55;
+    else if (/[,;:،؛]$/.test(raw)) pause = 0.72;
+    else if (/[-–—]$/.test(raw)) pause = 0.4;
+    else if (raw.endsWith('…')) pause = 1.35;
+
+    // Function words tend to be shorter in continuous speech.
+    if (
+        lang !== 'ar' &&
+        /^(a|an|the|of|to|in|on|at|for|and|or|but|is|are|was|were|be|as|by|with)$/i.test(
+            clean
+        )
+    ) {
+        speech *= 0.72;
+    }
 
     return speech + pause;
 }
 
-/**
- * Map audio time → sentence index using the same weighted model as words.
- */
 export function estimateSentenceIndex(sentences, currentTime, duration) {
     if (!sentences?.length || !duration) return 0;
     const weights = sentences.map((s) => Math.max(1, s.length));
     const total = weights.reduce((a, b) => a + b, 0) || 1;
-    const leadIn = Math.min(0.08, duration * 0.01);
-    const trail = Math.min(0.18, duration * 0.02);
-    const usable = Math.max(duration - leadIn - trail, duration * 0.94);
+    const leadIn = Math.min(0.04, duration * 0.008);
+    const trail = Math.min(0.12, duration * 0.015);
+    const usable = Math.max(duration - leadIn - trail, duration * 0.96);
     const progress = Math.min(1, Math.max(0, (currentTime - leadIn) / usable));
     let target = progress * total;
     let acc = 0;
@@ -144,20 +167,30 @@ export function estimateSentenceIndex(sentences, currentTime, duration) {
 
 /**
  * Binary-search word index for a given audio time.
- * Optional lagMs shifts the clock slightly so the highlight leads the ear
- * (feels more natural for follow-along reading).
+ * lagMs: positive = highlight slightly ahead of the ear (follow-along feel).
+ * Calibrated ~25ms after onset correction.
  */
-export function wordIndexAtTime(wordStartTimes, currentTime, lagMs = 40) {
+export function wordIndexAtTime(wordStartTimes, currentTime, lagMs = 25) {
     if (!wordStartTimes?.length) return -1;
     const t = Math.max(0, currentTime + lagMs / 1000);
+    // Skip leading sentinel slots (partial clips mark pre-resume words as -1).
     let lo = 0;
+    while (lo < wordStartTimes.length && wordStartTimes[lo] < 0) lo++;
+    if (lo >= wordStartTimes.length) return -1;
+
     let hi = wordStartTimes.length - 1;
-    let ans = -1;
-    while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (wordStartTimes[mid] <= t) {
+    let ans = lo;
+    let left = lo;
+    while (left <= hi) {
+        const mid = (left + hi) >> 1;
+        const v = wordStartTimes[mid];
+        if (v < 0) {
+            left = mid + 1;
+            continue;
+        }
+        if (v <= t) {
             ans = mid;
-            lo = mid + 1;
+            left = mid + 1;
         } else {
             hi = mid - 1;
         }

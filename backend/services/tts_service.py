@@ -37,6 +37,10 @@ _model_state = {
 }
 _model_lock = threading.Lock()
 _generate_lock = threading.Lock()
+# Avoid re-running expensive prepare_conditionals for the same voice prompt
+# across consecutive chunks / narrate calls (big win on voice switch).
+_last_voice_prompt: str | None = None
+_last_voice_exaggeration: float | None = None
 
 # Chunk sizes — GPU can handle larger pieces (fewer slow generate() calls).
 _CHUNK_TARGET_CHARS_GPU = 480
@@ -298,9 +302,20 @@ def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
     top_p = generate_kwargs.get("top_p", 1.0)
     exaggeration = generate_kwargs.get("exaggeration", 0.5)
     audio_prompt_path = generate_kwargs.get("audio_prompt_path")
+    force_prepare = bool(generate_kwargs.get("force_prepare", False))
 
+    global _last_voice_prompt, _last_voice_exaggeration
     if audio_prompt_path:
-        model.prepare_conditionals(audio_prompt_path, exaggeration=exaggeration)
+        same_prompt = (
+            not force_prepare
+            and _last_voice_prompt == audio_prompt_path
+            and _last_voice_exaggeration == exaggeration
+            and model.conds is not None
+        )
+        if not same_prompt:
+            model.prepare_conditionals(audio_prompt_path, exaggeration=exaggeration)
+            _last_voice_prompt = audio_prompt_path
+            _last_voice_exaggeration = exaggeration
     elif model.conds is None:
         raise RuntimeError("Model has no speaker conditionals; select a voice or reinstall models.")
 
@@ -636,8 +651,12 @@ def narrate_text(text, session_id, page_index, voice_id=None, language_id="en"):
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
                 )
                 kwargs = dict(generate_kwargs)
+                # First chunk of a narrate call prepares (or reuses cached) voice;
+                # later chunks keep the loaded conditionals without re-encoding.
                 if i > 0:
                     kwargs.pop("audio_prompt_path", None)
+                elif i == 0 and audio_prompt_path:
+                    kwargs["force_prepare"] = False
                 part = _generate_chunk(model, chunk, language_id, **kwargs)
                 if isinstance(part, torch.Tensor):
                     part = part.detach().cpu()

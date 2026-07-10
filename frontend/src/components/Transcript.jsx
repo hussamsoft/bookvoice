@@ -1,32 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { narrateText } from '../utils/api';
-import { createSessionId } from '../utils/session';
-import { useToast } from './Toast';
 
+/**
+ * Follow-along transcript.
+ *
+ * Click behavior is owned by the parent via onWordActivate so pause/play
+ * semantics stay consistent with the main audio element:
+ *  - playing  → seek + keep playing
+ *  - paused   → pronounce word + set resume point (do not auto-resume)
+ *  - idle     → pronounce only
+ */
 export default function Transcript({
     words,
-    wordStartTimes,
     currentWord,
     isPlaying,
     isPaused,
-    voiceId,
-    languageId,
-    onSeek,
+    onWordActivate,
     statusHint,
+    languageId,
 }) {
-    const toast = useToast();
-    const [pronouncing, setPronouncing] = useState(null);
     const [hoveredWord, setHoveredWord] = useState(null);
-    const pronounceRef = useRef(null);
+    const [pronouncing, setPronouncing] = useState(null);
     const wordsContainerRef = useRef(null);
-    // Stable pronounce session (not recreated every render)
-    const pronounceSessionRef = useRef(null);
-    if (!pronounceSessionRef.current) {
-        pronounceSessionRef.current = createSessionId('pronounce');
-    }
 
-    // Keep the active word in view without janky full-panel jumps.
     useEffect(() => {
         if (currentWord < 0 || !wordsContainerRef.current) return;
         const el = wordsContainerRef.current.querySelector(
@@ -41,31 +37,14 @@ export default function Transcript({
     }, [currentWord]);
 
     const handleWordClick = async (index, word) => {
-        if (isPlaying || (isPaused && wordStartTimes[index] !== undefined)) {
-            onSeek(wordStartTimes[index]);
-            return;
-        }
-        if (!isPlaying && !isPaused) {
-            setPronouncing(index);
-            try {
-                const cleanWord = word.replace(/[^\w\s'\u0600-\u06FF-]/g, '').trim();
-                if (!cleanWord) return;
-                const { audioUrl } = await narrateText(
-                    cleanWord,
-                    pronounceSessionRef.current,
-                    0,
-                    voiceId,
-                    languageId
-                );
-                if (pronounceRef.current) {
-                    pronounceRef.current.src = audioUrl;
-                    await pronounceRef.current.play().catch(() => {});
-                }
-            } catch (error) {
-                toast.error('Failed to pronounce: ' + error.message);
-            } finally {
-                setPronouncing(null);
-            }
+        setPronouncing(index);
+        try {
+            await onWordActivate?.(index, word, {
+                isPlaying,
+                isPaused,
+            });
+        } finally {
+            setPronouncing(null);
         }
     };
 
@@ -77,7 +56,7 @@ export default function Transcript({
                 </div>
                 <p className="transcript-empty">
                     {statusHint ||
-                        'Press Read Page to generate narration. The spoken words appear here, synced with the PDF.'}
+                        'Press Read to generate narration. Words here stay linked to the spoken voice — click any word to hear it.'}
                 </p>
             </div>
         );
@@ -92,6 +71,13 @@ export default function Transcript({
                 <span className="transcript-word-count">{words.length} words</span>
             </div>
             {statusHint ? <p className="transcript-status">{statusHint}</p> : null}
+            <p className="transcript-hint">
+                {isPlaying
+                    ? 'Click a word to jump there'
+                    : isPaused
+                      ? 'Click a word to hear it — resume starts there'
+                      : 'Click a word to hear pronunciation'}
+            </p>
             <div className="transcript-words" dir={dir} ref={wordsContainerRef}>
                 {words.map((word, i) => {
                     const isCurrent = i === currentWord;
@@ -104,10 +90,17 @@ export default function Transcript({
                             data-word-index={i}
                             className={`transcript-word ${isCurrent ? 'current' : ''} ${
                                 isPast ? 'past' : ''
-                            } ${isHovered ? 'hovered' : ''}`}
+                            } ${isHovered ? 'hovered' : ''} ${
+                                isPronouncing ? 'pronouncing' : ''
+                            }`}
                             onClick={() => handleWordClick(i, word)}
                             onMouseEnter={() => setHoveredWord(i)}
                             onMouseLeave={() => setHoveredWord(null)}
+                            title={
+                                isPlaying
+                                    ? 'Jump to this word'
+                                    : 'Hear this word (sets resume point)'
+                            }
                         >
                             {word}
                             {isPronouncing && (
@@ -117,7 +110,6 @@ export default function Transcript({
                     );
                 })}
             </div>
-            <audio ref={pronounceRef} style={{ display: 'none' }} />
         </div>
     );
 }

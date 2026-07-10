@@ -872,6 +872,48 @@ body {
   min-width: 0;
 }
 
+.page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.page-jump label {
+  font-weight: 500;
+}
+
+.page-jump input {
+  width: 3.2rem;
+  padding: 0.28rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.page-jump-total {
+  min-width: 2rem;
+}
+
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0 0.15rem;
+}
+
+.zoom-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 2.6rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .pdf-page-indicator {
   font-family: var(--font-body);
   font-weight: 600;
@@ -922,6 +964,22 @@ body {
   align-items: center;
   justify-content: flex-start;
   scroll-behavior: smooth;
+}
+
+.pdf-scroll-area.zoomable {
+  cursor: grab;
+  align-items: flex-start;
+}
+
+.pdf-scroll-area.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.model-loading-status-bar.prefetch {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border);
 }
 
 .pdf-page-wrapper {
@@ -1038,6 +1096,13 @@ body {
   flex-shrink: 0;
 }
 
+.transcript-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 0 0.4rem;
+  flex-shrink: 0;
+}
+
 .transcript-words {
   line-height: 1.7;
   font-size: 0.98rem;
@@ -1072,6 +1137,11 @@ body {
   font-weight: 600;
   border-radius: 3px;
   box-shadow: 0 0 0 1px rgba(201, 149, 107, 0.35);
+}
+
+.transcript-word.pronouncing {
+  outline: 1px solid var(--primary);
+  background: rgba(201, 149, 107, 0.22);
 }
 
 .transcript-word.hovered {

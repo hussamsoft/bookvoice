@@ -11,6 +11,9 @@ import {
     X,
     Languages,
     ScanText,
+    ZoomIn,
+    ZoomOut,
+    Maximize2,
 } from 'lucide-react';
 import { narrateText } from '../utils/api';
 import { extractTextFromImage } from '../utils/ocr';
@@ -20,8 +23,11 @@ import { SUPPORTED_LANGUAGES } from '../utils/languages';
 import {
     estimateWordTimings,
     estimateWordTimingsFromSegments,
+    stitchPartialTimings,
     wordIndexAtTime,
 } from '../utils/timings';
+import { detectSpeechOnset, shiftTimingsToOnset } from '../utils/audioOnset';
+import { createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
 import {
     buildWordSpanMap,
     applyWordHighlight,
@@ -37,9 +43,21 @@ import Transcript from './Transcript';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
+const PREFETCH_RADIUS = 2;
+const ZOOM_MIN = 0.7;
+const ZOOM_MAX = 2.6;
+const ZOOM_STEP = 0.15;
+
+function cleanPronounceWord(word) {
+    return String(word || '')
+        .replace(/[^\w\s'\u0600-\u06FF-]/g, '')
+        .trim();
+}
+
 export default function PdfViewer({ onDirty }) {
     const toast = useToast();
     const [isGenerating, setIsGenerating] = useState(false);
+    const isGeneratingRef = useRef(false);
     const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
         useTtsStatus({ pollWhileGenerating: isGenerating });
     const { config, updateConfig } = useUserConfig();
@@ -47,6 +65,7 @@ export default function PdfViewer({ onDirty }) {
     const [file, setFile] = useState(null);
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
+    const [pageJumpInput, setPageJumpInput] = useState('1');
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
@@ -58,11 +77,14 @@ export default function PdfViewer({ onDirty }) {
     const [pageWords, setPageWords] = useState([]);
     const [wordStartTimes, setWordStartTimes] = useState([]);
     const [currentWord, setCurrentWord] = useState(-1);
-    const [pageWidth, setPageWidth] = useState(520);
+    const [basePageWidth, setBasePageWidth] = useState(520);
+    const [zoom, setZoom] = useState(1);
+    const [statusHint, setStatusHint] = useState('');
     const [sessionId] = useState(() => createSessionId('pdf'));
-    const [voiceSwitchHint, setVoiceSwitchHint] = useState('');
+    const [prefetchHint, setPrefetchHint] = useState('');
 
     const audioRef = useRef(null);
+    const pronounceRef = useRef(null);
     const containerRef = useRef(null);
     const pdfDocRef = useRef(null);
     const fileRef = useRef(null);
@@ -72,6 +94,7 @@ export default function PdfViewer({ onDirty }) {
     const wordTimesRef = useRef([]);
     const langRef = useRef(targetLanguage);
     const pageTextRef = useRef('');
+    const pageNumberRef = useRef(1);
     const audioPageRef = useRef(null);
     const audioVoiceRef = useRef(null);
     const isPlayingRef = useRef(false);
@@ -79,15 +102,22 @@ export default function PdfViewer({ onDirty }) {
     const voiceSwitchGenRef = useRef(0);
     const segmentsRef = useRef([]);
     const rafRef = useRef(0);
+    const cacheRef = useRef(createPageAudioCache({ maxEntries: 14 }));
+    const textCacheRef = useRef(new Map()); // page -> text
+    const prefetchBusyRef = useRef(false);
+    const prefetchQueueRef = useRef([]);
+    const activeVoiceRef = useRef(null);
+    const panDragRef = useRef(null);
 
     langRef.current = targetLanguage;
     pageTextRef.current = pageText;
+    pageNumberRef.current = pageNumber;
     audioPageRef.current = audioPage;
     isPlayingRef.current = isPlaying;
     currentWordRef.current = currentWord;
+    activeVoiceRef.current = activeVoiceId;
+    isGeneratingRef.current = isGenerating;
 
-    // Apply saved user settings once, when config arrives — but never clobber
-    // a choice the user already made while config was still loading.
     const configAppliedRef = useRef(false);
     const userTouchedRef = useRef({ voice: false, language: false });
     useEffect(() => {
@@ -103,6 +133,10 @@ export default function PdfViewer({ onDirty }) {
         }
     }, [config]);
 
+    useEffect(() => {
+        setPageJumpInput(String(pageNumber));
+    }, [pageNumber]);
+
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -117,9 +151,7 @@ export default function PdfViewer({ onDirty }) {
     }, []);
 
     const pauseAudio = useCallback(() => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-        }
+        if (audioRef.current) audioRef.current.pause();
         setIsPlaying(false);
         isPlayingRef.current = false;
         if (rafRef.current) {
@@ -128,19 +160,10 @@ export default function PdfViewer({ onDirty }) {
         }
     }, []);
 
-    const goToPage = (next) => {
-        if (next === pageNumber) return;
-        pauseAudio();
-        setCurrentWord(-1);
-        clearPdfHighlights(containerRef.current || document);
-        setPageNumber(next);
-    };
-
-    // Fit PDF page into the scroll viewport (portrait-friendly)
+    // Fit base page width into the scroll viewport
     useEffect(() => {
         const el = containerRef.current;
         if (!el || !file) return;
-
         const measure = () => {
             const styles = getComputedStyle(el);
             const padX =
@@ -154,14 +177,15 @@ export default function PdfViewer({ onDirty }) {
             const pageAspect = 1 / 1.414;
             const widthFromHeight = availH * pageAspect;
             const fit = Math.floor(Math.min(availW, widthFromHeight, 900));
-            setPageWidth(Math.max(240, fit));
+            setBasePageWidth(Math.max(240, fit));
         };
-
         measure();
         const ro = new ResizeObserver(measure);
         ro.observe(el);
         return () => ro.disconnect();
     }, [file, numPages]);
+
+    const displayWidth = Math.round(basePageWidth * zoom);
 
     const extractTextFromPage = async (pdf, pageNum) => {
         const page = await pdf.getPage(pageNum);
@@ -216,35 +240,36 @@ export default function PdfViewer({ onDirty }) {
         wordSpanMapRef.current = buildWordSpanMap(pageWordsRef.current, textLayer);
     }, []);
 
-    const applyTimings = useCallback(
-        (text, segments, duration) => {
-            const { words, times } = estimateWordTimingsFromSegments(
-                text,
-                segments,
-                langRef.current,
-                duration
-            );
-            if (!words.length) {
-                const fallbackWords = text.split(/\s+/).filter(Boolean);
-                const fallbackTimes = estimateWordTimings(
-                    fallbackWords,
-                    duration,
-                    langRef.current
-                );
-                setPageWords(fallbackWords);
-                setWordStartTimes(fallbackTimes);
-                pageWordsRef.current = fallbackWords;
-                wordTimesRef.current = fallbackTimes;
-            } else {
-                setPageWords(words);
-                setWordStartTimes(times);
-                pageWordsRef.current = words;
-                wordTimesRef.current = times;
-            }
+    const applyWordState = useCallback(
+        (words, times) => {
+            setPageWords(words);
+            setWordStartTimes(times);
+            pageWordsRef.current = words;
+            wordTimesRef.current = times;
             requestAnimationFrame(() => rebindWordSpans());
         },
         [rebindWordSpans]
     );
+
+    const buildTimings = useCallback(async (text, segments, duration, audioUrlForOnset) => {
+        let { words, times } = estimateWordTimingsFromSegments(
+            text,
+            segments,
+            langRef.current,
+            duration
+        );
+        if (!words.length) {
+            words = text.split(/\s+/).filter(Boolean);
+            times = estimateWordTimings(words, duration, langRef.current);
+        }
+        if (audioUrlForOnset && times.length) {
+            const onset = await detectSpeechOnset(audioUrlForOnset);
+            if (onset > 0.01) {
+                times = shiftTimingsToOnset(times, onset, duration || Infinity);
+            }
+        }
+        return { words, times };
+    }, []);
 
     const syncHighlightAt = useCallback((currentTime) => {
         const idx = wordIndexAtTime(wordTimesRef.current, currentTime);
@@ -283,22 +308,11 @@ export default function PdfViewer({ onDirty }) {
         const audio = audioRef.current;
         if (!audio) return;
 
-        const handleLoadedMetadata = () => {
-            if (pageTextRef.current) {
-                applyTimings(
-                    pageTextRef.current,
-                    segmentsRef.current,
-                    audio.duration || 0
-                );
-            }
-        };
-
         const handlePlay = () => {
             setIsPlaying(true);
             isPlayingRef.current = true;
             startHighlightLoop();
         };
-
         const handlePause = () => {
             setIsPlaying(false);
             isPlayingRef.current = false;
@@ -306,190 +320,426 @@ export default function PdfViewer({ onDirty }) {
                 cancelAnimationFrame(rafRef.current);
                 rafRef.current = 0;
             }
-            // Keep highlight frozen on the current word while paused.
-            if (audio.currentTime != null) {
-                syncHighlightAt(audio.currentTime);
-            }
+            if (audio.currentTime != null) syncHighlightAt(audio.currentTime);
         };
-
         const handleEnded = () => {
-            clearPlaybackState();
+            // Soft end: leave resume on last word
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = 0;
+            }
+            const last = Math.max(0, pageWordsRef.current.length - 1);
+            setCurrentWord(last);
+            currentWordRef.current = last;
         };
-
-        // Fallback for browsers that throttle rAF in background tabs.
         const handleTimeUpdate = () => {
             if (!audio.paused) syncHighlightAt(audio.currentTime);
         };
 
-        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
         audio.addEventListener('play', handlePlay);
         audio.addEventListener('pause', handlePause);
         audio.addEventListener('ended', handleEnded);
         audio.addEventListener('timeupdate', handleTimeUpdate);
         return () => {
-            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
             audio.removeEventListener('play', handlePlay);
             audio.removeEventListener('pause', handlePause);
             audio.removeEventListener('ended', handleEnded);
             audio.removeEventListener('timeupdate', handleTimeUpdate);
             if (rafRef.current) cancelAnimationFrame(rafRef.current);
         };
-    }, [applyTimings, clearPlaybackState, startHighlightLoop, syncHighlightAt]);
+    }, [startHighlightLoop, syncHighlightAt]);
 
     const onPageRenderSuccess = useCallback(() => {
         requestAnimationFrame(() => rebindWordSpans());
     }, [rebindWordSpans]);
 
+    const preparePageText = useCallback(
+        async (pageNum, { forceOcr = false, quiet = false } = {}) => {
+            if (!forceOcr && textCacheRef.current.has(pageNum)) {
+                return textCacheRef.current.get(pageNum);
+            }
+            const pdf = await getPdfDocument();
+            let text = '';
+            if (!forceOcr) {
+                text = await extractTextFromPage(pdf, pageNum);
+            }
+            if (!text.trim() || forceOcr) {
+                if (!quiet) setIsOcring(true);
+                try {
+                    if (!quiet) {
+                        toast.info(
+                            forceOcr
+                                ? 'Running OCR on this page…'
+                                : 'No embedded text — running OCR…'
+                        );
+                    }
+                    const dataUrl = await renderPageToDataUrl(pdf, pageNum);
+                    const raw = await extractTextFromImage(dataUrl);
+                    text = cleanExtractedText(raw);
+                } finally {
+                    if (!quiet) setIsOcring(false);
+                }
+            }
+            if (!text.trim()) {
+                throw new Error('No text found on this page.');
+            }
+            textCacheRef.current.set(pageNum, text);
+            return text;
+        },
+        // file is read via fileRef / getPdfDocument; toast is stable enough for UI notes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [toast]
+    );
+
+    const waitAudioReady = (audio) =>
+        new Promise((resolve) => {
+            if (audio.readyState >= 1) {
+                resolve();
+                return;
+            }
+            const onMeta = () => {
+                audio.removeEventListener('loadedmetadata', onMeta);
+                resolve();
+            };
+            audio.addEventListener('loadedmetadata', onMeta);
+        });
+
     /**
-     * Generate narration for the current page text.
-     * @param {{ resumeWordIndex?: number, autoplay?: boolean, voiceId?: string|null }} opts
+     * Apply a ready cache entry (or fresh result) to the main player.
      */
-    const generateAudio = useCallback(
+    const applyReadyAudio = useCallback(
+        async (entry, { autoplay, resumeWordIndex = 0 }) => {
+            const audio = audioRef.current;
+            if (!audio || !entry?.audioUrl) return;
+
+            segmentsRef.current = entry.segments || [];
+            setAudioUrl(entry.audioUrl);
+            setAudioPage(entry.page);
+            audioPageRef.current = entry.page;
+            audioVoiceRef.current = entry.voiceId ?? null;
+            setPageText(entry.text);
+            pageTextRef.current = entry.text;
+
+            audio.src = entry.audioUrl;
+            await waitAudioReady(audio);
+
+            let words = entry.words;
+            let times = entry.times;
+            if (!words?.length || !times?.length) {
+                const built = await buildTimings(
+                    entry.text,
+                    entry.segments,
+                    audio.duration || entry.duration_s || 0,
+                    entry.audioUrl
+                );
+                words = built.words;
+                times = built.times;
+                entry.words = words;
+                entry.times = times;
+            }
+            applyWordState(words, times);
+
+            // For partial clips, resumeWordIndex is a page word with audio time 0.
+            // For full clips, seek to that word's absolute time.
+            const seekIdx = Math.max(
+                0,
+                Math.min(resumeWordIndex, Math.max(0, times.length - 1))
+            );
+            let seekTime = times[seekIdx] ?? 0;
+            if (seekTime < 0) seekTime = 0;
+            // If this entry is a partial starting at seekIdx, audio begins at 0.
+            if (entry.partial && entry.fromWord === seekIdx) {
+                seekTime = 0;
+            }
+            try {
+                audio.currentTime = seekTime;
+            } catch {
+                /* ignore */
+            }
+            setCurrentWord(seekIdx);
+            currentWordRef.current = seekIdx;
+            syncHighlightAt(seekTime);
+
+            if (autoplay) {
+                await audio.play().catch(() => {});
+                setIsPlaying(true);
+                isPlayingRef.current = true;
+                startHighlightLoop();
+            } else {
+                setIsPlaying(false);
+                isPlayingRef.current = false;
+            }
+        },
+        [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt]
+    );
+
+    /**
+     * Narrate a page (or partial remaining text for fast voice switch).
+     * Stores full-page ready entries in the cache.
+     */
+    const narratePage = useCallback(
+        async (pageNum, text, opts = {}) => {
+            const {
+                voiceId = activeVoiceRef.current,
+                languageId = langRef.current,
+                fromWord = 0,
+                storeFullCache = true,
+            } = opts;
+
+            const words = text.split(/\s+/).filter(Boolean);
+            const start = Math.max(0, Math.min(fromWord, Math.max(0, words.length - 1)));
+            const partial = start > 0;
+            const narrateBody = partial ? words.slice(start).join(' ') : text;
+            // Unique page_index for partials so we don't clobber full-page wav.
+            const storageIndex = partial ? pageNum * 100000 + start : pageNum;
+
+            const result = await narrateText(
+                narrateBody,
+                sessionId,
+                storageIndex,
+                voiceId,
+                languageId
+            );
+
+            const duration = result.duration_s || 0;
+            let built = await buildTimings(
+                narrateBody,
+                result.segments,
+                duration,
+                result.audioUrl
+            );
+
+            // For partials, stitch into full-page word arrays for UI continuity.
+            let fullWords = words;
+            let fullTimes = built.times;
+            if (partial) {
+                fullTimes = stitchPartialTimings(words, start, built.times);
+                built = { words: fullWords, times: fullTimes };
+            }
+
+            const entry = {
+                status: 'ready',
+                page: pageNum,
+                voiceId: voiceId ?? null,
+                languageId,
+                text,
+                audioUrl: result.audioUrl,
+                segments: result.segments || [],
+                duration_s: duration,
+                words: built.words,
+                times: built.times,
+                fromWord: start,
+                partial,
+            };
+
+            // Only full-page narrations go into the flip cache (partials are
+            // voice-switch resume clips and shouldn't satisfy "page ready").
+            if (storeFullCache && !partial) {
+                cacheRef.current.set(cacheKey(pageNum, voiceId, languageId), entry);
+            }
+            return entry;
+        },
+        [buildTimings, sessionId]
+    );
+
+    const generateAndPlay = useCallback(
         async (pageNum, text, opts = {}) => {
             const {
                 resumeWordIndex = 0,
                 autoplay = true,
-                voiceId = activeVoiceId,
+                voiceId = activeVoiceRef.current,
+                force = false,
+                partialFromResume = false,
             } = opts;
 
+            const key = cacheKey(pageNum, voiceId, langRef.current);
+            if (!force && !partialFromResume && cacheRef.current.hasReady(key)) {
+                const hit = cacheRef.current.get(key);
+                await applyReadyAudio(hit, { autoplay, resumeWordIndex });
+                return hit;
+            }
+
             setIsGenerating(true);
-            setVoiceSwitchHint(
-                resumeWordIndex > 0
-                    ? 'Switching voice — picking up where you left off…'
-                    : ''
-            );
+            isGeneratingRef.current = true;
             try {
-                const result = await narrateText(
-                    text,
-                    sessionId,
-                    pageNum,
+                const fromWord = partialFromResume ? resumeWordIndex : 0;
+                const entry = await narratePage(pageNum, text, {
                     voiceId,
-                    langRef.current
-                );
-                segmentsRef.current = result.segments || [];
-                setAudioUrl(result.audioUrl);
-                setAudioPage(pageNum);
-                audioPageRef.current = pageNum;
-                audioVoiceRef.current = voiceId ?? null;
-
-                const audio = audioRef.current;
-                if (audio) {
-                    audio.src = result.audioUrl;
-                    // Wait for metadata so we can place timings + seek accurately.
-                    await new Promise((resolve) => {
-                        const onMeta = () => {
-                            audio.removeEventListener('loadedmetadata', onMeta);
-                            resolve();
-                        };
-                        if (audio.readyState >= 1) resolve();
-                        else audio.addEventListener('loadedmetadata', onMeta);
-                    });
-
-                    applyTimings(
-                        text,
-                        segmentsRef.current,
-                        audio.duration || result.duration_s || 0
-                    );
-
-                    const times = wordTimesRef.current;
-                    const seekIdx = Math.max(
-                        0,
-                        Math.min(resumeWordIndex, Math.max(0, times.length - 1))
-                    );
-                    const seekTime = times[seekIdx] ?? 0;
-                    try {
-                        audio.currentTime = seekTime;
-                    } catch {
-                        /* ignore seek race */
-                    }
-                    setCurrentWord(seekIdx);
-                    currentWordRef.current = seekIdx;
-                    syncHighlightAt(seekTime);
-
-                    if (autoplay) {
-                        await audio.play().catch(() => {});
-                        setIsPlaying(true);
-                        isPlayingRef.current = true;
-                        startHighlightLoop();
-                    } else {
-                        setIsPlaying(false);
-                        isPlayingRef.current = false;
-                    }
-                }
+                    fromWord,
+                    storeFullCache: !partialFromResume,
+                });
+                // Partial clips start at audio t=0 == page word `fromWord`.
+                // stitchPartialTimings uses -1 sentinels for earlier words.
+                await applyReadyAudio(entry, {
+                    autoplay,
+                    resumeWordIndex,
+                });
                 onDirty?.();
+                return entry;
             } catch (error) {
-                toast.error('Failed to narrate: ' + error.message);
+                toast.error(error.message || 'Failed to narrate');
                 throw error;
             } finally {
                 setIsGenerating(false);
-                setVoiceSwitchHint('');
+                isGeneratingRef.current = false;
+                setStatusHint('');
+            }
+        },
+        [applyReadyAudio, narratePage, onDirty, toast]
+    );
+
+    // -------- Prefetch queue (single-file TTS; never starve UI) --------
+    const runPrefetchQueue = useCallback(async () => {
+        if (prefetchBusyRef.current) return;
+        prefetchBusyRef.current = true;
+        try {
+            while (prefetchQueueRef.current.length) {
+                // Yield the single TTS worker while the user is generating.
+                if (isGeneratingRef.current) {
+                    await new Promise((r) => setTimeout(r, 350));
+                    continue;
+                }
+                const job = prefetchQueueRef.current.shift();
+                if (!job) break;
+                const { page, voiceId, languageId } = job;
+                const key = cacheKey(page, voiceId, languageId);
+                if (cacheRef.current.hasReady(key)) continue;
+                try {
+                    setPrefetchHint(`Warming page ${page}…`);
+                    const text = await preparePageText(page, { quiet: true });
+                    if (isGeneratingRef.current) {
+                        // User started a narrate; put job back and yield.
+                        prefetchQueueRef.current.unshift(job);
+                        await new Promise((r) => setTimeout(r, 350));
+                        continue;
+                    }
+                    await narratePage(page, text, {
+                        voiceId,
+                        languageId,
+                        fromWord: 0,
+                        storeFullCache: true,
+                    });
+                } catch {
+                    /* prefetch is best-effort */
+                }
+            }
+        } finally {
+            prefetchBusyRef.current = false;
+            setPrefetchHint('');
+        }
+    }, [narratePage, preparePageText]);
+
+    const schedulePrefetch = useCallback(
+        (centerPage, total) => {
+            if (!modelReady || !total) return;
+            const voiceId = activeVoiceRef.current;
+            const languageId = langRef.current;
+            const lo = Math.max(1, centerPage - PREFETCH_RADIUS);
+            const hi = Math.min(total, centerPage + PREFETCH_RADIUS);
+            cacheRef.current.retainPageWindow(lo, hi);
+
+            // Priority: next pages first, then previous (reading direction).
+            const order = [];
+            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
+                if (centerPage + d <= total) order.push(centerPage + d);
+            }
+            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
+                if (centerPage - d >= 1) order.push(centerPage - d);
+            }
+
+            const q = [];
+            for (const p of order) {
+                const key = cacheKey(p, voiceId, languageId);
+                if (!cacheRef.current.hasReady(key)) {
+                    q.push({ page: p, voiceId, languageId });
+                }
+            }
+            prefetchQueueRef.current = q;
+            // Defer so current narrate can finish first.
+            setTimeout(() => runPrefetchQueue(), 400);
+        },
+        [modelReady, runPrefetchQueue]
+    );
+
+    const loadPageIntoView = useCallback(
+        async (pageNum, { autoplay = false } = {}) => {
+            pauseAudio();
+            setPageNumber(pageNum);
+            pageNumberRef.current = pageNum;
+
+            try {
+                const text = await preparePageText(pageNum);
+                setPageText(text);
+                pageTextRef.current = text;
+                setPageWords(text.split(/\s+/).filter(Boolean));
+                pageWordsRef.current = text.split(/\s+/).filter(Boolean);
+
+                const key = cacheKey(pageNum, activeVoiceRef.current, langRef.current);
+                if (cacheRef.current.hasReady(key)) {
+                    await applyReadyAudio(cacheRef.current.get(key), {
+                        autoplay,
+                        resumeWordIndex: 0,
+                    });
+                } else {
+                    setAudioUrl(null);
+                    setAudioPage(null);
+                    audioPageRef.current = null;
+                    setWordStartTimes([]);
+                    wordTimesRef.current = [];
+                    setCurrentWord(-1);
+                    if (autoplay && modelReady) {
+                        await generateAndPlay(pageNum, text, {
+                            autoplay: true,
+                            resumeWordIndex: 0,
+                        });
+                    }
+                }
+                if (numPages) schedulePrefetch(pageNum, numPages);
+            } catch (e) {
+                toast.error(e.message);
             }
         },
         [
-            activeVoiceId,
-            applyTimings,
-            onDirty,
-            sessionId,
-            startHighlightLoop,
-            syncHighlightAt,
+            applyReadyAudio,
+            generateAndPlay,
+            modelReady,
+            numPages,
+            pauseAudio,
+            preparePageText,
+            schedulePrefetch,
             toast,
         ]
     );
 
-    const preparePageText = async (pageNum, { forceOcr = false } = {}) => {
-        const pdf = await getPdfDocument();
-        let text = '';
-
-        if (!forceOcr) {
-            text = await extractTextFromPage(pdf, pageNum);
-        }
-
-        if (!text.trim() || forceOcr) {
-            setIsOcring(true);
-            try {
-                toast.info(
-                    forceOcr
-                        ? 'Running OCR on this page…'
-                        : 'No embedded text — running OCR on page image…'
-                );
-                const dataUrl = await renderPageToDataUrl(pdf, pageNum);
-                const raw = await extractTextFromImage(dataUrl);
-                text = cleanExtractedText(raw);
-            } finally {
-                setIsOcring(false);
-            }
-        }
-
-        if (!text.trim()) {
-            throw new Error(
-                'No text found on this page. Try OCR again or check page quality.'
-            );
-        }
-
-        setPageText(text);
-        pageTextRef.current = text;
-        setPageWords([]);
-        setWordStartTimes([]);
-        pageWordsRef.current = [];
-        wordTimesRef.current = [];
-        wordSpanMapRef.current = [];
-        segmentsRef.current = [];
-        setCurrentWord(-1);
-        return text;
+    const goToPage = (next) => {
+        if (!numPages) return;
+        const n = Math.max(1, Math.min(numPages, next));
+        if (n === pageNumber) return;
+        loadPageIntoView(n, { autoplay: false });
     };
 
-    /**
-     * Speechify-style voice change: regenerate with the new voice and resume
-     * at the same word whether playback was running or paused.
-     */
+    const handlePageJump = (e) => {
+        e?.preventDefault?.();
+        const n = parseInt(pageJumpInput, 10);
+        if (!Number.isFinite(n)) {
+            setPageJumpInput(String(pageNumber));
+            return;
+        }
+        goToPage(n);
+    };
+
     const switchVoiceLive = useCallback(
         async (nextVoiceId) => {
             const text = pageTextRef.current;
-            const page = pageNumber;
-            if (!text || !modelReady) return;
-            // Only seamless-switch when we already have narration for this page
-            // (or are mid-read). Fresh voice picks without audio just stick.
-            const hasPageAudio = audioPageRef.current === page && !!audioRef.current?.src;
+            const page = pageNumberRef.current;
+            if (!text || !modelReady) {
+                audioVoiceRef.current = nextVoiceId;
+                return;
+            }
+            const hasPageAudio =
+                audioPageRef.current === page && !!audioRef.current?.src;
             if (!hasPageAudio && !isPlayingRef.current) {
                 audioVoiceRef.current = nextVoiceId;
                 return;
@@ -498,22 +748,42 @@ export default function PdfViewer({ onDirty }) {
             const gen = ++voiceSwitchGenRef.current;
             const wasPlaying = isPlayingRef.current;
             const resumeWord = Math.max(0, currentWordRef.current);
+            const key = cacheKey(page, nextVoiceId, langRef.current);
 
             pauseAudio();
-            setVoiceSwitchHint('Loading new voice…');
 
+            // Instant path: already narrated this page in the target voice.
+            if (cacheRef.current.hasReady(key)) {
+                setStatusHint('Switching voice…');
+                try {
+                    await applyReadyAudio(cacheRef.current.get(key), {
+                        autoplay: wasPlaying,
+                        resumeWordIndex: resumeWord,
+                    });
+                } finally {
+                    if (gen === voiceSwitchGenRef.current) setStatusHint('');
+                }
+                return;
+            }
+
+            // Fast path: only regenerate from the current word to the end.
+            setStatusHint('Switching voice — continuing from here…');
             try {
-                await generateAudio(page, text, {
+                await generateAndPlay(page, text, {
                     resumeWordIndex: resumeWord,
                     autoplay: wasPlaying,
                     voiceId: nextVoiceId,
+                    force: true,
+                    partialFromResume: resumeWord > 0,
                 });
-                if (gen !== voiceSwitchGenRef.current) return; // superseded
+                if (gen !== voiceSwitchGenRef.current) return;
             } catch {
-                /* toast already shown */
+                /* toasted */
+            } finally {
+                if (gen === voiceSwitchGenRef.current) setStatusHint('');
             }
         },
-        [generateAudio, modelReady, pageNumber, pauseAudio]
+        [applyReadyAudio, generateAndPlay, modelReady, pauseAudio]
     );
 
     const handleVoiceChange = useCallback(
@@ -523,7 +793,6 @@ export default function PdfViewer({ onDirty }) {
             updateConfig({ voice_id: id }).catch((e) =>
                 toast.error(e?.message || 'Could not save voice preference')
             );
-            // Fire-and-forget seamless switch (latest generation wins).
             switchVoiceLive(id);
         },
         [switchVoiceLive, toast, updateConfig]
@@ -544,14 +813,13 @@ export default function PdfViewer({ onDirty }) {
         if (!file || !numPages) return;
 
         if (isPlaying) {
-            audioRef.current?.pause();
-            setIsPlaying(false);
-            isPlayingRef.current = false;
+            pauseAudio();
             return;
         }
 
-        if (audioUrl && audioPage === pageNumber) {
-            audioRef.current?.play();
+        // Resume existing audio for this page
+        if (audioUrl && audioPage === pageNumber && audioRef.current?.src) {
+            await audioRef.current.play().catch(() => {});
             setIsPlaying(true);
             isPlayingRef.current = true;
             startHighlightLoop();
@@ -570,11 +838,13 @@ export default function PdfViewer({ onDirty }) {
 
         try {
             const text = await preparePageText(pageNumber);
-            await generateAudio(pageNumber, text, {
-                resumeWordIndex: 0,
+            setPageText(text);
+            pageTextRef.current = text;
+            await generateAndPlay(pageNumber, text, {
                 autoplay: true,
-                voiceId: activeVoiceId,
+                resumeWordIndex: Math.max(0, currentWordRef.current),
             });
+            schedulePrefetch(pageNumber, numPages);
         } catch (error) {
             toast.error(error.message);
         }
@@ -592,32 +862,21 @@ export default function PdfViewer({ onDirty }) {
 
     const handleReadNewPage = async () => {
         setShowResumeChoice(false);
-        if (!modelReady) {
-            toast.error(modelError || 'AI voice model is still loading.');
-            return;
-        }
-        try {
-            const text = await preparePageText(pageNumber);
-            await generateAudio(pageNumber, text, {
-                resumeWordIndex: 0,
-                autoplay: true,
-                voiceId: activeVoiceId,
-            });
-        } catch (error) {
-            toast.error(error.message);
-        }
+        await loadPageIntoView(pageNumber, { autoplay: true });
     };
 
     const handleForceOcr = async () => {
         if (!file) return;
         try {
+            textCacheRef.current.delete(pageNumber);
             const text = await preparePageText(pageNumber, { forceOcr: true });
+            setPageText(text);
+            pageTextRef.current = text;
             toast.success(`OCR extracted ${text.split(/\s+/).length} words`);
             if (modelReady) {
-                await generateAudio(pageNumber, text, {
-                    resumeWordIndex: 0,
+                await generateAndPlay(pageNumber, text, {
                     autoplay: true,
-                    voiceId: activeVoiceId,
+                    force: true,
                 });
             }
         } catch (error) {
@@ -625,18 +884,81 @@ export default function PdfViewer({ onDirty }) {
         }
     };
 
-    const handleSeek = (time) => {
-        if (audioRef.current) {
-            audioRef.current.currentTime = time;
-            syncHighlightAt(time);
-            if (!isPlaying) {
-                audioRef.current.play();
-                setIsPlaying(true);
-                isPlayingRef.current = true;
-                startHighlightLoop();
+    const setResumePoint = useCallback(
+        (index) => {
+            const times = wordTimesRef.current;
+            const idx = Math.max(0, Math.min(index, Math.max(0, times.length - 1)));
+            setCurrentWord(idx);
+            currentWordRef.current = idx;
+            const t = times[idx] ?? 0;
+            if (audioRef.current && audioPageRef.current === pageNumberRef.current) {
+                try {
+                    audioRef.current.currentTime = t;
+                } catch {
+                    /* ignore */
+                }
             }
-        }
-    };
+            syncHighlightAt(t);
+        },
+        [syncHighlightAt]
+    );
+
+    const pronounceWord = useCallback(
+        async (word) => {
+            const clean = cleanPronounceWord(word);
+            if (!clean) return;
+            if (!modelReady) {
+                toast.error('Voice model is still loading.');
+                return;
+            }
+            const { audioUrl: url } = await narrateText(
+                clean,
+                sessionId,
+                900000 + Math.floor(Math.random() * 1000),
+                activeVoiceRef.current,
+                langRef.current
+            );
+            const el = pronounceRef.current;
+            if (!el) return;
+            el.src = url;
+            await el.play().catch(() => {});
+        },
+        [modelReady, sessionId, toast]
+    );
+
+    /**
+     * Word click contract:
+     *  - playing → seek main audio, keep playing
+     *  - paused  → pronounce only + set resume point (do NOT autoplay)
+     *  - idle    → pronounce only (+ set resume if we have timings)
+     */
+    const handleWordActivate = useCallback(
+        async (index, word, { isPlaying: playing, isPaused: paused }) => {
+            if (playing) {
+                const t = wordTimesRef.current[index];
+                if (typeof t === 'number' && audioRef.current) {
+                    audioRef.current.currentTime = t;
+                    syncHighlightAt(t);
+                }
+                return;
+            }
+
+            // Paused or idle: set resume point first so Play continues here.
+            if (wordTimesRef.current.length) {
+                setResumePoint(index);
+            } else {
+                setCurrentWord(index);
+                currentWordRef.current = index;
+            }
+
+            try {
+                await pronounceWord(word);
+            } catch (e) {
+                toast.error(e.message || 'Could not pronounce word');
+            }
+        },
+        [pronounceWord, setResumePoint, syncHighlightAt, toast]
+    );
 
     const handleFileChange = (e) => {
         const f = e.target.files[0];
@@ -646,6 +968,7 @@ export default function PdfViewer({ onDirty }) {
         pdfDocRef.current = null;
         setNumPages(null);
         setPageNumber(1);
+        pageNumberRef.current = 1;
         setAudioUrl(null);
         setAudioPage(null);
         audioPageRef.current = null;
@@ -657,10 +980,50 @@ export default function PdfViewer({ onDirty }) {
         wordTimesRef.current = [];
         wordSpanMapRef.current = [];
         segmentsRef.current = [];
+        textCacheRef.current.clear();
+        cacheRef.current.clear();
+        prefetchQueueRef.current = [];
         audioVoiceRef.current = null;
+        setZoom(1);
         clearPlaybackState();
         onDirty?.();
     };
+
+    // Pan via drag when zoomed
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        const onDown = (ev) => {
+            if (zoom <= 1.02) return;
+            if (ev.button !== 0) return;
+            panDragRef.current = {
+                x: ev.clientX,
+                y: ev.clientY,
+                sl: el.scrollLeft,
+                st: el.scrollTop,
+            };
+            el.classList.add('is-panning');
+        };
+        const onMove = (ev) => {
+            const d = panDragRef.current;
+            if (!d) return;
+            el.scrollLeft = d.sl - (ev.clientX - d.x);
+            el.scrollTop = d.st - (ev.clientY - d.y);
+        };
+        const onUp = () => {
+            panDragRef.current = null;
+            el.classList.remove('is-panning');
+        };
+        el.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => {
+            el.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+    }, [zoom, file]);
 
     const getPlayButtonState = () => {
         if (modelError) return { text: 'AI model error', disabled: true, icon: null };
@@ -678,11 +1041,7 @@ export default function PdfViewer({ onDirty }) {
             };
         if (isGenerating)
             return {
-                text: voiceSwitchHint
-                    ? ` ${voiceSwitchHint}`
-                    : modelStatusDetail?.startsWith('Generating')
-                      ? ` ${modelStatusDetail}`
-                      : ' Generating…',
+                text: statusHint ? ` ${statusHint}` : ' Generating…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
@@ -714,7 +1073,8 @@ export default function PdfViewer({ onDirty }) {
                         Select PDF Book
                     </label>
                     <p className="pdf-upload-hint">
-                        Text PDFs read instantly. Scanned pages use OCR automatically.
+                        Text PDFs read instantly. Nearby pages warm in the background for
+                        seamless flipping.
                     </p>
                 </div>
             ) : (
@@ -743,23 +1103,69 @@ export default function PdfViewer({ onDirty }) {
                                     ))}
                                 </select>
                             </div>
+
+                            <form className="page-jump" onSubmit={handlePageJump}>
+                                <label htmlFor="page-jump-input">Page</label>
+                                <input
+                                    id="page-jump-input"
+                                    type="number"
+                                    min={1}
+                                    max={numPages || 1}
+                                    value={pageJumpInput}
+                                    onChange={(e) => setPageJumpInput(e.target.value)}
+                                    onBlur={handlePageJump}
+                                />
+                                <span className="page-jump-total">/ {numPages || '—'}</span>
+                            </form>
+
+                            <div className="zoom-controls" title="Zoom & pan (drag when zoomed)">
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() =>
+                                        setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))
+                                    }
+                                    aria-label="Zoom out"
+                                >
+                                    <ZoomOut size={15} />
+                                </button>
+                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() =>
+                                        setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))
+                                    }
+                                    aria-label="Zoom in"
+                                >
+                                    <ZoomIn size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => setZoom(1)}
+                                    aria-label="Reset zoom"
+                                >
+                                    <Maximize2 size={15} />
+                                </button>
+                            </div>
+
                             <button
                                 className="btn secondary btn-compact"
                                 onClick={handleForceOcr}
                                 disabled={isGenerating || isOcring}
-                                title="Use OCR for scanned pages"
+                                title="OCR this page"
                             >
                                 {isOcring ? (
                                     <Loader2 className="spinner" size={15} />
                                 ) : (
                                     <ScanText size={15} />
                                 )}
-                                <span>OCR</span>
                             </button>
                             <button
                                 className="btn secondary btn-compact"
-                                onClick={() => goToPage(Math.max(1, pageNumber - 1))}
-                                disabled={pageNumber === 1}
+                                onClick={() => goToPage(pageNumber - 1)}
+                                disabled={pageNumber <= 1}
                             >
                                 <ChevronUp size={15} />
                             </button>
@@ -773,16 +1179,11 @@ export default function PdfViewer({ onDirty }) {
                             </button>
                             <button
                                 className="btn secondary btn-compact"
-                                onClick={() =>
-                                    goToPage(Math.min(numPages, pageNumber + 1))
-                                }
-                                disabled={pageNumber === numPages}
+                                onClick={() => goToPage(pageNumber + 1)}
+                                disabled={pageNumber >= numPages}
                             >
                                 <ChevronDown size={15} />
                             </button>
-                            <span className="pdf-page-indicator">
-                                {pageNumber}/{numPages}
-                            </span>
                         </div>
                     </div>
 
@@ -803,9 +1204,14 @@ export default function PdfViewer({ onDirty }) {
                     {deviceInfo === 'cpu' && modelReady && (
                         <div className="model-loading-status-bar error">
                             <span>
-                                TTS is on CPU (very slow). Run fix_cuda_torch.bat so your
-                                RTX GPU is used.
+                                TTS is on CPU (very slow). Run fix_cuda_torch.bat for GPU.
                             </span>
+                        </div>
+                    )}
+                    {prefetchHint && modelReady && !isGenerating && (
+                        <div className="model-loading-status-bar prefetch">
+                            <Loader2 className="spinner" size={12} />
+                            <span>{prefetchHint}</span>
                         </div>
                     )}
 
@@ -842,10 +1248,16 @@ export default function PdfViewer({ onDirty }) {
 
                     <div className="pdf-layout">
                         <div className="pdf-main">
-                            <div className="pdf-scroll-area" ref={containerRef}>
+                            <div
+                                className={`pdf-scroll-area ${zoom > 1.02 ? 'zoomable' : ''}`}
+                                ref={containerRef}
+                            >
                                 <Document
                                     file={file}
-                                    onLoadSuccess={({ numPages: n }) => setNumPages(n)}
+                                    onLoadSuccess={({ numPages: n }) => {
+                                        setNumPages(n);
+                                        schedulePrefetch(1, n);
+                                    }}
                                     loading={
                                         <div className="pdf-loading">
                                             <Loader2 className="spinner" size={40} />
@@ -855,7 +1267,7 @@ export default function PdfViewer({ onDirty }) {
                                     <div className="pdf-page-wrapper pdf-page-current">
                                         <Page
                                             pageNumber={pageNumber}
-                                            width={pageWidth}
+                                            width={displayWidth}
                                             renderAnnotationLayer={false}
                                             renderTextLayer={true}
                                             onRenderSuccess={onPageRenderSuccess}
@@ -868,18 +1280,19 @@ export default function PdfViewer({ onDirty }) {
                         <div className="pdf-transcript">
                             <Transcript
                                 words={pageWords}
-                                wordStartTimes={wordStartTimes}
                                 currentWord={currentWord}
                                 isPlaying={isPlaying}
-                                isPaused={!!audioUrl && !isPlaying && !isGenerating}
-                                voiceId={activeVoiceId}
+                                isPaused={
+                                    !!audioUrl &&
+                                    audioPage === pageNumber &&
+                                    !isPlaying &&
+                                    !isGenerating
+                                }
                                 languageId={targetLanguage}
-                                onSeek={handleSeek}
+                                onWordActivate={handleWordActivate}
                                 statusHint={
-                                    voiceSwitchHint ||
-                                    (isGenerating
-                                        ? 'Generating narration…'
-                                        : undefined)
+                                    statusHint ||
+                                    (isGenerating ? 'Generating narration…' : undefined)
                                 }
                             />
                         </div>
@@ -887,6 +1300,7 @@ export default function PdfViewer({ onDirty }) {
                 </>
             )}
             <audio ref={audioRef} style={{ display: 'none' }} preload="auto" />
+            <audio ref={pronounceRef} style={{ display: 'none' }} preload="auto" />
         </div>
     );
 }
