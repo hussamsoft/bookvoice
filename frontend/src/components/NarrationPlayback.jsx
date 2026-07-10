@@ -25,6 +25,7 @@ export default function NarrationPlayback({
     const rafRef = useRef(0);
     const currentWordRef = useRef(-1);
     const transport = useAudioTransport(audioRef);
+    const togglePlayback = transport.toggle;
 
     useEffect(() => {
         buildTimingsFromEntry({
@@ -95,8 +96,8 @@ export default function NarrationPlayback({
         const audio = audioRef.current;
         if (!audio || !audioUrl) return;
         audio.src = audioUrl;
-        audio.play().catch(() => {});
-    }, [audioUrl]);
+        togglePlayback();
+    }, [audioUrl, togglePlayback]);
 
     return (
         <div className="narration-playback">

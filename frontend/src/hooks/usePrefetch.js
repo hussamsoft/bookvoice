@@ -12,7 +12,6 @@ export function usePrefetch({
     langRef,
     modelReady,
     isGeneratingRef,
-    isPlayingRef,
     preparePageText,
     narratePage,
     setPrefetchHint,
@@ -45,7 +44,7 @@ export function usePrefetch({
         prefetchBusyRef.current = true;
         try {
             while (prefetchQueueRef.current.length) {
-                if (isGeneratingRef.current || isPlayingRef.current) {
+                if (isGeneratingRef.current) {
                     await new Promise((r) => setTimeout(r, 500));
                     continue;
                 }
@@ -59,7 +58,7 @@ export function usePrefetch({
                     setPrefetchHint(`Warming page ${page}…`);
                     const text = await preparePageText(page, { quiet: true });
                     if (generation !== generationRef.current) continue;
-                    if (isGeneratingRef.current || isPlayingRef.current) {
+                    if (isGeneratingRef.current) {
                         prefetchQueueRef.current.unshift(job);
                         await new Promise((r) => setTimeout(r, 500));
                         continue;
@@ -85,7 +84,6 @@ export function usePrefetch({
     }, [
         cacheRef,
         isGeneratingRef,
-        isPlayingRef,
         narratePage,
         preparePageText,
         setPrefetchHint,
@@ -121,12 +119,19 @@ export function usePrefetch({
             timerRef.current = setTimeout(() => {
                 timerRef.current = 0;
                 runPrefetchQueue();
-            }, 1500);
+            }, 3000);
         },
         [activeVoiceRef, cacheRef, cancelPrefetch, langRef, modelReady, runPrefetchQueue]
     );
 
-    useEffect(() => cancelPrefetch, [cancelPrefetch]);
+    useEffect(
+        () => () => {
+            generationRef.current += 1;
+            prefetchQueueRef.current = [];
+            if (timerRef.current) clearTimeout(timerRef.current);
+        },
+        []
+    );
 
     return { cancelPrefetch, schedulePrefetch, runPrefetchQueue, prefetchQueueRef };
 }

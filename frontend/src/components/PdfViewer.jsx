@@ -33,6 +33,7 @@ import VoiceSettings from './VoiceSettings';
 import Transcript from './Transcript';
 import PlaybackControls from './PlaybackControls';
 import { useAudioTransport } from '../hooks/useAudioTransport';
+import { waitForAudioMetadata } from '../utils/media';
 import {
     documentFingerprint,
     loadReadingProgress,
@@ -163,7 +164,6 @@ export default function PdfViewer({ onDirty }) {
         langRef,
         modelReady,
         isGeneratingRef,
-        isPlayingRef,
         preparePageText: (page, opts) => preparePageText(page, { ...opts, setIsOcring }),
         narratePage,
         setPrefetchHint,
@@ -323,19 +323,6 @@ export default function PdfViewer({ onDirty }) {
         requestAnimationFrame(() => rebindWordSpans());
     }, [rebindWordSpans]);
 
-    const waitAudioReady = (audio) =>
-        new Promise((resolve) => {
-            if (audio.readyState >= 1) {
-                resolve();
-                return;
-            }
-            const onMeta = () => {
-                audio.removeEventListener('loadedmetadata', onMeta);
-                resolve();
-            };
-            audio.addEventListener('loadedmetadata', onMeta);
-        });
-
     /**
      * Apply a ready cache entry (or fresh result) to the main player.
      */
@@ -353,7 +340,7 @@ export default function PdfViewer({ onDirty }) {
             pageTextRef.current = entry.text;
 
             audio.src = entry.audioUrl;
-            await waitAudioReady(audio);
+            await waitForAudioMetadata(audio);
 
             let words = entry.words;
             let times = entry.times;
@@ -401,16 +388,22 @@ export default function PdfViewer({ onDirty }) {
             syncHighlightAt(seekTime);
 
             if (autoplay) {
-                await audio.play().catch(() => {});
-                setIsPlaying(true);
-                isPlayingRef.current = true;
-                startHighlightLoop();
+                try {
+                    await audio.play();
+                    setIsPlaying(true);
+                    isPlayingRef.current = true;
+                    startHighlightLoop();
+                } catch (error) {
+                    setIsPlaying(false);
+                    isPlayingRef.current = false;
+                    toast.error(error?.message || 'Audio playback was blocked. Press Play again.');
+                }
             } else {
                 setIsPlaying(false);
                 isPlayingRef.current = false;
             }
         },
-        [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt]
+        [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt, toast]
     );
 
     const generateAndPlay = useCallback(
@@ -626,10 +619,14 @@ export default function PdfViewer({ onDirty }) {
 
         // Resume existing audio for this page
         if (audioUrl && audioPage === pageNumber && audioRef.current?.src) {
-            await audioRef.current.play().catch(() => {});
-            setIsPlaying(true);
-            isPlayingRef.current = true;
-            startHighlightLoop();
+            try {
+                await audioRef.current.play();
+                setIsPlaying(true);
+                isPlayingRef.current = true;
+                startHighlightLoop();
+            } catch (error) {
+                toast.error(error?.message || 'Audio playback was blocked. Press Play again.');
+            }
             return;
         }
 
@@ -657,13 +654,17 @@ export default function PdfViewer({ onDirty }) {
         }
     };
 
-    const handleResume = () => {
+    const handleResume = async () => {
         setShowResumeChoice(false);
         if (audioRef.current) {
-            audioRef.current.play();
-            setIsPlaying(true);
-            isPlayingRef.current = true;
-            startHighlightLoop();
+            try {
+                await audioRef.current.play();
+                setIsPlaying(true);
+                isPlayingRef.current = true;
+                startHighlightLoop();
+            } catch (error) {
+                toast.error(error?.message || 'Audio playback was blocked. Press Play again.');
+            }
         }
     };
 
@@ -675,7 +676,7 @@ export default function PdfViewer({ onDirty }) {
     const handleForceOcr = async () => {
         if (!file) return;
         try {
-            cachePageText(pageNumber, translated);
+            invalidateTextCache(pageNumber);
             const text = await preparePageText(pageNumber, { forceOcr: true, setIsOcring });
             setPageText(text);
             pageTextRef.current = text;
@@ -697,7 +698,7 @@ export default function PdfViewer({ onDirty }) {
             const idx = Math.max(0, Math.min(index, Math.max(0, times.length - 1)));
             setCurrentWord(idx);
             currentWordRef.current = idx;
-            const t = times[idx] ?? 0;
+            const t = Math.max(0, times[idx] ?? 0);
             if (audioRef.current && audioPageRef.current === pageNumberRef.current) {
                 try {
                     audioRef.current.currentTime = t;
@@ -727,7 +728,7 @@ export default function PdfViewer({ onDirty }) {
             const el = pronounceRef.current;
             if (!el) return;
             el.src = url;
-            await el.play().catch(() => {});
+            await el.play();
         },
         [modelReady, sessionId, toast]
     );
@@ -743,7 +744,7 @@ export default function PdfViewer({ onDirty }) {
             cancelPrefetch();
             if (playing) {
                 const t = wordTimesRef.current[index];
-                if (typeof t === 'number' && audioRef.current) {
+                if (typeof t === 'number' && t >= 0 && audioRef.current) {
                     audioRef.current.currentTime = t;
                     syncHighlightAt(t);
                 }
@@ -770,7 +771,7 @@ export default function PdfViewer({ onDirty }) {
     const handleTranslatePage = async () => {
         const text = pageTextRef.current || pageText;
         if (!text.trim()) return;
-        const target = targetLanguage === 'en' ? 'ar' : 'en';
+        const target = targetLanguage;
         try {
             setStatusHint('Translating…');
             const translated = await translateText(text, target);
@@ -778,7 +779,7 @@ export default function PdfViewer({ onDirty }) {
             pageTextRef.current = translated;
             setPageWords(translated.split(/\s+/).filter(Boolean));
             pageWordsRef.current = translated.split(/\s+/).filter(Boolean);
-            invalidateTextCache(pageNumber);
+            cachePageText(pageNumber, translated);
             cacheRef.current.clear();
             setAudioUrl(null);
             toast.success('Text translated — press Read to narrate.');
@@ -1068,7 +1069,7 @@ export default function PdfViewer({ onDirty }) {
                                     onClick={handleTranslatePage}
                                     disabled={!pageText || isGenerating}
                                 >
-                                    Translate
+                                    Translate to {targetLanguage === 'ar' ? 'Arabic' : 'English'}
                                 </button>
                             </div>
                             {isEditingText ? (
