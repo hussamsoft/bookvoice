@@ -132,12 +132,15 @@ def _load_local_en(ckpt_dir, device):
     ckpt_dir = Path(ckpt_dir)
     map_location = torch.device("cpu") if device in ["cpu", "mps"] else None
 
-    _model_state["detail"] = "Loading Voice Encoder..."
+    _model_state["detail"] = f"Loading voice encoder from {ckpt_dir.name}/…"
     ve = VoiceEncoder()
     ve.load_state_dict(load_file(ckpt_dir / "ve.safetensors"))
     ve.to(device).eval()
 
-    _model_state["detail"] = "Loading T3 neural decoder (2.1GB)..."
+    # Largest step — ~2.1GB weights; can take a minute on cold disk + GPU copy.
+    _model_state["detail"] = (
+        f"Loading T3 neural decoder (~2.1GB) into {device.upper()}…"
+    )
     t3 = T3()
     t3_state = load_file(ckpt_dir / "t3_cfg.safetensors")
     if "model" in t3_state.keys():
@@ -145,17 +148,19 @@ def _load_local_en(ckpt_dir, device):
     t3.load_state_dict(t3_state)
     t3.to(device).eval()
 
-    _model_state["detail"] = "Loading S3Gen audio decoder (1.0GB)..."
+    _model_state["detail"] = (
+        f"Loading S3Gen audio decoder (~1.0GB) into {device.upper()}…"
+    )
     s3gen = S3Gen()
     s3gen.load_state_dict(load_file(ckpt_dir / "s3gen.safetensors"), strict=False)
     s3gen.to(device).eval()
 
-    _model_state["detail"] = "Initializing Text Tokenizer..."
+    _model_state["detail"] = "Initializing text tokenizer…"
     tokenizer = EnTokenizer(str(ckpt_dir / "tokenizer.json"))
 
     conds = None
     if (builtin_voice := ckpt_dir / "conds.pt").exists():
-        _model_state["detail"] = "Loading default speaker prompt..."
+        _model_state["detail"] = "Loading default speaker prompt…"
         conds = Conditionals.load(builtin_voice, map_location=map_location).to(device)
 
     return ChatterboxTTS(t3, s3gen, ve, tokenizer, device, conds=conds)
@@ -225,33 +230,47 @@ def _load_local_mtl(ckpt_dir, device):
 
 def _local_model_path(target_type: str) -> str:
     """
-    Resolve bundled model directory.
+    Resolve the bundled model directory. This is a local path lookup only —
+    not a network search. The installer/launcher always set MODEL_DIR to
+    <app>/data/models so packaged runs hit the first candidate.
 
     Preference order:
-      1. MODEL_DIR env (set by Launcher to <app>/data/models)
+      1. MODEL_DIR env (set by Launcher / BookVoice.bat to <app>/data/models)
       2. APP_DIR/data/models
-      3. Next to this package: ../data/models (dist/backend layout)
+      3. Next to this package: ../data/models (dist layout)
+      4. cwd-relative data/models (manual uvicorn)
     """
     candidates = []
     model_dir_env = os.environ.get("MODEL_DIR", "").strip()
     if model_dir_env:
-        candidates.append(os.path.join(model_dir_env, target_type))
+        candidates.append(os.path.abspath(os.path.join(model_dir_env, target_type)))
     app_dir = os.environ.get("APP_DIR", "").strip()
     if app_dir:
-        candidates.append(os.path.join(app_dir, "data", "models", target_type))
+        candidates.append(
+            os.path.abspath(os.path.join(app_dir, "data", "models", target_type))
+        )
     candidates.append(
         os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "data", "models", target_type)
         )
     )
-    # Also try cwd-relative (manual uvicorn from dist/)
     candidates.append(os.path.abspath(os.path.join("data", "models", target_type)))
 
+    # De-dupe while preserving order
+    seen = set()
+    unique = []
     for path in candidates:
+        key = path.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+
+    for path in unique:
         if _has_local_model(target_type, path):
             return path
-    # Return the primary expected path for error messages
-    return candidates[0]
+    # Primary expected path for error messages (always MODEL_DIR when set)
+    return unique[0]
 
 
 def _has_local_model(target_type: str, local_model_path: str) -> bool:
@@ -376,11 +395,17 @@ def get_model(language_id="en"):
         if _model is None:
             load_started = time.time()
             _model_state["status"] = "loading"
-            _model_state["detail"] = "Searching local model..."
+            _model_state["detail"] = "Preparing TTS engine..."
             _model_state["loading_started"] = load_started
             device = _resolve_device()
             _model_state["device"] = device
             _model_state["cuda"] = device == "cuda"
+
+            # Resolve the known install path first so the UI never implies a
+            # network "search" — packages ship models under MODEL_DIR/APP_DIR.
+            local_model_path = _local_model_path(target_type)
+            has_local = _has_local_model(target_type, local_model_path)
+            model_hint = local_model_path if has_local else "bundled data/models"
 
             if device == "cpu":
                 _log(
@@ -389,16 +414,16 @@ def get_model(language_id="en"):
                     "see setup_venv.bat / fix_cuda_torch.bat."
                 )
                 _model_state["detail"] = (
-                    "Loading on CPU (slow). Install CUDA torch for GPU speed..."
+                    f"Loading model on CPU (slow) from {model_hint}…"
                 )
             else:
                 _log(
                     f"TTS device: {device}"
                     + (f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else "")
                 )
-
-            local_model_path = _local_model_path(target_type)
-            has_local = _has_local_model(target_type, local_model_path)
+                _model_state["detail"] = (
+                    f"Loading model on {device.upper()} from {model_hint}…"
+                )
 
             try:
                 if has_local:
@@ -412,7 +437,7 @@ def get_model(language_id="en"):
                         _model = _load_local_mtl(local_model_path, device)
                 elif target_type == "multilingual":
                     _model_state["detail"] = (
-                        "Downloading multilingual TTS model for Arabic (one-time)..."
+                        "Downloading multilingual TTS model for Arabic (one-time)…"
                     )
                     _log(f"Local multilingual model missing; downloading on {device}...")
                     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
