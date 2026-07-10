@@ -164,3 +164,22 @@ async def upload_voice(
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
 
     return {"id": voice_id, "name": safe_name, "message": "Voice profile created."}
+
+
+@router.delete("/{voice_id}")
+async def delete_voice(voice_id: str):
+    try:
+        safe_id = validate_voice_id(voice_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    file_path = os.path.join(_voices_dir(), f"{safe_id}.wav")
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Voice not found.")
+
+    try:
+        os.remove(file_path)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete voice: {e}") from e
+
+    return {"id": safe_id, "message": "Voice deleted."}

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CameraCapture from './CameraCapture';
 import TextEditor from './TextEditor';
-import AudioPlayer from './AudioPlayer';
+import NarrationPlayback from './NarrationPlayback';
 import VoiceSettings from './VoiceSettings';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
@@ -95,7 +95,7 @@ export default function BookSession({ onDirty }) {
         }
         setIsNarratingUi(true);
         try {
-            const { audioUrl } = await narrateText(
+            const result = await narrateText(
                 text,
                 sessionId,
                 currentPageIndex,
@@ -105,7 +105,13 @@ export default function BookSession({ onDirty }) {
 
             setPages((prev) => {
                 const updated = [...prev];
-                updated[currentPageIndex] = { text, audioUrl };
+                updated[currentPageIndex] = {
+                    text,
+                    audioUrl: result.audioUrl,
+                    segments: result.segments,
+                    duration_s: result.duration_s,
+                    word_timings: result.word_timings,
+                };
                 return updated;
             });
             setStep('playback');
@@ -147,7 +153,7 @@ export default function BookSession({ onDirty }) {
                     ))}
                 </div>
 
-                <VoiceSettings activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
+                <VoiceSettings compact activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 
                 {!modelReady && modelStatusDetail && (
                     <div className="model-loading-status-bar">
@@ -200,8 +206,14 @@ export default function BookSession({ onDirty }) {
                 )}
 
                 {step === 'playback' && pages[currentPageIndex] && (
-                    <AudioPlayer
+                    <NarrationPlayback
                         audioUrl={pages[currentPageIndex].audioUrl}
+                        text={pages[currentPageIndex].text}
+                        segments={pages[currentPageIndex].segments}
+                        duration_s={pages[currentPageIndex].duration_s}
+                        word_timings={pages[currentPageIndex].word_timings}
+                        languageId={targetLanguage}
+                        downloadName={`captured-page-${currentPageIndex + 1}.wav`}
                         onNextPage={handleNextPage}
                     />
                 )}

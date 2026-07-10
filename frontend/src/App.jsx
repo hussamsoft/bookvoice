@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { BookOpen } from 'lucide-react';
-import BookSession from './components/BookSession';
-import PdfViewer from './components/PdfViewer';
 import { useToast } from './components/Toast';
+
+const BookSession = lazy(() => import('./components/BookSession'));
+const PdfViewer = lazy(() => import('./components/PdfViewer'));
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 
 function App() {
     const toast = useToast();
@@ -39,6 +41,9 @@ function App() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <Suspense fallback={null}>
+                            <SettingsPanel />
+                        </Suspense>
                         <button
                             className={`btn ${mode === 'camera' ? 'primary' : 'secondary'}`}
                             onClick={() => requestMode('camera')}
@@ -56,11 +61,13 @@ function App() {
             </header>
 
             <main className="main-content">
-                {mode === 'camera' ? (
-                    <BookSession key="camera" onDirty={() => setSessionDirty(true)} />
-                ) : (
-                    <PdfViewer key="pdf" onDirty={() => setSessionDirty(true)} />
-                )}
+                <Suspense fallback={<div className="loading-state" role="status">Loading reader…</div>}>
+                    {mode === 'camera' ? (
+                        <BookSession key="camera" onDirty={() => setSessionDirty(true)} />
+                    ) : (
+                        <PdfViewer key="pdf" onDirty={() => setSessionDirty(true)} />
+                    )}
+                </Suspense>
             </main>
         </div>
     );

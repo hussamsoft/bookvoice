@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
  *  - paused   → pronounce word + set resume point (do not auto-resume)
  *  - idle     → pronounce only
  */
-export default function Transcript({
+export default React.memo(function Transcript({
     words,
     currentWord,
     isPlaying,
@@ -112,4 +112,4 @@ export default function Transcript({
             </div>
         </div>
     );
-}
+});

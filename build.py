@@ -16,6 +16,8 @@ Full release (dist + MSI):  python build.py --msi
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -35,24 +37,48 @@ FRONTEND = ROOT / "frontend"
 BACKEND = ROOT / "backend"
 DIST = ROOT / "dist"
 
-REQUIREMENTS = """\
-fastapi==0.139.0
-uvicorn==0.50.0
-python-dotenv==1.2.2
-python-multipart==0.0.32
-chatterbox-tts==0.1.7
-deep-translator==1.11.4
-easyocr==1.7.2
-pillow==12.3.0
-numpy==1.26.4
-opencv-python-headless==4.11.0.86
-soundfile==0.13.1
-setuptools<70
 
-# CUDA torch is installed automatically by setup_venv.bat / fix_cuda_torch.bat
-# when an NVIDIA GPU is detected. Manual install:
-#   pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-"""
+def tree_fingerprint(root: Path, excluded_top_level: set[str] | None = None) -> str:
+    """Hash relative paths and bytes for deterministic release provenance."""
+    excluded = excluded_top_level or set()
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in excluded:
+            continue
+        if "__pycache__" in relative.parts or path.suffix in {".pyc", ".pyo"}:
+            continue
+        digest.update(relative.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def write_release_manifest(
+    target: Path,
+    version: str,
+    source_dir: Path,
+    static_dir: Path,
+) -> dict:
+    payload = {
+        "version": version.strip(),
+        "source_sha256": tree_fingerprint(
+            source_dir,
+            {
+                ".env",
+                ".venv",
+                "__pycache__",
+                "data",
+                "static",
+                "test_output.wav",
+                "tests",
+            },
+        ),
+        "static_sha256": tree_fingerprint(static_dir),
+    }
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 RUN_MD = """# BookVoice — portable package (`dist/`)
 
@@ -127,6 +153,35 @@ def copytree(src: Path, dst: Path):
     shutil.copytree(src, dst)
 
 
+def sync_large_tree(src: Path, dst: Path):
+    """Synchronize large immutable assets without recopying identical files."""
+    dst.mkdir(parents=True, exist_ok=True)
+    source_files = set()
+    for source in src.rglob("*"):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(src)
+        source_files.add(relative)
+        target = dst / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        same = False
+        if target.is_file():
+            source_stat = source.stat()
+            target_stat = target.stat()
+            same = (
+                source_stat.st_size == target_stat.st_size
+                and int(source_stat.st_mtime) == int(target_stat.st_mtime)
+            )
+        if not same:
+            shutil.copy2(source, target)
+    for target in sorted((p for p in dst.rglob("*") if p.is_file()), reverse=True):
+        if target.relative_to(dst) not in source_files:
+            target.unlink()
+    for directory in sorted((p for p in dst.rglob("*") if p.is_dir()), reverse=True):
+        if not any(directory.iterdir()):
+            directory.rmdir()
+
+
 def copy_py_dir(src: Path, dst: Path):
     dst.mkdir(parents=True, exist_ok=True)
     for old in dst.glob("**/*.pyc"):
@@ -169,15 +224,21 @@ def assemble_dist():
     copy_py_dir(BACKEND / "routes", DIST / "routes")
     copy_py_dir(BACKEND / "services", DIST / "services")
 
-    (DIST / "requirements.txt").write_text(REQUIREMENTS, encoding="utf-8")
+    shutil.copy2(BACKEND / "requirements.txt", DIST / "requirements.txt")
     (DIST / "RUN.md").write_text(RUN_MD, encoding="utf-8")
     shutil.copy2(ROOT / "VERSION", DIST / "VERSION")
+    write_release_manifest(
+        DIST / "release-manifest.json",
+        (ROOT / "VERSION").read_text(encoding="utf-8"),
+        BACKEND,
+        DIST / "static",
+    )
 
     # No .env in the package: the MSI already excludes it, and user settings
     # now live in %LocalAppData%\BookVoice\data\config.json. Keep an example
     # for developers who run uvicorn manually.
     env_example = DIST / ".env.example"
-    env_example.write_text('CORS_ORIGINS=["*"]\nOCR_USE_GPU=false\n', encoding="utf-8")
+    env_example.write_text('CORS_ORIGINS=[]\nOCR_USE_GPU=false\n', encoding="utf-8")
     env = DIST / ".env"
     if env.exists():
         env.unlink()
@@ -209,7 +270,7 @@ def assemble_dist():
     if models_src.is_dir():
         models_dst = DIST / "data" / "models"
         print(f"[build] Copying bundled model weights from {models_src} → {models_dst}")
-        copytree(models_src, models_dst)
+        sync_large_tree(models_src, models_dst)
     else:
         print("[build] WARNING: backend/data/models missing — TTS will fail offline")
 
@@ -308,6 +369,7 @@ def validate():
     required = [
         "main.py",
         "VERSION",
+        "release-manifest.json",
         "requirements.txt",
         "setup_venv.bat",
         "fix_cuda_torch.bat",
@@ -330,10 +392,45 @@ def validate():
         if not p.exists():
             errors.append(f"required missing: {rel}")
 
+    source_pairs = [(BACKEND / "main.py", DIST / "main.py")]
+    for source_dir in (BACKEND / "routes", BACKEND / "services"):
+        for source in source_dir.glob("*.py"):
+            source_pairs.append((source, DIST / source_dir.name / source.name))
+    for source, packaged in source_pairs:
+        if not packaged.is_file() or source.read_bytes() != packaged.read_bytes():
+            errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
+
+    if (FRONTEND / "dist").is_dir():
+        frontend_hash = tree_fingerprint(FRONTEND / "dist")
+        dist_hash = tree_fingerprint(DIST / "static")
+        backend_hash = tree_fingerprint(BACKEND / "static")
+        if frontend_hash != dist_hash or dist_hash != backend_hash:
+            errors.append("frontend/dist, dist/static and backend/static are not identical")
+
     # Parity with the MSI payload: no runtime state in the package
     for forbidden in (".env", "data/voices", "data/sessions"):
         if (DIST / forbidden).exists():
             errors.append(f"stale runtime artifact in dist: {forbidden}")
+
+    # Record a reproducible bundle-size baseline and warn (not fail) over budget.
+    measure_bundle = ROOT / "scripts" / "measure_bundle.py"
+    if measure_bundle.is_file() and (DIST / "static" / "index.html").is_file():
+        import importlib.util as _ilu
+
+        spec = _ilu.spec_from_file_location("measure_bundle", measure_bundle)
+        if spec and spec.loader:
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            payload = mod.measure(assets_dir=DIST / "static")
+            mod.write_baseline(payload, target=ROOT / "tasks" / "bundle-baseline.json")
+            initial = payload["initial_entry_kib"]
+            budget = payload["budget_kib"]
+            print(f"[build] initial bundle entry: {initial:.2f} KiB (budget {budget:.0f} KiB)")
+            if initial > budget:
+                print(
+                    f"[build] WARNING: initial bundle entry {initial:.2f} KiB exceeds "
+                    f"the {budget:.0f} KiB budget"
+                )
 
     # No stale hashed assets left only if index points at them — already checked
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw, Languages, Loader2, Undo2 } from 'lucide-react';
 import { translateText } from '../utils/api';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
@@ -13,22 +13,24 @@ export default function TextEditor({
 }) {
     const toast = useToast();
     const [text, setText] = useState(initialText);
-    const [originalText, setOriginalText] = useState(initialText);
+    const baseTextRef = useRef(initialText);
+    const [hasTranslated, setHasTranslated] = useState(false);
     const [isNarrating, setIsNarrating] = useState(false);
     const [isTranslating, setIsTranslating] = useState(false);
 
     useEffect(() => {
         setText(initialText);
-        setOriginalText(initialText);
+        baseTextRef.current = initialText;
+        setHasTranslated(false);
     }, [initialText]);
 
     const handleTranslate = async () => {
         if (!text.trim()) return;
         setIsTranslating(true);
         try {
-            // Keep current as original if we haven't stored a different base yet
-            if (text === originalText || !originalText) {
-                setOriginalText(text);
+            if (!hasTranslated) {
+                baseTextRef.current = text;
+                setHasTranslated(true);
             }
             const translated = await translateText(text, targetLanguage);
             setText(translated);
@@ -43,10 +45,9 @@ export default function TextEditor({
     };
 
     const handleRestore = () => {
-        if (originalText != null) {
-            setText(originalText);
-            toast.info('Restored original text');
-        }
+        setText(baseTextRef.current);
+        setHasTranslated(false);
+        toast.info('Restored original text');
     };
 
     const handleNarrate = async () => {
@@ -60,7 +61,7 @@ export default function TextEditor({
         }
     };
 
-    const canRestore = originalText && originalText !== text;
+    const canRestore = hasTranslated && baseTextRef.current !== text;
 
     return (
         <div className="text-editor">

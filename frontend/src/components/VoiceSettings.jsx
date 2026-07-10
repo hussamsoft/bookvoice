@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getVoices, uploadVoice } from '../utils/api';
+import { getVoices, uploadVoice, deleteVoice } from '../utils/api';
 import { recordStreamToWav } from '../utils/wav';
 import { useToast } from './Toast';
-import { Mic, Upload, StopCircle, RefreshCw } from 'lucide-react';
+import { Mic, Upload, StopCircle, RefreshCw, Trash2 } from 'lucide-react';
 
-export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
+export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = false }) {
     const toast = useToast();
     const [voices, setVoices] = useState([]);
     const [isRecording, setIsRecording] = useState(false);
@@ -141,6 +141,22 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
         }
     };
 
+    const handleDeleteVoice = async () => {
+        if (!activeVoiceId) return;
+        if (!window.confirm(`Delete voice "${activeVoiceId}"?`)) return;
+        setLoading(true);
+        try {
+            await deleteVoice(activeVoiceId);
+            await fetchVoices();
+            onVoiceChange(null);
+            toast.success('Voice deleted');
+        } catch (error) {
+            toast.error(error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="voice-settings">
             <div className="voice-selector">
@@ -159,9 +175,19 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
                 <button className="icon-btn" onClick={fetchVoices} title="Refresh voices">
                     <RefreshCw size={16} />
                 </button>
+                {activeVoiceId && (
+                    <button
+                        className="icon-btn danger"
+                        onClick={handleDeleteVoice}
+                        disabled={loading}
+                        title="Delete selected voice"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                )}
             </div>
 
-            <div className="voice-creation">
+            {!compact && <div className="voice-creation">
                 <h4>Create new voice</h4>
                 <div className="creation-controls">
                     <div className="record-section">
@@ -212,7 +238,7 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange }) {
                     </div>
                 </div>
                 {loading && <p className="hint">Saving voice profile...</p>}
-            </div>
+            </div>}
         </div>
     );
 }

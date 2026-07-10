@@ -1,0 +1,18 @@
+{
+  "measured_on": "2026-07-10",
+  "baseline_pre_split_kib": 672.16,
+  "budget_kib": 350.0,
+  "initial_entry_kib": 213.31,
+  "pdf_worker_kib": 1021.69,
+  "chunks_kib": {
+    "BookSession-PsqGAlFv.js": 12.91,
+    "index-Bj9Od-f1.css": 19.86,
+    "index-CZBK2aXd.js": 193.45,
+    "pdf.worker.min-qwK7q_zL.mjs": 1021.69,
+    "PdfViewer-DVHF3F06.js": 438.39,
+    "PdfViewer-rptWOpCb.css": 8.88,
+    "SettingsPanel-DmYVOOlK.js": 2.28,
+    "useTtsStatus-CJ8A1Q9h.js": 12.08,
+    "useUserConfig-DxbmIgnw.js": 10.13
+  }
+}

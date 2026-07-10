@@ -12,18 +12,29 @@ function detailMessage(errorData, fallback) {
 
 /**
  * Request TTS for a page/snippet.
- * @returns {Promise<{ audioUrl: string, segments: Array, duration_s: number }>}
+ * @returns {Promise<{ audioUrl: string, segments: Array, duration_s: number, word_timings: Array }>}
  */
-export async function narrateText(text, sessionId, pageIndex, voiceId = null, languageId = 'en') {
+export async function narrateText(
+    text,
+    sessionId,
+    pageIndex,
+    voiceId = null,
+    languageId = 'en',
+    { clipSuffix = null, priority = 'current' } = {}
+) {
     const requestBody = {
         text,
         session_id: sessionId,
         page_index: pageIndex,
         language_id: languageId,
+        priority,
     };
 
     if (voiceId) {
         requestBody.voice_id = voiceId;
+    }
+    if (clipSuffix != null) {
+        requestBody.clip_suffix = String(clipSuffix);
     }
 
     const response = await fetch(`${API_BASE_URL}/tts/narrate`, {
@@ -44,7 +55,52 @@ export async function narrateText(text, sessionId, pageIndex, voiceId = null, la
         audioUrl: `${AUDIO_BASE_URL}${data.audio_url}`,
         segments: Array.isArray(data.segments) ? data.segments : [],
         duration_s: typeof data.duration_s === 'number' ? data.duration_s : 0,
+        word_timings: Array.isArray(data.word_timings) ? data.word_timings : [],
     };
+}
+
+/**
+ * Short interactive pronunciation clip (word tap).
+ */
+export async function pronounceText(text, sessionId, voiceId = null, languageId = 'en') {
+    const requestBody = {
+        text,
+        session_id: sessionId,
+        language_id: languageId,
+    };
+    if (voiceId) {
+        requestBody.voice_id = voiceId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/tts/pronounce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Failed to pronounce word'));
+    }
+
+    const data = await response.json();
+    return {
+        audioUrl: `${AUDIO_BASE_URL}${data.audio_url}`,
+        segments: Array.isArray(data.segments) ? data.segments : [],
+        duration_s: typeof data.duration_s === 'number' ? data.duration_s : 0,
+        word_timings: Array.isArray(data.word_timings) ? data.word_timings : [],
+    };
+}
+
+export async function deleteVoice(voiceId) {
+    const response = await fetch(`${API_BASE_URL}/voices/${encodeURIComponent(voiceId)}`, {
+        method: 'DELETE',
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to delete voice'));
+    }
+    return response.json();
 }
 
 export async function getVoices() {

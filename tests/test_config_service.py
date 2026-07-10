@@ -120,7 +120,8 @@ class ConfigServiceTests(unittest.TestCase):
         version = config_service.app_version()
         expected = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertEqual(version, expected)
-        self.assertEqual(version, "1.7.0")
+        # app_version should expose a dotted release version, not a fallback.
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
 
     def test_partial_update_preserves_other_keys(self):
         config_service.update_config({"voice_id": "Aria", "language_id": "ar"})

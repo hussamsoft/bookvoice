@@ -148,21 +148,78 @@ function wordWeight(word, lang) {
     return speech + pause;
 }
 
-export function estimateSentenceIndex(sentences, currentTime, duration) {
-    if (!sentences?.length || !duration) return 0;
-    const weights = sentences.map((s) => Math.max(1, s.length));
-    const total = weights.reduce((a, b) => a + b, 0) || 1;
-    const leadIn = Math.min(0.04, duration * 0.008);
-    const trail = Math.min(0.12, duration * 0.015);
-    const usable = Math.max(duration - leadIn - trail, duration * 0.96);
-    const progress = Math.min(1, Math.max(0, (currentTime - leadIn) / usable));
-    let target = progress * total;
-    let acc = 0;
-    for (let i = 0; i < weights.length; i++) {
-        acc += weights[i];
-        if (acc >= target) return i;
+export const HIGHLIGHT_LAG_MS = { en: 25, ar: 35, default: 25 };
+
+export function highlightLagMs(languageId = 'en') {
+    const lang = (languageId || 'en').toLowerCase();
+    return HIGHLIGHT_LAG_MS[lang] ?? HIGHLIGHT_LAG_MS.default;
+}
+
+/**
+ * Build word start times from backend forced-alignment data.
+ */
+export function timesFromWordTimings(wordTimings, pageText) {
+    const words = String(pageText || '')
+        .split(/\s+/)
+        .filter(Boolean);
+    if (!words.length || !wordTimings?.length) {
+        return { words, times: [] };
     }
-    return sentences.length - 1;
+    const anchors = [];
+    let ti = 0;
+    for (let i = 0; i < words.length && ti < wordTimings.length; i++) {
+        const wt = wordTimings[ti];
+        const norm = (s) => String(s || '').replace(/[^\w\u0600-\u06FF']/g, '').toLowerCase();
+        if (norm(wt.word) === norm(words[i])) {
+            const start = Number(wt.start_s);
+            if (Number.isFinite(start) && start >= 0) {
+                anchors.push({ index: i, start });
+            }
+            ti++;
+        }
+    }
+    if (anchors.length < words.length * 0.5) {
+        return { words, times: [] };
+    }
+
+    const times = new Array(words.length).fill(null);
+    for (const anchor of anchors) times[anchor.index] = anchor.start;
+
+    const first = anchors[0];
+    if (first.index > 0) {
+        const step = first.start / first.index;
+        for (let i = 0; i < first.index; i++) times[i] = Math.max(0, step * i);
+    }
+
+    for (let a = 0; a < anchors.length - 1; a++) {
+        const left = anchors[a];
+        const right = anchors[a + 1];
+        const slots = right.index - left.index;
+        const step = slots > 0 ? (right.start - left.start) / slots : 0;
+        for (let i = left.index + 1; i < right.index; i++) {
+            times[i] = left.start + step * (i - left.index);
+        }
+    }
+
+    const last = anchors[anchors.length - 1];
+    if (last.index < words.length - 1) {
+        const gaps = [];
+        for (let i = 1; i < anchors.length; i++) {
+            const indexGap = anchors[i].index - anchors[i - 1].index;
+            const timeGap = anchors[i].start - anchors[i - 1].start;
+            if (indexGap > 0 && timeGap > 0) gaps.push(timeGap / indexGap);
+        }
+        gaps.sort((a, b) => a - b);
+        const step = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0.2;
+        for (let i = last.index + 1; i < words.length; i++) {
+            times[i] = last.start + step * (i - last.index);
+        }
+    }
+
+    if (times.some((t, i) => !Number.isFinite(t) || t < 0 || (i > 0 && t < times[i - 1]))) {
+        return { words, times: [] };
+    }
+    return { words, times };
 }
 
 /**

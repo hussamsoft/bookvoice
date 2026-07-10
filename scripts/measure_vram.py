@@ -27,9 +27,9 @@ stop_event = threading.Event()
 monitor_thread = threading.Thread(target=monitor_vram, args=(0.5, stop_event))
 monitor_thread.start()
 
-print("Running test_chatterbox_verify.py...")
+print("Running verify_chatterbox.py...")
 try:
-    subprocess.run([sys.executable, "test_chatterbox_verify.py"], check=True)
+    subprocess.run([sys.executable, "verify_chatterbox.py"], check=True)
 finally:
     stop_event.set()
     monitor_thread.join()

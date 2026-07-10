@@ -3,6 +3,7 @@ import {
   estimateWordTimings,
   estimateWordTimingsFromSegments,
   stitchPartialTimings,
+  timesFromWordTimings,
   wordIndexAtTime,
 } from './timings';
 
@@ -78,5 +79,26 @@ describe('wordIndexAtTime', () => {
     const times = [-1, -1, 0, 0.4, 0.9];
     expect(wordIndexAtTime(times, 0, 0)).toBe(2);
     expect(wordIndexAtTime(times, 0.5, 0)).toBe(3);
+  });
+});
+
+describe('timesFromWordTimings', () => {
+  it('interpolates unmatched words between forced-alignment anchors', () => {
+    const aligned = [
+      { word: 'One', start_s: 0, end_s: 0.3 },
+      { word: 'brown', start_s: 1, end_s: 1.3 },
+      { word: 'fox', start_s: 1.5, end_s: 1.8 },
+    ];
+
+    const { words, times } = timesFromWordTimings(aligned, 'One quick brown fox');
+
+    expect(words).toEqual(['One', 'quick', 'brown', 'fox']);
+    expect(times).toEqual([0, 0.5, 1, 1.5]);
+  });
+
+  it('rejects low-coverage alignments instead of returning zero-filled timings', () => {
+    const aligned = [{ word: 'three', start_s: 1, end_s: 1.2 }];
+    const { times } = timesFromWordTimings(aligned, 'one two three four');
+    expect(times).toEqual([]);
   });
 });
