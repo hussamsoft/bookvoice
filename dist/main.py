@@ -116,6 +116,12 @@ app.include_router(translation.router, prefix="/api/translate", tags=["translati
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 
+
+@app.get("/api/health")
+async def health_check():
+    """Readiness endpoint used by the desktop launcher before loading the UI."""
+    return {"status": "ready"}
+
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 
 STATIC_DIR = Path("static").resolve()

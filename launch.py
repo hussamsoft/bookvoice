@@ -17,6 +17,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from datetime import datetime
 
 try:
@@ -289,6 +291,15 @@ def pick_port(log: Logger) -> int:
     return PORT_START
 
 
+def backend_is_ready(base_url: str) -> bool:
+    """Return true only after the API has completed application startup."""
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
+
+
 def build_env(app_dir: str, runtime_dir: str) -> dict:
     data_dir = os.path.join(runtime_dir, "data")
     os.makedirs(os.path.join(data_dir, "voices"), exist_ok=True)
@@ -451,26 +462,24 @@ def main() -> int:
             )
             log.write(f"started pid={process.pid}")
 
-            # Wait for HTTP
+            # Wait for application readiness, not merely a bound TCP socket.
             for i in range(300):
                 if process.poll() is not None:
                     state["error"] = "Backend exited early"
                     show_error(window, state["error"], server_log)
                     return
-                try:
-                    with socket.create_connection(("127.0.0.1", port), timeout=1):
-                        url = f"http://127.0.0.1:{port}"
-                        log.write(f"ready {url}")
-                        if window is not None:
-                            window.load_url(url)
-                        else:
-                            # No webview: open browser
-                            os.startfile(url)  # type: ignore[attr-defined]
-                        return
-                except OSError:
-                    if i % 10 == 0:
-                        status("Starting AI Engine", f"Waiting for backend… ({i}s)")
-                    time.sleep(1)
+                url = f"http://127.0.0.1:{port}"
+                if backend_is_ready(url):
+                    log.write(f"ready {url}")
+                    if window is not None:
+                        window.load_url(url)
+                    else:
+                        # No webview: open browser
+                        os.startfile(url)  # type: ignore[attr-defined]
+                    return
+                if i % 10 == 0:
+                    status("Starting AI Engine", f"Waiting for backend… ({i}s)")
+                time.sleep(1)
 
             state["error"] = "Backend did not become ready in time"
             show_error(window, state["error"], server_log)

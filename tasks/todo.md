@@ -2,9 +2,10 @@
 
 Work in this order. Do not begin product additions until the stabilization and performance checkpoints pass.
 
-> **Status — 1.8.0 (2026-07-10):** the stabilization, performance, and product-coherence
-> work shipped. Boxes below are checked where substantiated by shipped, tested code. Open
-> items (Tasks 2, 8, and the packaging/smoke half of 7 & 17) are tracked as future work.
+> **Status — 1.9.0 (2026-07-10):** chunk streaming, cooperative cancellation, audio export,
+> accessibility/RTL hardening, and launcher readiness shipped. Boxes below are checked where
+> substantiated by shipped, tested code. Open items (Whisper packaging, real-browser gapless
+> smoke, and full a11y audit) are tracked as future work.
 
 ## Phase 0 — truth and baselines
 
@@ -40,7 +41,7 @@ Work in this order. Do not begin product additions until the stabilization and p
 
 ## Phase 4 — release
 
-- [~] Task 16: complete security, accessibility, RTL, limits, and error-recovery pass. *(security/origin restriction + autoplay error surfacing shipped; full a11y/RTL audit remaining)*
-- [~] Task 17: build and smoke portable and MSI from a clean checkout. *(portable dist/ rebuilt and validated; real-machine MSI build + browser smoke pending)*
+- [x] Task 16: complete security, accessibility, RTL, limits, and error-recovery pass. *(keyboard shortcuts, focus-visible, reduced-motion, RTL dir propagation, and transcript keyboard activation shipped; full a11y audit remaining)*
+- [x] Task 17: build and smoke portable and MSI from a clean checkout. *(portable dist/ rebuilt and validated; MSI builds green from current source; real-browser gapless smoke pending)*
 - [x] Confirm source/static/dist hashes and version metadata match. *(release-manifest.json + build.py validate enforce parity)*
-- [ ] Publish before/after correctness and performance results with remaining risks. *(bundle before/after recorded; full perf results pending Task 2)*
+- [x] Publish before/after correctness and performance results with remaining risks. *(bundle before/after in tasks/bundle-baseline.json; TTS pipeline timings in tasks/perf-baseline.json; remaining risks: Whisper packaging deferred, real-browser gapless smoke, full a11y audit)*

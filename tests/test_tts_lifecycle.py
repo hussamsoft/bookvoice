@@ -464,5 +464,28 @@ class KillStaleServersTests(unittest.TestCase):
         other.terminate.assert_not_called()
 
 
+class LauncherReadinessTests(unittest.TestCase):
+    def test_backend_is_ready_requires_a_successful_health_response(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        response = MagicMock()
+        response.status = 200
+        response.__enter__.return_value = response
+        with patch.object(launch.urllib.request, "urlopen", return_value=response) as urlopen:
+            self.assertTrue(launch.backend_is_ready("http://127.0.0.1:8000"))
+
+        urlopen.assert_called_once_with("http://127.0.0.1:8000/api/health", timeout=1)
+
+    def test_backend_is_ready_rejects_a_connection_error(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        with patch.object(launch.urllib.request, "urlopen", side_effect=OSError("not ready")):
+            self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
+
+
 if __name__ == "__main__":
     unittest.main()
