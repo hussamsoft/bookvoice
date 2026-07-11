@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import socket
@@ -372,12 +373,36 @@ def pick_port(log: Logger) -> int:
     return PORT_START
 
 
-def backend_is_ready(base_url: str) -> bool:
+def backend_readiness(base_url: str) -> tuple[bool, str, bool]:
+    """Return whether both HTTP and the bundled TTS model are ready.
+
+    The FastAPI server can accept requests while the model is still loading on
+    its dedicated TTS thread.  Opening the UI at that point leaves it showing
+    a misleading permanent-looking "Warming up" state, so the launcher waits
+    for the model's explicit status as well.
+    """
     try:
         with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as response:
-            return response.status == 200
-    except (OSError, urllib.error.URLError):
-        return False
+            if response.status != 200:
+                return False, "Waiting for backend connection…", False
+        with urllib.request.urlopen(f"{base_url}/api/tts/status", timeout=1) as response:
+            if response.status != 200:
+                return False, "Waiting for TTS status…", False
+            payload = json.loads(response.read().decode("utf-8"))
+        status = str(payload.get("status", "")).lower()
+        detail = str(payload.get("detail", "")).strip()
+        if status == "ready":
+            return True, detail or "AI voices ready.", False
+        if status == "error":
+            return False, detail or "The TTS model failed to load.", True
+        return False, detail or "Loading AI voices…", False
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
+        return False, "Waiting for backend connection…", False
+
+
+def backend_is_ready(base_url: str) -> bool:
+    """Compatibility helper for readiness checks and unit tests."""
+    return backend_readiness(base_url)[0]
 
 
 def build_env(app_dir: str, runtime_dir: str) -> dict:
@@ -558,7 +583,8 @@ def main(argv: list[str] | None = None) -> int:
                     show_error(window, state["error"], server_log)
                     return
                 url = f"http://127.0.0.1:{port}"
-                if backend_is_ready(url):
+                ready, detail, failed = backend_readiness(url)
+                if ready:
                     log.write(f"ready {url}")
                     if args.no_window:
                         log.write("backend ready (--no-window)")
@@ -568,8 +594,13 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         os.startfile(url)  # type: ignore[attr-defined]
                     return
+                if failed:
+                    state["error"] = f"TTS model failed to load: {detail}"
+                    log.write(state["error"])
+                    show_error(window, state["error"], server_log)
+                    return
                 if i % 10 == 0:
-                    status("Starting AI Engine", f"Waiting for backend… ({i}s)")
+                    status("Starting AI Engine", f"{detail} ({i}s)")
                 time.sleep(1)
 
             state["error"] = "Backend did not become ready in time"

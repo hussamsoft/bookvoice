@@ -469,18 +469,41 @@ class KillStaleServersTests(unittest.TestCase):
 
 
 class LauncherReadinessTests(unittest.TestCase):
-    def test_backend_is_ready_requires_a_successful_health_response(self):
+    def test_backend_is_ready_requires_health_and_a_ready_tts_model(self):
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
         import launch  # noqa: WPS433
 
-        response = MagicMock()
-        response.status = 200
-        response.__enter__.return_value = response
-        with patch.object(launch.urllib.request, "urlopen", return_value=response) as urlopen:
+        health = MagicMock()
+        health.status = 200
+        health.__enter__.return_value = health
+        status = MagicMock()
+        status.status = 200
+        status.read.return_value = b'{"status":"ready","detail":"Model ready on CUDA."}'
+        status.__enter__.return_value = status
+        with patch.object(launch.urllib.request, "urlopen", side_effect=[health, status]) as urlopen:
             self.assertTrue(launch.backend_is_ready("http://127.0.0.1:8000"))
 
-        urlopen.assert_called_once_with("http://127.0.0.1:8000/api/health", timeout=1)
+        self.assertEqual(
+            urlopen.call_args_list,
+            [
+                (("http://127.0.0.1:8000/api/health",), {"timeout": 1}),
+                (("http://127.0.0.1:8000/api/tts/status",), {"timeout": 1}),
+            ],
+        )
+
+    def test_backend_is_ready_waits_for_a_loading_tts_model(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        health = MagicMock(status=200)
+        health.__enter__.return_value = health
+        status = MagicMock(status=200)
+        status.read.return_value = b'{"status":"loading","detail":"Loading model"}'
+        status.__enter__.return_value = status
+        with patch.object(launch.urllib.request, "urlopen", side_effect=[health, status]):
+            self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
 
     def test_backend_is_ready_rejects_a_connection_error(self):
         if str(ROOT) not in sys.path:
