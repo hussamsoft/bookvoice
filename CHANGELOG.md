@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.1 - 2026-07-10
+
+### Fixed
+
+- Bundled embeddable Python now includes `venv` / `ensurepip` and Windows venv script binaries, so first-run environment creation no longer fails with `No module named venv`.
+
 ## 1.10.0 - 2026-07-10
 
 ### Added

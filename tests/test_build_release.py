@@ -124,21 +124,55 @@ class MsiConfigTests(unittest.TestCase):
 
 
 class EmbedPythonTests(unittest.TestCase):
-    def test_embed_cache_dir_is_versioned(self):
+    def _load_stage_embed(self):
         spec = importlib.util.spec_from_file_location(
             "stage_embed_python", ROOT / "scripts" / "stage_embed_python.py"
         )
         module = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(module)
+        return module
+
+    def test_embed_cache_dir_is_versioned(self):
+        module = self._load_stage_embed()
         cache = module.embed_cache_dir(ROOT)
         self.assertIn("python-3.10.11-embed-amd64", cache.as_posix())
 
-    def test_dist_includes_embed_python_when_built(self):
+    def test_embed_is_ready_requires_venv_module(self):
+        module = self._load_stage_embed()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = Path(temp_dir)
+            (cache / "python.exe").write_bytes(b"")
+            self.assertFalse(module.embed_is_ready(cache))
+            venv_init = cache / "Lib" / "venv" / "__init__.py"
+            ensure_init = cache / "Lib" / "ensurepip" / "__init__.py"
+            nt_python = cache / "Lib" / "venv" / "scripts" / "nt" / "python.exe"
+            venv_init.parent.mkdir(parents=True)
+            ensure_init.parent.mkdir(parents=True)
+            nt_python.parent.mkdir(parents=True)
+            venv_init.write_text("", encoding="utf-8")
+            ensure_init.write_text("", encoding="utf-8")
+            self.assertFalse(module.embed_is_ready(cache))
+            nt_python.write_bytes(b"")
+            self.assertTrue(module.embed_is_ready(cache))
+
+    def test_dist_includes_embed_python_with_venv_when_built(self):
         embed_exe = ROOT / "dist" / "runtime" / "python" / "python.exe"
+        venv_init = ROOT / "dist" / "runtime" / "python" / "Lib" / "venv" / "__init__.py"
+        nt_python = (
+            ROOT / "dist" / "runtime" / "python" / "Lib" / "venv" / "scripts" / "nt" / "python.exe"
+        )
         if not embed_exe.is_file():
             self.skipTest("dist/runtime/python not built yet — run python build.py")
         self.assertTrue(embed_exe.is_file())
+        self.assertTrue(
+            venv_init.is_file(),
+            "bundled embed Python must include Lib/venv (embeddable zip omits it)",
+        )
+        self.assertTrue(
+            nt_python.is_file(),
+            "bundled embed Python must include Lib/venv/scripts/nt/python.exe",
+        )
 
 
 if __name__ == "__main__":
