@@ -6,8 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from xml.etree import ElementTree as ET
 
 import build
+import build_msi
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -88,6 +90,55 @@ class BundleBaselineTests(unittest.TestCase):
             payload["budget_kib"],
             "initial entry exceeds the recorded budget",
         )
+
+
+class MsiConfigTests(unittest.TestCase):
+    def test_user_product_targets_local_app_data(self):
+        product = build_msi.PRODUCTS["user"]
+        self.assertEqual(product.install_scope, "perUser")
+        self.assertEqual(product.parent_dir_id, "LocalAppDataFolder")
+        self.assertEqual(product.install_dir_name, "App")
+        self.assertTrue(product.desktop_shortcut)
+
+    def test_machine_product_targets_program_files(self):
+        product = build_msi.PRODUCTS["machine"]
+        self.assertEqual(product.install_scope, "perMachine")
+        self.assertEqual(product.parent_dir_id, "ProgramFilesFolder")
+
+    def test_build_wxs_user_includes_local_app_data_folder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir) / "dist"
+            dist.mkdir()
+            (dist / "main.py").write_text("print('ok')", encoding="utf-8")
+            (dist / "bookvoice.ico").write_bytes(b"ico")
+            original_dist = build_msi.DIST
+            build_msi.DIST = dist
+            try:
+                wxs = build_msi.build_wxs([("main.py", dist / "main.py")], build_msi.PRODUCTS["user"])
+                xml = ET.tostring(wxs, encoding="unicode")
+            finally:
+                build_msi.DIST = original_dist
+        self.assertIn("LocalAppDataFolder", xml)
+        self.assertIn('InstallScope="perUser"', xml)
+        self.assertIn("DesktopShortcut", xml)
+
+
+class EmbedPythonTests(unittest.TestCase):
+    def test_embed_cache_dir_is_versioned(self):
+        spec = importlib.util.spec_from_file_location(
+            "stage_embed_python", ROOT / "scripts" / "stage_embed_python.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        cache = module.embed_cache_dir(ROOT)
+        self.assertIn("python-3.10.11-embed-amd64", cache.as_posix())
+
+    def test_dist_includes_embed_python_when_built(self):
+        embed_exe = ROOT / "dist" / "runtime" / "python" / "python.exe"
+        if not embed_exe.is_file():
+            self.skipTest("dist/runtime/python not built yet — run python build.py")
+        self.assertTrue(embed_exe.is_file())
 
 
 if __name__ == "__main__":

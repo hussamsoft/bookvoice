@@ -2,10 +2,10 @@
 
 Work in this order. Do not begin product additions until the stabilization and performance checkpoints pass.
 
-> **Status — 1.9.0 (2026-07-10):** chunk streaming, cooperative cancellation, audio export,
-> accessibility/RTL hardening, and launcher readiness shipped. Boxes below are checked where
-> substantiated by shipped, tested code. Open items (Whisper packaging, real-browser gapless
-> smoke, and full a11y audit) are tracked as future work.
+> **Status — 1.10.0 (2026-07-10):** robust Windows packaging shipped. Per-user MSI
+> (`BookVoice-User.msi`) replaces copy-paste portable; bundled embeddable Python and
+> install-scoped runtime directories eliminate system-Python and version-skew failures.
+> Open items: Whisper packaging, real-browser gapless smoke, full a11y audit.
 
 ## Phase 0 — truth and baselines
 
@@ -42,6 +42,6 @@ Work in this order. Do not begin product additions until the stabilization and p
 ## Phase 4 — release
 
 - [x] Task 16: complete security, accessibility, RTL, limits, and error-recovery pass. *(keyboard shortcuts, focus-visible, reduced-motion, RTL dir propagation, and transcript keyboard activation shipped; full a11y audit remaining)*
-- [x] Task 17: build and smoke portable and MSI from a clean checkout. *(portable dist/ rebuilt and validated; MSI builds green from current source; real-browser gapless smoke pending)*
+- [x] Task 17: build and smoke portable and MSI from a clean checkout. *(BookVoice.msi + BookVoice-User.msi build green; scripts/smoke_launch.py validates install dirs; copy-paste dist/ deprecated for end users; real-browser gapless smoke pending)*
 - [x] Confirm source/static/dist hashes and version metadata match. *(release-manifest.json + build.py validate enforce parity)*
 - [x] Publish before/after correctness and performance results with remaining risks. *(bundle before/after in tasks/bundle-baseline.json; TTS pipeline timings in tasks/perf-baseline.json; remaining risks: Whisper packaging deferred, real-browser gapless smoke, full a11y audit)*

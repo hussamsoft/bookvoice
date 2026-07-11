@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.10.0 - 2026-07-10
+
+### Added
+
+- `BookVoice-User.msi` per-user installer (no admin) as the supported portable replacement, installing to `%LocalAppData%\BookVoice\App`.
+- Bundled embeddable Python 3.10 under `runtime/python/` so first-run setup does not require system Python on PATH.
+- Install-scoped runtime directories under `%LocalAppData%\BookVoice\installs\<id>\` with one-time migration from the legacy flat runtime.
+- `scripts/smoke_launch.py` for automated install-directory validation.
+
+### Changed
+
+- `BookVoice.bat` is now a thin wrapper around `launch.py --browser`; launcher behavior is unified (health probe, port scan, stale cleanup).
+- `dist/` is documented as a build artifact only; end users should install via MSI.
+
+### Deprecated
+
+- Copy-paste `dist/` folder as an end-user distribution format.
+
 ## 1.9.0 - 2026-07-10
 
 ### Added

@@ -6,15 +6,30 @@ if not exist requirements.txt (
     exit /b 1
 )
 
+set "BOOTSTRAP_PY="
+if defined BOOKVOICE_EMBED_PYTHON (
+    if exist "%BOOKVOICE_EMBED_PYTHON%" set "BOOTSTRAP_PY=%BOOKVOICE_EMBED_PYTHON%"
+)
+if not defined BOOTSTRAP_PY (
+    if exist "%~dp0runtime\python\python.exe" set "BOOTSTRAP_PY=%~dp0runtime\python\python.exe"
+)
+if not defined BOOTSTRAP_PY (
+    if exist "%~dp0..\runtime\python\python.exe" set "BOOTSTRAP_PY=%~dp0..\runtime\python\python.exe"
+)
+
 set VENV_PY=
-where uv >nul 2>nul
-if not errorlevel 1 set VENV_PY=uv
-if not defined VENV_PY (
-    where python >nul 2>nul
-    if not errorlevel 1 set VENV_PY=python
+if defined BOOTSTRAP_PY (
+    set "VENV_PY=embed"
+) else (
+    where uv >nul 2>nul
+    if not errorlevel 1 set VENV_PY=uv
+    if not defined VENV_PY (
+        where python >nul 2>nul
+        if not errorlevel 1 set VENV_PY=python
+    )
 )
 if not defined VENV_PY (
-    echo ERROR: neither uv nor python was found on PATH. Install Python 3.10+ and try again.
+    echo ERROR: no bundled Python and neither uv nor python was found on PATH.
     exit /b 1
 )
 
@@ -23,7 +38,10 @@ if exist .venv (
     goto :install
 )
 
-if "%VENV_PY%"=="uv" (
+if "%VENV_PY%"=="embed" (
+    echo Creating virtual environment with bundled Python...
+    "%BOOTSTRAP_PY%" -m venv .venv
+) else if "%VENV_PY%"=="uv" (
     echo Creating virtual environment with uv - Python 3.10
     uv venv --python 3.10 .venv
 ) else (

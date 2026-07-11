@@ -398,7 +398,7 @@ class KillStaleServersTests(unittest.TestCase):
 
         with patch.object(self.launch, "psutil", psutil):
             with patch.object(self.launch.time, "sleep"):
-                self.launch.kill_stale_servers(runtime, log)
+                self.launch.kill_stale_servers(r"C:\BookVoice\App", runtime, log)
 
         parent.terminate.assert_called_once()
         child.terminate.assert_called_once()
@@ -424,7 +424,7 @@ class KillStaleServersTests(unittest.TestCase):
         log = MagicMock()
         with patch.object(self.launch, "psutil", psutil):
             with patch.object(self.launch.time, "sleep"):
-                self.launch.kill_stale_servers(r"C:\x\BookVoice", log)
+                self.launch.kill_stale_servers(r"C:\BookVoice\App", r"C:\x\BookVoice", log)
 
     def test_access_denied_is_ignored(self):
         psutil = MagicMock()
@@ -443,7 +443,7 @@ class KillStaleServersTests(unittest.TestCase):
         log = MagicMock()
         with patch.object(self.launch, "psutil", psutil):
             with patch.object(self.launch.time, "sleep"):
-                self.launch.kill_stale_servers(r"C:\x\BookVoice", log)
+                self.launch.kill_stale_servers(r"C:\BookVoice\App", r"C:\x\BookVoice", log)
 
     def test_unrelated_python_not_killed(self):
         psutil = MagicMock()
@@ -460,7 +460,11 @@ class KillStaleServersTests(unittest.TestCase):
         log = MagicMock()
         with patch.object(self.launch, "psutil", psutil):
             with patch.object(self.launch.time, "sleep"):
-                self.launch.kill_stale_servers(r"C:\Users\u\AppData\Local\BookVoice", log)
+                self.launch.kill_stale_servers(
+                    r"C:\BookVoice\App",
+                    r"C:\Users\u\AppData\Local\BookVoice",
+                    log,
+                )
         other.terminate.assert_not_called()
 
 
@@ -485,6 +489,55 @@ class LauncherReadinessTests(unittest.TestCase):
 
         with patch.object(launch.urllib.request, "urlopen", side_effect=OSError("not ready")):
             self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
+
+
+class LauncherRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch as launch_module  # noqa: WPS433
+
+        self.launch = launch_module
+
+    def test_install_id_is_stable_for_same_app_dir_and_version(self):
+        app_dir = r"C:\Program Files\BookVoice"
+        first = self.launch.install_id(app_dir, "1.10.0")
+        second = self.launch.install_id(app_dir, "1.10.0")
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 12)
+
+    def test_install_id_changes_with_version(self):
+        app_dir = r"C:\Program Files\BookVoice"
+        self.assertNotEqual(
+            self.launch.install_id(app_dir, "1.9.0"),
+            self.launch.install_id(app_dir, "1.10.0"),
+        )
+
+    def test_resolve_runtime_dir_uses_scoped_install_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = os.path.join(temp_dir, "App")
+            os.makedirs(app_dir)
+            with open(os.path.join(app_dir, "VERSION"), "w", encoding="utf-8") as handle:
+                handle.write("1.10.0\n")
+            with patch.dict(os.environ, {"BOOKVOICE_PORTABLE": ""}, clear=False):
+                runtime = self.launch.resolve_runtime_dir(app_dir)
+        self.assertIn(os.path.join("BookVoice", "installs"), runtime.replace("/", "\\"))
+
+    def test_resolve_runtime_dir_honors_portable_flag(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, {"BOOKVOICE_PORTABLE": "1"}, clear=False):
+                runtime = self.launch.resolve_runtime_dir(temp_dir)
+        expected = os.path.join(temp_dir, ".bookvoice")
+        self.assertEqual(os.path.normcase(runtime), os.path.normcase(expected))
+
+    def test_bundled_python_points_at_runtime_python(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            embed_dir = os.path.join(temp_dir, "runtime", "python")
+            os.makedirs(embed_dir)
+            exe = os.path.join(embed_dir, "python.exe")
+            open(exe, "wb").close()
+            resolved = self.launch.bundled_python(temp_dir)
+        self.assertEqual(resolved, exe)
 
 
 if __name__ == "__main__":

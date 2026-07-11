@@ -2,16 +2,16 @@
 """
 BookVoice build script.
 
-Produces a complete portable package in dist/ that matches MSI content:
+Produces the release package in dist/ (same payload as both MSI variants):
   - React frontend → dist/static
   - FastAPI backend → dist/main.py, routes/, services/
-  - requirements.txt, setup_venv.bat, fix_cuda_torch.bat
+  - Embeddable Python 3.10 → dist/runtime/python
+  - requirements.txt, setup_venv.bat, fix_cuda_torch.bat, launch.py
   - default voices + bundled English model weights
   - Launcher.exe (rebuilt from launch.py via PyInstaller)
-  - bookvoice.ico, RUN.md
 
 Run from the repo root:  python build.py
-Full release (dist + MSI):  python build.py --msi
+Full release:  python build.py --msi --per-user
 """
 from __future__ import annotations
 
@@ -80,18 +80,23 @@ def write_release_manifest(
     target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
 
-RUN_MD = """# BookVoice — portable package (`dist/`)
+RUN_MD = """# BookVoice — build artifact (`dist/`)
 
-This folder is a complete BookVoice app, same contents the MSI installs.
+This folder is the **build output** consumed by the Windows installers.
+End users should install via `BookVoice.msi` or `BookVoice-User.msi`, not copy
+this folder manually.
 
-## Quick start (recommended)
+## Installers (recommended)
 
-1. Double-click **`Launcher.exe`**
-2. On first run it creates a Python env under `%LocalAppData%\\BookVoice` and
-   installs CUDA PyTorch if you have an NVIDIA GPU (can take several minutes).
-3. The app opens in a desktop window on `http://127.0.0.1:<port>`.
+| Installer | Location | Admin required |
+|-----------|----------|----------------|
+| `BookVoice.msi` | Program Files | Yes (at install) |
+| `BookVoice-User.msi` | `%LocalAppData%\\BookVoice\\App` | **No** |
 
-## Manual start (developers)
+Both use the same payload. First launch creates a scoped Python environment
+under `%LocalAppData%\\BookVoice\\installs\\<id>\\`.
+
+## Developer manual start
 
 ```bat
 setup_venv.bat
@@ -99,37 +104,34 @@ setup_venv.bat
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Then open http://127.0.0.1:8000
-
-If TTS is slow, force GPU torch:
+Bundled bootstrap Python (no system Python required):
 
 ```bat
-fix_cuda_torch.bat
+runtime\\python\\python.exe -m venv .venv
+.venv\\Scripts\\activate
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `BookVoice.bat` | **Reliable portable start** (browser; preferred if EXE fails) |
-| `Launcher.exe` | Desktop window entry (same backend env as the .bat) |
+| `Launcher.exe` | Desktop window entry (Start Menu shortcut target) |
+| `BookVoice.bat` | Browser fallback launcher |
+| `launch.py` | Shared launcher logic |
+| `runtime/python/` | Embeddable Python 3.10 (venv bootstrap) |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
-| `data/default_voices/` | Seed voice profiles |
 | `setup_venv.bat` | Create/repair `.venv` + CUDA torch |
-| `fix_cuda_torch.bat` | Upgrade an existing venv to CUDA torch |
 
 ## Notes
 
-- Writable data (sessions, custom voices, `.venv`) lives in
-  `%LocalAppData%\\BookVoice` — same as the MSI install.
-- User settings (voice, language, GPU options) persist in
-  `%LocalAppData%\\BookVoice\\data\\config.json`, shared by MSI and portable.
-- For a fully self-contained portable data folder next to the app, set
-  environment variable `BOOKVOICE_PORTABLE=1` before launching.
-- English TTS is offline once `data/models/en` is present. Arabic may download
-  the multilingual model on first use.
+- Writable runtime (`.venv`, sessions, config) lives under
+  `%LocalAppData%\\BookVoice\\installs\\<install-id>\\`.
+- Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
+- English TTS is offline once `data/models/en` is present.
 """
 
 
@@ -248,6 +250,12 @@ def assemble_dist():
         if src.is_file():
             shutil.copy2(src, DIST / name)
 
+    launch_src = ROOT / "launch.py"
+    if launch_src.is_file():
+        shutil.copy2(launch_src, DIST / "launch.py")
+
+    stage_embed_python()
+
     # Portable bat uses this helper to terminate the full stale uvicorn tree.
     scripts_src = ROOT / "scripts" / "kill_stale_bookvoice.ps1"
     if scripts_src.is_file():
@@ -295,6 +303,20 @@ def assemble_dist():
         log.unlink()
 
     return launcher_backup
+
+
+def stage_embed_python():
+    script = ROOT / "scripts" / "stage_embed_python.py"
+    if not script.is_file():
+        raise SystemExit("scripts/stage_embed_python.py missing")
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("stage_embed_python", script)
+    if not spec or not spec.loader:
+        raise SystemExit("Could not load stage_embed_python.py")
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.stage_embed_python(ROOT, DIST)
 
 
 def build_launcher(launcher_backup: Path | None):
@@ -368,6 +390,7 @@ def validate():
 
     required = [
         "main.py",
+        "launch.py",
         "VERSION",
         "release-manifest.json",
         "requirements.txt",
@@ -375,6 +398,7 @@ def validate():
         "fix_cuda_torch.bat",
         "BookVoice.bat",
         "scripts/kill_stale_bookvoice.ps1",
+        "runtime/python/python.exe",
         "Launcher.exe",
         "routes/tts.py",
         "routes/voices.py",
@@ -439,15 +463,23 @@ def validate():
     print("[build] dist package validation OK")
 
 
-def build_msi():
+def build_msi(per_user: bool = False):
     print("[build] Building MSI …")
-    run([sys.executable, str(ROOT / "build_msi.py")], ROOT)
+    cmd = [sys.executable, str(ROOT / "build_msi.py")]
+    if per_user:
+        cmd.append("--per-user")
+    run(cmd, ROOT)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build BookVoice portable dist/")
+    parser = argparse.ArgumentParser(description="Build BookVoice release dist/")
     parser.add_argument(
         "--msi", action="store_true", help="Also build installer/BookVoice.msi"
+    )
+    parser.add_argument(
+        "--per-user",
+        action="store_true",
+        help="With --msi, also build installer/BookVoice-User.msi (no-admin install)",
     )
     parser.add_argument(
         "--skip-frontend", action="store_true", help="Skip npm build (reuse frontend/dist)"
@@ -476,11 +508,13 @@ def main():
         copytree(DIST / "static", backend_static)
 
     validate()
-    print("[build] Portable package ready: dist/  (run Launcher.exe)")
+    print("[build] Release package ready: dist/")
 
     if args.msi:
-        build_msi()
+        build_msi(per_user=args.per_user)
         print("[build] MSI ready: installer/BookVoice.msi (+ cab*.cab)")
+        if args.per_user:
+            print("[build] Per-user MSI ready: installer/BookVoice-User.msi")
 
 
 if __name__ == "__main__":

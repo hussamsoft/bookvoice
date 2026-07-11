@@ -1,14 +1,15 @@
 """
 BookVoice desktop launcher.
 
-Starts the FastAPI backend the same way BookVoice.bat does (absolute env vars,
-shared %LOCALAPPDATA%\\BookVoice venv, UTF-8), then opens a native window.
+Starts the FastAPI backend with absolute env vars and a scoped writable runtime,
+then opens a native window or the default browser.
 
-Portable dist/ and MSI install both use this entry: Launcher.exe sits next to
-main.py + static/ + data/.
+MSI installs (Program Files or LocalAppData) and dev runs all use this logic.
 """
 from __future__ import annotations
 
+import argparse
+import hashlib
 import os
 import shutil
 import socket
@@ -37,9 +38,8 @@ PORT_START = 8000
 PORT_END = 8020
 
 
-def _log_path(app_dir: str, data_dir: str) -> str:
-    # Prefer writable runtime dir; fall back to app dir
-    for folder in (data_dir, app_dir):
+def _log_path(runtime_dir: str, app_dir: str) -> str:
+    for folder in (runtime_dir, app_dir):
         try:
             os.makedirs(folder, exist_ok=True)
             path = os.path.join(folder, "bookvoice_launch.log")
@@ -79,30 +79,85 @@ def resolve_app_dir() -> str:
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
         if looks_like_app_dir(exe_dir):
             return exe_dir
-        # Walk parents one level (shortcut edge cases)
         parent = os.path.dirname(exe_dir)
         if looks_like_app_dir(parent):
             return parent
         return exe_dir
 
     here = os.path.dirname(os.path.abspath(__file__))
-    for c in (
-        os.path.join(here, "dist"),
+    for candidate in (
         here,
+        os.path.join(here, "dist"),
         os.path.join(os.path.dirname(here), "dist"),
     ):
-        c = os.path.abspath(c)
-        if looks_like_app_dir(c):
-            return c
+        candidate = os.path.abspath(candidate)
+        if looks_like_app_dir(candidate):
+            return candidate
     return here
 
 
-def resolve_runtime_dir(app_dir: str) -> str:
-    """Writable runtime: always %LOCALAPPDATA%\\BookVoice (shared MSI + portable)."""
-    if os.environ.get("BOOKVOICE_PORTABLE", "").strip().lower() in ("1", "true", "yes"):
-        return os.path.join(app_dir, ".bookvoice")
+def read_app_version(app_dir: str) -> str:
+    version_path = os.path.join(app_dir, "VERSION")
+    try:
+        with open(version_path, encoding="utf-8") as handle:
+            return handle.read().strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+def install_id(app_dir: str, version: str) -> str:
+    payload = f"{os.path.normcase(os.path.abspath(app_dir))}|{version.strip()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def legacy_runtime_dir() -> str:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     return os.path.join(base, APP_NAME)
+
+
+def resolve_runtime_dir(app_dir: str) -> str:
+    """Writable runtime scoped per install location + version."""
+    if os.environ.get("BOOKVOICE_PORTABLE", "").strip().lower() in ("1", "true", "yes"):
+        return os.path.join(app_dir, ".bookvoice")
+    version = read_app_version(app_dir)
+    scoped = os.path.join(
+        legacy_runtime_dir(),
+        "installs",
+        install_id(app_dir, version),
+    )
+    return scoped
+
+
+def migrate_legacy_runtime(legacy_dir: str, scoped_dir: str, log: Logger) -> None:
+    if os.path.abspath(legacy_dir) == os.path.abspath(scoped_dir):
+        return
+    if os.path.isdir(scoped_dir) and any(os.scandir(scoped_dir)):
+        return
+    if not os.path.isdir(legacy_dir):
+        return
+
+    os.makedirs(scoped_dir, exist_ok=True)
+    for name in (".venv", "data"):
+        src = os.path.join(legacy_dir, name)
+        dst = os.path.join(scoped_dir, name)
+        if not os.path.exists(src) or os.path.exists(dst):
+            continue
+        try:
+            shutil.move(src, dst)
+            log.write(f"migrated legacy {name} -> {dst}")
+        except OSError as exc:
+            log.write(f"legacy migration skipped for {name}: {exc}")
+
+    for name in os.listdir(legacy_dir):
+        if not name.startswith("bookvoice_") or not name.endswith(".log"):
+            continue
+        src = os.path.join(legacy_dir, name)
+        dst = os.path.join(scoped_dir, name)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            try:
+                shutil.copy2(src, dst)
+            except OSError:
+                pass
 
 
 def validate_package(app_dir: str) -> str | None:
@@ -142,6 +197,11 @@ def clear_pycache(app_dir: str) -> None:
             dirs.remove("__pycache__")
 
 
+def bundled_python(app_dir: str) -> str | None:
+    candidate = os.path.join(app_dir, "runtime", "python", "python.exe")
+    return candidate if os.path.isfile(candidate) else None
+
+
 def venv_python(runtime_dir: str) -> str:
     return os.path.join(runtime_dir, ".venv", "Scripts", "python.exe")
 
@@ -164,8 +224,8 @@ def venv_cuda_ok(py: str, log: Logger) -> bool:
         )
         log.write(f"cuda check returncode={r.returncode}")
         return r.returncode == 0
-    except Exception as e:
-        log.write(f"cuda check failed: {e}")
+    except Exception as exc:
+        log.write(f"cuda check failed: {exc}")
         return False
 
 
@@ -176,6 +236,7 @@ def _no_window() -> int:
 def ensure_venv(app_dir: str, runtime_dir: str, log: Logger, status_cb) -> str | None:
     py = venv_python(runtime_dir)
     os.makedirs(runtime_dir, exist_ok=True)
+    embed = bundled_python(app_dir)
 
     if not (os.path.isfile(py) and venv_has_chatterbox(runtime_dir)):
         status_cb("First-time setup", "Installing Python packages (several minutes)...")
@@ -191,19 +252,23 @@ def ensure_venv(app_dir: str, runtime_dir: str, log: Logger, status_cb) -> str |
             log.write("setup_venv.bat missing")
             return None
         setup_log = os.path.join(runtime_dir, "bookvoice_setup.log")
+        env = os.environ.copy()
+        if embed:
+            env["BOOKVOICE_EMBED_PYTHON"] = embed
         try:
             with open(setup_log, "w", encoding="utf-8", errors="replace") as lf:
                 subprocess.run(
                     setup,
                     cwd=runtime_dir,
+                    env=env,
                     stdout=lf,
                     stderr=subprocess.STDOUT,
                     shell=True,
                     check=True,
                     creationflags=_no_window(),
                 )
-        except Exception as e:
-            log.write(f"setup_venv failed: {e}")
+        except Exception as exc:
+            log.write(f"setup_venv failed: {exc}")
             return None
         if not os.path.isfile(py):
             log.write("venv python still missing after setup")
@@ -223,20 +288,36 @@ def ensure_venv(app_dir: str, runtime_dir: str, log: Logger, status_cb) -> str |
                         stderr=subprocess.STDOUT,
                         creationflags=_no_window(),
                     )
-            except Exception as e:
-                log.write(f"cuda fix failed: {e}")
+            except Exception as exc:
+                log.write(f"cuda fix failed: {exc}")
         log.write(f"cuda after fix: {venv_cuda_ok(py, log)}")
 
     return py
 
 
-def kill_stale_servers(runtime_dir: str, log: Logger) -> None:
-    """Kill leftover BookVoice backends on ANY port.
+def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
+    script = os.path.join(app_dir, "scripts", "kill_stale_bookvoice.ps1")
+    if os.path.isfile(script):
+        try:
+            subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    script,
+                    "-RuntimeDir",
+                    runtime_dir,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=_no_window(),
+            )
+            log.write("ran kill_stale_bookvoice.ps1")
+        except Exception as exc:
+            log.write(f"kill_stale_bookvoice.ps1 failed: {exc}")
 
-    A stale server keeps ~4GB of VRAM allocated, which makes the next model
-    load hang or fail on 8GB GPUs — the main cause of "stuck on loading".
-    Matches strictly: uvicorn running main:app from the BookVoice venv.
-    """
     if psutil is None:
         return
     venv_marker = os.path.join(runtime_dir, ".venv").lower()
@@ -247,14 +328,14 @@ def kill_stale_servers(runtime_dir: str, log: Logger) -> None:
                 name = (proc.info["name"] or "").lower()
                 if not name.startswith("python"):
                     continue
-                cmd = " ".join(proc.info["cmdline"] or "").lower()
+                cmd = " ".join(proc.info["cmdline"] or []).lower()
                 exe = (proc.info["exe"] or "").lower()
                 if "uvicorn" in cmd and "main:app" in cmd and venv_marker in (exe + " " + cmd):
                     victims.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-    except Exception as e:
-        log.write(f"stale server scan error: {e}")
+    except Exception as exc:
+        log.write(f"stale server scan error: {exc}")
         return
 
     for proc in victims:
@@ -262,37 +343,36 @@ def kill_stale_servers(runtime_dir: str, log: Logger) -> None:
             log.write(f"Killing stale BookVoice server pid={proc.pid}")
             children = proc.children(recursive=True)
             proc.terminate()
-            for c in children:
+            for child in children:
                 try:
-                    c.terminate()
+                    child.terminate()
                 except psutil.NoSuchProcess:
                     pass
-            gone, alive = psutil.wait_procs([proc, *children], timeout=5)
-            for p in alive:
+            _gone, alive = psutil.wait_procs([proc, *children], timeout=5)
+            for proc_alive in alive:
                 try:
-                    p.kill()
+                    proc_alive.kill()
                 except psutil.NoSuchProcess:
                     pass
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     if victims:
-        # Give the GPU driver a moment to reclaim VRAM from killed processes.
         time.sleep(1.5)
 
 
 def pick_port(log: Logger) -> int:
     for port in range(PORT_START, PORT_END + 1):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
-                s.bind(("127.0.0.1", port))
+                sock.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 continue
+    log.write("all ports busy; falling back to 8000")
     return PORT_START
 
 
 def backend_is_ready(base_url: str) -> bool:
-    """Return true only after the API has completed application startup."""
     try:
         with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as response:
             return response.status == 200
@@ -311,8 +391,10 @@ def build_env(app_dir: str, runtime_dir: str) -> dict:
     env["APP_DIR"] = app_dir
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
-    # Avoid user site-packages interference
     env["PYTHONNOUSERSITE"] = "1"
+    embed = bundled_python(app_dir)
+    if embed:
+        env["BOOKVOICE_EMBED_PYTHON"] = embed
     return env
 
 
@@ -332,8 +414,8 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
     detail = ""
     if log_path and os.path.isfile(log_path):
         try:
-            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                detail = "\n".join(f.read().splitlines()[-25:])
+            with open(log_path, encoding="utf-8", errors="replace") as handle:
+                detail = "\n".join(handle.read().splitlines()[-25:])
         except OSError:
             pass
     text = (message + "\n\n" + detail).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
@@ -341,7 +423,7 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
     body{{font-family:Segoe UI,sans-serif;background:#14110f;color:#e5e5e5;padding:2rem}}
     h2{{color:#f87171}} pre{{background:#1f1b18;padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#fca5a5}}
     </style></head><body><h2>BookVoice failed to start</h2><pre>{text}</pre>
-    <p>Tip: try <b>BookVoice.bat</b> in the same folder, or see bookvoice_launch.log</p>
+    <p>See bookvoice_launch.log in your runtime folder.</p>
     </body></html>"""
     if window is not None and webview is not None:
         try:
@@ -349,7 +431,6 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
             return
         except Exception:
             pass
-    # Fallback message box via PowerShell (assembly must be loaded explicitly)
     try:
         safe_msg = message[:500].replace('"', "'")
         subprocess.run(
@@ -376,16 +457,36 @@ h2{font-weight:500;font-size:1.15rem;margin:0} p{color:#9ca3af;margin-top:.5rem;
 <h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></body></html>"""
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="BookVoice launcher")
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Open the default browser instead of a native window",
+    )
+    parser.add_argument(
+        "--no-window",
+        action="store_true",
+        help="Start the backend only (no UI shell)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     app_dir = resolve_app_dir()
     runtime_dir = resolve_runtime_dir(app_dir)
+    legacy_dir = legacy_runtime_dir()
     os.makedirs(runtime_dir, exist_ok=True)
-    log = Logger(_log_path(app_dir, runtime_dir))
+    log = Logger(_log_path(runtime_dir, app_dir))
     log.write("==== launch start ====")
     log.write(f"frozen={getattr(sys, 'frozen', False)}")
     log.write(f"executable={sys.executable}")
     log.write(f"app_dir={app_dir}")
     log.write(f"runtime_dir={runtime_dir}")
+    log.write(f"install_id={install_id(app_dir, read_app_version(app_dir))}")
+
+    migrate_legacy_runtime(legacy_dir, runtime_dir, log)
 
     err = validate_package(app_dir)
     if err:
@@ -397,11 +498,12 @@ def main() -> int:
     seed_voices(app_dir, os.path.join(runtime_dir, "data"))
     os.chdir(app_dir)
 
+    use_webview = webview is not None and not args.browser and not args.no_window
     window = None
     process = None
     log_file = None
 
-    if webview is not None:
+    if use_webview:
         window = webview.create_window("BookVoice", html=SPLASH, width=1280, height=800)
 
     state = {"error": None}
@@ -409,9 +511,9 @@ def main() -> int:
     def worker():
         nonlocal process, log_file
         try:
-            def status(t, d):
-                set_status(window, t, d)
-                log.write(f"status: {t} | {d}")
+            def status(title, detail):
+                set_status(window, title, detail)
+                log.write(f"status: {title} | {detail}")
 
             status("Checking environment", "Looking for Python packages…")
             py = ensure_venv(app_dir, runtime_dir, log, status)
@@ -420,19 +522,16 @@ def main() -> int:
                 show_error(window, state["error"], os.path.join(runtime_dir, "bookvoice_setup.log"))
                 return
 
-            kill_stale_servers(runtime_dir, log)
+            kill_stale_servers(app_dir, runtime_dir, log)
             port = pick_port(log)
             env = build_env(app_dir, runtime_dir)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
-            log.write(f"env DEFAULT_VOICES_DIR={env['DEFAULT_VOICES_DIR']}")
             log.write(f"venv={py}")
             log.write(f"port={port}")
 
             status("Starting AI Engine", f"Launching backend on 127.0.0.1:{port}…")
             server_log = os.path.join(runtime_dir, "bookvoice_server.log")
-            # Keep the previous run's log — it is the only evidence when a
-            # launch fails and the user restarts.
             try:
                 if os.path.isfile(server_log):
                     prev = os.path.join(runtime_dir, "bookvoice_server.prev.log")
@@ -442,16 +541,7 @@ def main() -> int:
             except OSError:
                 pass
             log_file = open(server_log, "w", encoding="utf-8", errors="replace")
-            cmd = [
-                py,
-                "-m",
-                "uvicorn",
-                "main:app",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-            ]
+            cmd = [py, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)]
             process = subprocess.Popen(
                 cmd,
                 cwd=app_dir,
@@ -462,7 +552,6 @@ def main() -> int:
             )
             log.write(f"started pid={process.pid}")
 
-            # Wait for application readiness, not merely a bound TCP socket.
             for i in range(300):
                 if process.poll() is not None:
                     state["error"] = "Backend exited early"
@@ -471,10 +560,12 @@ def main() -> int:
                 url = f"http://127.0.0.1:{port}"
                 if backend_is_ready(url):
                     log.write(f"ready {url}")
+                    if args.no_window:
+                        log.write("backend ready (--no-window)")
+                        return
                     if window is not None:
                         window.load_url(url)
                     else:
-                        # No webview: open browser
                         os.startfile(url)  # type: ignore[attr-defined]
                     return
                 if i % 10 == 0:
@@ -483,29 +574,31 @@ def main() -> int:
 
             state["error"] = "Backend did not become ready in time"
             show_error(window, state["error"], server_log)
-        except Exception as e:
+        except Exception as exc:
             log.write(traceback.format_exc())
-            state["error"] = str(e)
+            state["error"] = str(exc)
             show_error(window, state["error"], log.path)
 
     threading.Thread(target=worker, daemon=True).start()
 
-    if webview is not None and window is not None:
+    if use_webview and window is not None:
         webview.start()
     else:
-        # Block until worker finishes or process dies
         while process is None and state["error"] is None:
             time.sleep(0.2)
-        if process is not None:
+        if args.no_window and process is not None:
+            try:
+                process.wait()
+            except Exception:
+                pass
+        elif process is not None and not args.no_window:
             try:
                 process.wait()
             except Exception:
                 pass
 
-    # Shutdown: terminate the whole backend tree (the venv python.exe is a
-    # shim that spawns the real interpreter as a child).
     try:
-        if process is not None and process.poll() is None:
+        if process is not None and process.poll() is None and not args.no_window:
             children = []
             if psutil is not None:
                 try:
@@ -513,22 +606,15 @@ def main() -> int:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     children = []
             process.terminate()
-            for c in children:
+            for child in children:
                 try:
-                    c.terminate()
+                    child.terminate()
                 except Exception:
                     pass
             try:
                 process.wait(timeout=3)
             except Exception:
                 process.kill()
-            if psutil is not None and children:
-                gone, alive = psutil.wait_procs(children, timeout=3)
-                for p in alive:
-                    try:
-                        p.kill()
-                    except Exception:
-                        pass
     finally:
         if log_file is not None:
             try:

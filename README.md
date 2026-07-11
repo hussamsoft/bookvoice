@@ -59,41 +59,36 @@ bookvoice/
     └── requirements.txt
 ```
 
-## Setup & Execution
+## Setup & Execution (Windows)
 
-BookVoice provides a convenient `dist/` directory that contains a pre-built, self-contained version of the application. 
+End users should install via MSI, not copy the `dist/` folder.
 
-### 1. Install Backend Dependencies
-Navigate to the `dist` directory and install the required Python packages (it is recommended to use a virtual environment like `uv` or `venv`):
+| Installer | Install location | Admin at install |
+|-----------|------------------|------------------|
+| `BookVoice-User.msi` | `%LocalAppData%\BookVoice\App` | **No** (recommended) |
+| `BookVoice.msi` | `Program Files\BookVoice` | Yes |
+
+See [RUN.md](RUN.md) for first-launch behavior, logs, and troubleshooting.
+
+Build both installers from source:
+
+```bash
+python build.py --msi --per-user
+```
+
+Output: `installer/BookVoice.msi`, `installer/BookVoice-User.msi`, and `dist/` (build artifact).
+
+### Developer manual run
 
 ```bash
 cd dist
-uv pip install -r requirements.txt
-```
-
-*(Note: Chatterbox requires `setuptools<70` due to a PyTorch dependency quirk. This should be handled automatically by standard installation.)*
-
-### 2. Configure Environment Variables
-Create a `.env` file in the `dist` directory (or modify the backend one):
-
-```env
-PORT=8000
-CORS_ORIGINS=["http://localhost:5173", "http://localhost:4173"]
-
-# Optional: use GPU for OCR (default is CPU to save VRAM for TTS)
-OCR_USE_GPU=false
-```
-
-On first page capture, EasyOCR downloads its model weights (~100 MB). Chatterbox downloads its weights on first narration. No API keys required.
-
-### 3. Run the Standalone Application
-Start the FastAPI server from the `dist` directory. The server is configured to serve the API routes alongside the compiled frontend static files, meaning you only need to run this single command:
-
-```bash
+runtime/python/python.exe -m venv .venv
+.venv/Scripts/activate   # Windows
+pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://localhost:8000` in your browser. The desktop launcher also binds to `127.0.0.1` only.
+Or from repo root: `python launch.py --browser`
 
 ## Development
 If you wish to modify the application, work within the `frontend/` and `backend/` directories directly. `backend/` is the single source of truth for the Python app; the `dist/` folder is produced by the build script.
@@ -105,30 +100,26 @@ npm install
 npm run dev
 ```
 
-### Building the Standalone `dist/`
-`build.py` produces a complete portable package (same payload as the MSI):
+### Building the release package
+
+`build.py` produces the shared install payload and optional MSI installers:
 
 - Frontend → `dist/static`
 - Backend → `dist/main.py`, `routes/`, `services/`
-- Bundled English models, default voices, `setup_venv.bat`, `fix_cuda_torch.bat`
-- Rebuilt `Launcher.exe`
+- Embeddable Python 3.10 → `dist/runtime/python`
+- Bundled English models, default voices, `launch.py`, `Launcher.exe`
 
 ```bash
-python build.py          # portable dist/
-python build.py --msi    # dist/ + installer/BookVoice.msi
+python build.py                 # dist/ only
+python build.py --msi           # dist/ + BookVoice.msi
+python build.py --msi --per-user  # dist/ + both MSIs
 ```
 
-Run portable: double-click `dist/Launcher.exe`  
-Or manual: `cd dist && setup_venv.bat && uvicorn main:app --host 127.0.0.1 --port 8000`
+Validate an install directory:
 
-`Launcher.exe` uses `%LocalAppData%\BookVoice` for the writable `.venv` and
-session data (same as MSI). It will upgrade a CPU-only torch install to CUDA
-when an NVIDIA GPU is present.
-
-User settings (selected voice, narration language, GPU toggles) persist in
-`%LocalAppData%\BookVoice\data\config.json` via `GET/PUT /api/config` — one
-universal per-user config shared by the MSI install, the portable dist and
-dev runs.
+```bash
+python scripts/smoke_launch.py --app-dir dist --skip-server
+```
 
 PDF reading position, bookmarks, zoom and playback speed are stored locally in
 the app browser profile. Translation uses the `deep-translator` Google backend
@@ -136,23 +127,24 @@ and therefore sends the selected page text to that external service; narration,
 OCR and PDF viewing otherwise run locally after model setup.
 
 
-## Packaging (Windows installer)
+## Packaging (Windows installers)
 
-`build_msi.py` produces a standard Windows MSI (`installer/BookVoice.msi`) using
-the WiX Toolset binaries vendored in `tools/wix`. It installs **per-machine**
-into `Program Files\BookVoice` (requires admin during install), with a proper
-install wizard (folder selection, shortcuts, progress). All writable state —
-the `.venv`, sessions, custom voices and the per-user `config.json` — lives in
-`%LocalAppData%\BookVoice`, so no admin rights are needed at runtime and the
-MSI and portable formats share the exact same user data and settings.
+`build_msi.py` produces Windows MSIs using the vendored WiX Toolset in `tools/wix`:
+
+| MSI | Scope | Default location |
+|-----|-------|------------------|
+| `BookVoice.msi` | perMachine | Program Files |
+| `BookVoice-User.msi` | perUser | `%LocalAppData%\BookVoice\App` |
+
+Both ship the same `dist/` payload. Writable runtime (`.venv`, sessions, config)
+is created on first launch under `%LocalAppData%\BookVoice\installs\<install-id>\`.
 
 ```bash
-python build.py        # (re)generate dist/
-python build_msi.py    # build installer/BookVoice.msi
+python build.py --msi --per-user
 ```
 
-On first launch, `Launcher.exe` bootstraps a Python virtual environment
-(`setup_venv.bat`) if one does not exist, then starts the backend.
+On first launch, `Launcher.exe` bootstraps a Python venv using the bundled
+embeddable Python — no system Python on PATH required.
 
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.

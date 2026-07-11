@@ -34,8 +34,8 @@ backend/data/
 # ...except committed test fixtures
 !tests/fixtures/*.wav
 
-# Build artifacts (PyInstaller output)
-installer/
+tools/python-embed/
+
 build/
 *.spec
 
