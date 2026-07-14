@@ -18,6 +18,13 @@ function transport(overrides = {}) {
 }
 
 describe('PlaybackControls', () => {
+  it('uses reading controls without a media-player progress slider', () => {
+    render(<PlaybackControls transport={transport()} onStop={vi.fn()} />);
+
+    expect(screen.queryByRole('slider', { name: 'Narration position' })).not.toBeInTheDocument();
+    expect(screen.getByText('0:01 / 0:10')).toBeVisible();
+  });
+
   it('keeps pause and stop available while later audio is generating', () => {
     const onToggle = vi.fn();
     const onStop = vi.fn();

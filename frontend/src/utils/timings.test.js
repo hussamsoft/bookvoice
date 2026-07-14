@@ -3,6 +3,7 @@ import {
   estimateWordTimings,
   estimateWordTimingsFromSegments,
   stitchPartialTimings,
+  highlightLagMs,
   timesFromWordTimings,
   wordIndexAtTime,
 } from './timings';
@@ -69,10 +70,24 @@ describe('wordIndexAtTime', () => {
     expect(wordIndexAtTime([], 1)).toBe(-1);
   });
 
-  it('applies a small lead lag so highlight can lead the ear', () => {
+  it('delays the highlight slightly to account for speaker output latency', () => {
     const times = [0, 1, 2];
-    // At t=0.98 with 25ms lag → effectively 1.005 → word 1
-    expect(wordIndexAtTime(times, 0.98, 25)).toBe(1);
+    expect(highlightLagMs('en')).toBeLessThan(0);
+    expect(wordIndexAtTime(times, 1.02, highlightLagMs('en'))).toBe(0);
+  });
+
+  it('does not highlight before the first measured word begins', () => {
+    const times = [0.3, 0.8, 1.2];
+    expect(wordIndexAtTime(times, 0.1, 0)).toBe(-1);
+    expect(wordIndexAtTime(times, 0.3, 0)).toBe(0);
+  });
+
+  it('clears the highlight during a measured pause between words', () => {
+    const times = [0.1, 1.0];
+    const ends = [0.45, 1.3];
+    expect(wordIndexAtTime(times, 0.3, 0, ends)).toBe(0);
+    expect(wordIndexAtTime(times, 0.7, 0, ends)).toBe(-1);
+    expect(wordIndexAtTime(times, 1.1, 0, ends)).toBe(1);
   });
 
   it('skips sentinel -1 slots used by partial voice-switch clips', () => {

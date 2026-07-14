@@ -148,7 +148,10 @@ function wordWeight(word, lang) {
     return speech + pause;
 }
 
-export const HIGHLIGHT_LAG_MS = { en: 25, ar: 35, default: 25 };
+// HTMLMediaElement.currentTime can lead the sound reaching the speakers by a
+// small output-buffer interval. Delay the visual change so it follows the
+// audible onset instead of anticipating it.
+export const HIGHLIGHT_LAG_MS = { en: -55, ar: -65, default: -55 };
 
 export function highlightLagMs(languageId = 'en') {
     const lang = (languageId || 'en').toLowerCase();
@@ -245,19 +248,19 @@ export function timesFromWordTimings(wordTimings, pageText) {
 
 /**
  * Binary-search word index for a given audio time.
- * lagMs: positive = highlight slightly ahead of the ear (follow-along feel).
- * Calibrated ~25ms after onset correction.
+ * lagMs: negative delays the highlight to compensate for output latency.
+ * Measured end times clear the highlight during real pauses.
  */
-export function wordIndexAtTime(wordStartTimes, currentTime, lagMs = 25) {
+export function wordIndexAtTime(wordStartTimes, currentTime, lagMs = -55, wordEndTimes = []) {
     if (!wordStartTimes?.length) return -1;
-    const t = Math.max(0, currentTime + lagMs / 1000);
+    const t = currentTime + lagMs / 1000;
     // Skip leading sentinel slots (partial clips mark pre-resume words as -1).
     let lo = 0;
     while (lo < wordStartTimes.length && wordStartTimes[lo] < 0) lo++;
     if (lo >= wordStartTimes.length) return -1;
 
     let hi = wordStartTimes.length - 1;
-    let ans = lo;
+    let ans = -1;
     let left = lo;
     while (left <= hi) {
         const mid = (left + hi) >> 1;
@@ -272,6 +275,12 @@ export function wordIndexAtTime(wordStartTimes, currentTime, lagMs = 25) {
         } else {
             hi = mid - 1;
         }
+    }
+    if (ans < 0) return -1;
+    const measuredEnd = Number(wordEndTimes?.[ans]);
+    if (Number.isFinite(measuredEnd) && measuredEnd > wordStartTimes[ans] && t > measuredEnd) {
+        const nextStart = Number(wordStartTimes[ans + 1]);
+        if (!Number.isFinite(nextStart) || t < nextStart) return -1;
     }
     return ans;
 }

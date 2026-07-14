@@ -422,11 +422,10 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
     text = (message + "\n\n" + detail).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
     html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
     body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
-    {CHROME_CSS}
     .stage{{flex:1;overflow:auto;padding:2rem}}
     h2{{color:#ba3e45}} pre{{background:#f7f4ed;border:1px solid #d9d4c9;padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#8a2f35}}
     p{{color:#68727d}}
-    </style></head><body>{CHROME_BAR}<div class="stage"><h2>BookVoice failed to start</h2><pre>{text}</pre>
+    </style></head><body><div class="stage"><h2>BookVoice failed to start</h2><pre>{text}</pre>
     <p>See bookvoice_launch.log in your runtime folder.</p>
     </div></body></html>"""
     if window is not None and webview is not None:
@@ -451,28 +450,14 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
         pass
 
 
-# Shared frameless-window chrome: a themed drag strip with a close control so
-# the splash and error pages stay movable/closable before the app UI loads.
-CHROME_CSS = """
-.bar{display:flex;align-items:center;height:44px;background:linear-gradient(#eeeae1,#e4dfd3);border-bottom:1px solid #d9d4c9;user-select:none;flex-shrink:0}
-.bar .drag{flex:1;height:100%;display:flex;align-items:center;padding-left:1rem;font-weight:600;font-size:.95rem;color:#22262b;font-family:Georgia,serif}
-.bar button{width:46px;height:100%;border:0;background:transparent;color:#68727d;font-size:14px;cursor:pointer}
-.bar button:hover{background:#ba3e45;color:#fff}
-"""
-
-CHROME_BAR = """<div class="bar"><div class="drag pywebview-drag-region">BookVoice</div>
-<button aria-label="Close" title="Close"
- onclick="window.pywebview&&window.pywebview.api.close()">&#10005;</button></div>"""
-
 SPLASH = f"""<!doctype html><html><head><meta charset="utf-8"><style>
 body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;display:flex;flex-direction:column;height:100vh;margin:0;overflow:hidden}}
-{CHROME_CSS}
 .stage{{flex:1;display:flex;align-items:center;justify-content:center}}
 .box{{text-align:center;max-width:28rem;padding:1rem}}
 .loader{{border:3px solid rgba(73,107,134,.15);border-top:3px solid #496b86;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}}
 @keyframes spin{{to{{transform:rotate(360deg)}}}}
 h2{{font-weight:600;font-size:1.15rem;margin:0}} p{{color:#68727d;margin-top:.5rem;line-height:1.4}}
-</style></head><body>{CHROME_BAR}<div class="stage"><div class="box"><div class="loader"></div>
+</style></head><body><div class="stage"><div class="box"><div class="loader"></div>
 <h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></div></body></html>"""
 
 
@@ -496,52 +481,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-class WindowApi:
-    """Window controls exposed to the frameless UI as window.pywebview.api."""
-
-    def __init__(self):
-        self._window = None
-
-    def attach(self, window) -> None:
-        self._window = window
-
-    def minimize(self) -> None:
-        if self._window is not None:
-            self._window.minimize()
-
-    def toggle_maximize(self) -> bool:
-        window = self._window
-        if window is None:
-            return False
-        maximized = False
-        try:
-            maximized = "maximized" in str(getattr(window, "state", "")).lower()
-        except Exception:
-            maximized = False
-        if maximized:
-            window.restore()
-            return False
-        window.maximize()
-        return True
-
-    def close(self) -> None:
-        if self._window is not None:
-            self._window.destroy()
-
-
-def create_main_window(webview_module, js_api=None):
-    # Frameless: the React app renders its own themed title bar and window
-    # controls (see frontend TitleBar.jsx). min_size matches the smallest
-    # window at which the side-by-side reader layout fits without squishing.
+def create_main_window(webview_module):
+    # Let Windows own the non-client frame. Native chrome provides reliable
+    # resize borders, Snap Layouts, taskbar-aware maximization, and standard
+    # title-bar double-click behavior without reimplementing Win32 hit testing.
     return webview_module.create_window(
         "BookVoice",
         html=SPLASH,
-        js_api=js_api,
         width=1440,
         height=900,
         min_size=(1024, 700),
         resizable=True,
-        frameless=True,
+        frameless=False,
         easy_drag=False,
         background_color="#e9e5dc",
     )
@@ -579,9 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     log_file = None
 
     if use_webview:
-        window_api = WindowApi()
-        window = create_main_window(webview, js_api=window_api)
-        window_api.attach(window)
+        window = create_main_window(webview)
 
     state = {"error": None}
 

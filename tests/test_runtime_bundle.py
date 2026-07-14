@@ -91,8 +91,7 @@ class RuntimeBundleContractTests(unittest.TestCase):
                 return object()
 
         fake = FakeWebview()
-        api = launch.WindowApi()
-        launch.create_main_window(fake, js_api=api)
+        launch.create_main_window(fake)
 
         _, kwargs = fake.arguments
         # The side-by-side reader layout switches on at 1024 px; the window
@@ -101,48 +100,11 @@ class RuntimeBundleContractTests(unittest.TestCase):
         self.assertGreaterEqual(kwargs["width"], kwargs["min_size"][0])
         self.assertGreaterEqual(kwargs["height"], kwargs["min_size"][1])
         self.assertTrue(kwargs["resizable"])
-        # Frameless shell: the frontend title bar provides drag + controls.
-        self.assertTrue(kwargs["frameless"])
+        # Native Windows chrome owns snap layouts, resize borders, taskbar-aware
+        # maximization, and standard double-click maximize/restore behavior.
+        self.assertFalse(kwargs["frameless"])
         self.assertFalse(kwargs["easy_drag"])
-        self.assertIs(kwargs["js_api"], api)
-
-    def test_window_api_drives_the_attached_window(self):
-        launch_spec = importlib.util.spec_from_file_location("bookvoice_launch_api", ROOT / "launch.py")
-        launch = importlib.util.module_from_spec(launch_spec)
-        assert launch_spec and launch_spec.loader
-        launch_spec.loader.exec_module(launch)
-
-        class FakeWindow:
-            def __init__(self):
-                self.state = "WindowState.NORMAL"
-                self.calls = []
-
-            def minimize(self):
-                self.calls.append("minimize")
-
-            def maximize(self):
-                self.calls.append("maximize")
-
-            def restore(self):
-                self.calls.append("restore")
-
-            def destroy(self):
-                self.calls.append("destroy")
-
-        api = launch.WindowApi()
-        # A detached API must be a safe no-op (the splash can call in early).
-        api.minimize()
-        self.assertFalse(api.toggle_maximize())
-
-        window = FakeWindow()
-        api.attach(window)
-        self.assertTrue(api.toggle_maximize())
-        window.state = "WindowState.MAXIMIZED"
-        self.assertFalse(api.toggle_maximize())
-        api.minimize()
-        api.close()
-        self.assertEqual(window.calls, ["maximize", "restore", "minimize", "destroy"])
-
+        self.assertNotIn("js_api", kwargs)
 
 if __name__ == "__main__":
     unittest.main()

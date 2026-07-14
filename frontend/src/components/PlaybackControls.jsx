@@ -69,17 +69,6 @@ export default function PlaybackControls({
                 <RotateCw size={15} />
                 <span className="transport-label">Forward 10</span>
             </button>
-            <input
-                className="transport-seek"
-                type="range"
-                min="0"
-                max={transport.duration || 0}
-                step="0.05"
-                value={Math.min(transport.currentTime, transport.duration || 0)}
-                onChange={(event) => transport.seekTo(Number(event.target.value))}
-                disabled={!canSeek}
-                aria-label="Narration position"
-            />
             <span className="transport-time">
                 {formatTime(transport.currentTime)} / {formatTime(transport.duration)}
             </span>

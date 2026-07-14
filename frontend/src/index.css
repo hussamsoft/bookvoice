@@ -48,12 +48,6 @@ body {
   flex: 1 1 22rem;
 }
 
-.transport-seek {
-  min-width: 5rem;
-  flex: 1;
-  accent-color: var(--accent);
-}
-
 .transport-time {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -772,12 +766,6 @@ body {
     grid-template-columns: repeat(4, max-content) minmax(0, 1fr);
     align-items: center;
     gap: 0.45rem;
-  }
-
-  .pdf-toolbar .transport-seek {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    width: 100%;
   }
 
   .pdf-toolbar .transport-time {
@@ -1649,13 +1637,14 @@ textarea:focus-visible,
 
 .transcript-word {
   cursor: pointer;
-  padding: 0.08rem 0.04rem;
+  padding: 0.12rem 0.08rem;
   border-radius: 3px;
   transition: background-color 0.08s linear, color 0.08s linear;
   display: inline;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   hyphens: auto;
+  touch-action: manipulation;
 }
 
 .transcript-word:hover {
@@ -1980,7 +1969,7 @@ body {
   -webkit-user-select: none;
 }
 
-.titlebar-drag {
+.titlebar-brand {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -2025,38 +2014,6 @@ body {
 
 .titlebar-tools .app-status {
   font-size: 0.74rem;
-}
-
-.window-controls {
-  display: flex;
-  align-items: stretch;
-  flex-shrink: 0;
-}
-
-.window-control {
-  width: 2.9rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.window-control:hover {
-  background: rgba(34, 38, 43, 0.09);
-  color: var(--text);
-}
-
-.window-control:focus-visible {
-  outline-offset: -2px;
-}
-
-.window-control-close:hover {
-  background: var(--danger);
-  color: #fff;
 }
 
 /* Mode tabs sit directly under the title bar */

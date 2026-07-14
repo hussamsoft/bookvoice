@@ -24,7 +24,10 @@ export function useWordHighlight({
     currentWordRef,
     pageWordsRef,
     wordTimesRef,
+    wordEndsRef,
     audioTimeOffsetRef,
+    viewPageRef,
+    audioPageRef,
 }) {
     const wordSpanMapRef = useRef([]);
     const prevHighlightSpanRef = useRef(null);
@@ -75,7 +78,12 @@ export function useWordHighlight({
             const lag = highlightLagMs(langRef.current);
             const offset = audioTimeOffsetRef ? audioTimeOffsetRef.current : 0;
             const globalTime = localTime + offset;
-            const idx = wordIndexAtTime(wordTimesRef.current, globalTime, lag);
+            const idx = wordIndexAtTime(
+                wordTimesRef.current,
+                globalTime,
+                lag,
+                wordEndsRef?.current
+            );
             if (idx !== currentWordRef.current) {
                 currentWordRef.current = idx;
                 setCurrentWord(idx);
@@ -83,11 +91,13 @@ export function useWordHighlight({
             const textLayer = containerRef.current?.querySelector(
                 '.react-pdf__Page__textContent'
             );
+            const viewingNarratedPage =
+                !viewPageRef || !audioPageRef || viewPageRef.current === audioPageRef.current;
             if (textLayer && wordSpanMapRef.current.length) {
                 applyWordHighlight(
                     textLayer,
                     wordSpanMapRef.current,
-                    idx,
+                    viewingNarratedPage ? idx : -1,
                     prevHighlightSpanRef
                 );
             }
@@ -99,6 +109,9 @@ export function useWordHighlight({
             langRef,
             setCurrentWord,
             wordTimesRef,
+            wordEndsRef,
+            viewPageRef,
+            audioPageRef,
         ]
     );
 

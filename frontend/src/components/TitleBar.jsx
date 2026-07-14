@@ -1,34 +1,17 @@
-import React, { lazy, Suspense, useCallback, useState } from 'react';
-import { BookOpen, Copy, Minus, Sparkles, Square, X } from 'lucide-react';
-import {
-    closeWindow,
-    isNativeShell,
-    minimizeWindow,
-    toggleMaximizeWindow,
-} from '../utils/nativeShell';
+import React, { lazy, Suspense } from 'react';
+import { BookOpen, Sparkles } from 'lucide-react';
 
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 
 /**
- * Application title bar. In the native pywebview shell it replaces the OS
- * window chrome: the brand area is a drag region and the window controls
- * drive the frameless window through the launcher's WindowApi.
+ * Application identity and status strip. The native shell deliberately uses
+ * the standard Windows frame so snapping, resizing, and maximize behavior are
+ * handled by the operating system.
  */
 function TitleBar() {
-    const native = isNativeShell();
-    const [maximized, setMaximized] = useState(false);
-
-    const onToggleMaximize = useCallback(async () => {
-        if (!native) return;
-        setMaximized(await toggleMaximizeWindow());
-    }, [native]);
-
     return (
         <div className="titlebar">
-            <div
-                className={`titlebar-drag ${native ? 'pywebview-drag-region' : ''}`}
-                onDoubleClick={onToggleMaximize}
-            >
+            <div className="titlebar-brand">
                 <BookOpen className="brand-icon" size={19} strokeWidth={1.6} aria-hidden="true" />
                 <h1>BookVoice</h1>
                 <p className="titlebar-tagline">Read with your ears</p>
@@ -41,41 +24,6 @@ function TitleBar() {
                     <SettingsPanel />
                 </Suspense>
             </div>
-            {native && (
-                <div className="window-controls">
-                    <button
-                        type="button"
-                        className="window-control"
-                        aria-label="Minimize window"
-                        title="Minimize"
-                        onClick={() => minimizeWindow()}
-                    >
-                        <Minus size={16} aria-hidden="true" />
-                    </button>
-                    <button
-                        type="button"
-                        className="window-control"
-                        aria-label={maximized ? 'Restore window' : 'Maximize window'}
-                        title={maximized ? 'Restore' : 'Maximize'}
-                        onClick={onToggleMaximize}
-                    >
-                        {maximized ? (
-                            <Copy size={14} aria-hidden="true" />
-                        ) : (
-                            <Square size={13} aria-hidden="true" />
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        className="window-control window-control-close"
-                        aria-label="Close window"
-                        title="Close"
-                        onClick={() => closeWindow()}
-                    >
-                        <X size={16} aria-hidden="true" />
-                    </button>
-                </div>
-            )}
         </div>
     );
 }

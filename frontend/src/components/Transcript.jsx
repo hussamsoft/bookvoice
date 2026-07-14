@@ -131,8 +131,8 @@ export default React.memo(function Transcript({
                 {isPlaying
                     ? 'Click a word to jump there'
                     : isPaused
-                      ? 'Click a word to hear it — resume starts there'
-                      : 'Click a word to hear pronunciation'}
+                      ? 'Click a word to hear it instantly — resume starts there'
+                      : 'Click a word to hear it instantly'}
             </p>
             <div className="transcript-words" dir={dir} lang={languageId || 'en'} ref={wordsContainerRef}>
                 {wordElements}
