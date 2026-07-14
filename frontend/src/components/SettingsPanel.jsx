@@ -77,10 +77,11 @@ export default function SettingsPanel() {
                         />
                     </label>
                     <p className="settings-hint">
-                        GPU settings take effect after restart. Run fix_cuda_torch.bat if TTS is
-                        slow on CPU.
+                        GPU settings take effect after restart. CPU mode works offline but is much
+                        slower for long narration.
                     </p>
                     <VoiceSettings
+                        backendReady
                         activeVoiceId={config.voice_id || null}
                         onVoiceChange={(voiceId) => handleChange('voice_id', voiceId)}
                     />

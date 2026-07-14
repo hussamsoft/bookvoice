@@ -6,6 +6,7 @@ import {
     isComplete,
     localTimeForChunk,
     nextChunkIndex,
+    playbackTargetAtGlobalTime,
 } from './playlistController';
 
 const CHUNKS = [
@@ -59,6 +60,22 @@ describe('playlistController', () => {
         expect(localTimeForChunk(pl, 0, 1)).toBe(1);
         expect(localTimeForChunk(pl, 1, 3)).toBe(1);
         expect(localTimeForChunk(pl, 2, 6)).toBe(1);
+    });
+
+    it('returns a clamped cross-chunk playback target', () => {
+        const pl = buildPlaylist(CHUNKS);
+        expect(playbackTargetAtGlobalTime(pl, 3.5)).toEqual({
+            chunk: CHUNKS[1],
+            chunkIndex: 1,
+            globalTime: 3.5,
+            localTime: 1.5,
+        });
+        expect(playbackTargetAtGlobalTime(pl, 99)).toEqual({
+            chunk: CHUNKS[2],
+            chunkIndex: 2,
+            globalTime: 7,
+            localTime: 2,
+        });
     });
 
     it('reports completeness against an expected total', () => {

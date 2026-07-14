@@ -90,15 +90,21 @@ describe('timesFromWordTimings', () => {
       { word: 'fox', start_s: 1.5, end_s: 1.8 },
     ];
 
-    const { words, times } = timesFromWordTimings(aligned, 'One quick brown fox');
+    const { words, times, ends } = timesFromWordTimings(aligned, 'One quick brown fox');
 
     expect(words).toEqual(['One', 'quick', 'brown', 'fox']);
     expect(times).toEqual([0, 0.5, 1, 1.5]);
+    // Measured ends for anchored words; inferred 'quick' uses next onset.
+    expect(ends[0]).toBe(0.3);
+    expect(ends[1]).toBe(1);
+    expect(ends[2]).toBe(1.3);
+    expect(ends[3]).toBe(1.8);
   });
 
   it('rejects low-coverage alignments instead of returning zero-filled timings', () => {
     const aligned = [{ word: 'three', start_s: 1, end_s: 1.2 }];
-    const { times } = timesFromWordTimings(aligned, 'one two three four');
+    const { times, ends } = timesFromWordTimings(aligned, 'one two three four');
     expect(times).toEqual([]);
+    expect(ends).toEqual([]);
   });
 });

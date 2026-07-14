@@ -18,7 +18,7 @@ export async function buildTimingsFromEntry({
 }) {
     const forced = timesFromWordTimings(word_timings, text);
     if (forced.times.length) {
-        return forced;
+        return { ...forced, mode: 'aligned' };
     }
 
     let { words, times } = estimateWordTimingsFromSegments(
@@ -37,5 +37,5 @@ export async function buildTimingsFromEntry({
             times = shiftTimingsToOnset(times, onset, duration_s || Infinity);
         }
     }
-    return { words, times };
+    return { words, times, ends: [], mode: 'estimate' };
 }

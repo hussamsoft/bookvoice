@@ -4,7 +4,12 @@ import { recordStreamToWav } from '../utils/wav';
 import { useToast } from './Toast';
 import { Mic, Upload, StopCircle, RefreshCw, Trash2 } from 'lucide-react';
 
-export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = false }) {
+export default function VoiceSettings({
+    activeVoiceId,
+    onVoiceChange,
+    compact = false,
+    backendReady = false,
+}) {
     const toast = useToast();
     const [voices, setVoices] = useState([]);
     const [isRecording, setIsRecording] = useState(false);
@@ -15,8 +20,13 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
     const recorderRef = useRef(null);
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
+    const backendReadyRef = useRef(backendReady);
     // Avoid re-clearing the same missing id (prevents update loops).
     const clearedMissingRef = useRef(null);
+
+    useEffect(() => {
+        backendReadyRef.current = backendReady;
+    }, [backendReady]);
 
     const validateActiveVoice = useCallback(
         (list, voiceId) => {
@@ -38,29 +48,64 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
         [onVoiceChange]
     );
 
-    const fetchVoices = useCallback(async () => {
-        try {
-            const data = await getVoices();
-            setVoices(data);
-            validateActiveVoice(data, activeVoiceId);
-            return data;
-        } catch (error) {
-            console.error(error);
-            toast.error('Could not load voices. Is the backend still starting?');
-            return null;
-        }
-    }, [activeVoiceId, toast, validateActiveVoice]);
+    const fetchVoices = useCallback(
+        async ({ announceFailure = true } = {}) => {
+            try {
+                const data = await getVoices();
+                setVoices(data);
+                validateActiveVoice(data, activeVoiceId);
+                return data;
+            } catch (error) {
+                console.error(error);
+                if (announceFailure) {
+                    toast.error(
+                        backendReadyRef.current
+                            ? 'Could not load voice profiles. Try refresh or restart BookVoice.'
+                            : 'Waiting for the reading engine to finish starting…'
+                    );
+                }
+                return null;
+            }
+        },
+        [activeVoiceId, toast, validateActiveVoice]
+    );
 
     useEffect(() => {
-        fetchVoices();
+        let cancelled = false;
+        let timer = null;
+        let failCount = 0;
+
+        const schedule = (ms) => {
+            timer = setTimeout(run, ms);
+        };
+
+        const run = async () => {
+            if (cancelled) return;
+            const announceFailure =
+                failCount >= 5 || (backendReadyRef.current && failCount >= 2);
+            const data = await fetchVoices({ announceFailure });
+            if (data !== null) {
+                failCount = 0;
+                return;
+            }
+            failCount += 1;
+            schedule(backendReadyRef.current ? 3000 : 1500);
+        };
+
+        run();
         return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach((t) => t.stop());
             }
         };
-        // Mount-only: voice list is revalidated when activeVoiceId changes below.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [fetchVoices]);
+
+    useEffect(() => {
+        if (!backendReady) return;
+        fetchVoices({ announceFailure: false });
+    }, [backendReady, fetchVoices]);
 
     // Revalidate after async config restores a saved voice (or user selection).
     useEffect(() => {
@@ -82,7 +127,7 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
         setLoading(true);
         try {
             const result = await uploadVoice(file, name);
-            await fetchVoices();
+            await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
             setUploadName('');
             toast.success(`Voice "${name}" saved`);
@@ -130,7 +175,7 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
 
             const result = await uploadVoice(blob, newVoiceName.trim());
             const savedName = result.name || newVoiceName;
-            await fetchVoices();
+            await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
             setNewVoiceName('');
             toast.success(`Voice "${savedName}" saved`);
@@ -147,7 +192,7 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
         setLoading(true);
         try {
             await deleteVoice(activeVoiceId);
-            await fetchVoices();
+            await fetchVoices({ announceFailure: true });
             onVoiceChange(null);
             toast.success('Voice deleted');
         } catch (error) {
@@ -172,7 +217,11 @@ export default function VoiceSettings({ activeVoiceId, onVoiceChange, compact = 
                         </option>
                     ))}
                 </select>
-                <button className="icon-btn" onClick={fetchVoices} title="Refresh voices">
+                <button
+                    className="icon-btn"
+                    onClick={() => fetchVoices({ announceFailure: true })}
+                    title="Refresh voices"
+                >
                     <RefreshCw size={16} />
                 </button>
                 {activeVoiceId && (

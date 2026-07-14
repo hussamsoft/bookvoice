@@ -24,7 +24,8 @@ def check_payload(app_dir: Path) -> list[str]:
     if message:
         errors.append(message)
     for rel in (
-        "runtime/python/python.exe",
+        "runtime/worker/python.exe",
+        "runtime-manifest.json",
         "launch.py",
         "scripts/kill_stale_bookvoice.ps1",
     ):
@@ -80,10 +81,11 @@ def main() -> int:
         print("[smoke] payload OK")
         return 0
 
+    os.makedirs(runtime_dir, exist_ok=True)
     log = launch.Logger(str(Path(runtime_dir) / "bookvoice_smoke.log"))
-    py = launch.ensure_venv(str(app_dir), runtime_dir, log, lambda _t, _d: None)
+    py = launch.packaged_worker(str(app_dir), log)
     if not py:
-        print("[smoke] ERROR: ensure_venv failed")
+        print("[smoke] ERROR: packaged worker runtime missing")
         return 1
 
     port = launch.pick_port(log)
@@ -101,7 +103,7 @@ def main() -> int:
         if not wait_for_health(base):
             print("[smoke] ERROR: /api/health did not become ready")
             return 1
-        for path in ("/api/health", "/api/config", "/api/voices"):
+        for path in ("/api/health", "/api/books", "/api/config/", "/api/voices/"):
             if not fetch_ok(base + path):
                 print(f"[smoke] ERROR: {path} failed")
                 return 1

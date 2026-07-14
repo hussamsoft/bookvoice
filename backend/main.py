@@ -23,7 +23,7 @@ except Exception:
 
 load_dotenv()
 
-from routes import config, ocr, translation, tts, voices
+from routes import books, config, ocr, translation, tts, voices
 from services.path_utils import safe_join
 from services.security import is_allowed_browser_origin
 from services.tts_service import TtsPriority, preload_model, submit_tts
@@ -115,6 +115,9 @@ app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
 app.include_router(translation.router, prefix="/api/translate", tags=["translation"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(books.router, prefix="/api/books", tags=["books"])
+app.include_router(books.preparations_router, prefix="/api/preparations", tags=["preparations"])
+app.include_router(books.archives_router, prefix="/api/book-archives", tags=["book-archives"])
 
 
 @app.get("/api/health")

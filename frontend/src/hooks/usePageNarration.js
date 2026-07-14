@@ -59,7 +59,10 @@ export function usePageNarration({
             let fullTimes = built.times;
             if (partial) {
                 fullTimes = stitchPartialTimings(words, start, built.times);
-                built = { words: fullWords, times: fullTimes };
+                const fullEnds = built.ends?.length
+                    ? stitchPartialTimings(words, start, built.ends)
+                    : [];
+                built = { words: fullWords, times: fullTimes, ends: fullEnds, mode: built.mode };
             }
 
             const entry = {
@@ -73,6 +76,8 @@ export function usePageNarration({
                 duration_s: duration,
                 words: built.words,
                 times: built.times,
+                ends: built.ends || [],
+                timingMode: built.mode || 'estimate',
                 fromWord: start,
                 partial,
             };

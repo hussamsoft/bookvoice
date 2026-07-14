@@ -229,8 +229,6 @@ async def narrate_stream(request: NarrateRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    loop = asyncio.get_running_loop()
-
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -244,7 +242,11 @@ async def narrate_stream(request: NarrateRequest):
             except Exception as exc:  # noqa: BLE001 - surface to the client
                 asyncio.run_coroutine_threadsafe(queue.put(exc), loop).result()
 
-        loop.run_in_executor(None, run_sync)
+        # All model access must run on the dedicated priority worker. Running
+        # progressive synthesis on asyncio's generic executor allowed it to
+        # contend with preparation/model work and could invoke CUDA from an
+        # unexpected thread.
+        producer_future = submit_tts(_priority_from_str(request.priority), run_sync)
 
         while True:
             item = await queue.get()
@@ -259,6 +261,11 @@ async def narrate_stream(request: NarrateRequest):
                 line["alignment_mode"] = alignment_mode()
             yield json.dumps(line) + "\n"
             if item.get("type") == "done":
+                # Observe the producer result so an executor failure cannot be
+                # left as an unhandled Future exception. Never block the event
+                # loop with Future.result(): the producer uses this same loop
+                # to deliver queue items.
+                await asyncio.wrap_future(producer_future)
                 return
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

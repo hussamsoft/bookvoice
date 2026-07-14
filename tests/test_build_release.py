@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,37 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_vite_production_environment_uses_same_origin_paths(self):
+        production_env = ROOT / "frontend" / ".env.production"
+        self.assertTrue(production_env.is_file(), "frontend/.env.production missing")
+        values = {}
+        for line in production_env.read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value
+        self.assertEqual(values.get("VITE_API_BASE_URL"), "/api")
+        self.assertEqual(values.get("VITE_AUDIO_BASE_URL"), "")
+
+    def test_fixed_loopback_urls_are_rejected_from_packaged_javascript(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            assets = Path(temp_dir)
+            (assets / "good.js").write_text("fetch('/api/health')", encoding="utf-8")
+            (assets / "bad.js").write_text(
+                "fetch('http://localhost:8000/api/health')", encoding="utf-8"
+            )
+            self.assertEqual(build.fixed_loopback_assets(assets), ["bad.js"])
+
+    def test_release_frontend_environment_uses_same_origin_api_paths(self):
+        environment = build.release_frontend_environment(
+            {
+                "VITE_API_BASE_URL": "http://localhost:8000/api",
+                "VITE_AUDIO_BASE_URL": "http://localhost:8000",
+            }
+        )
+
+        self.assertEqual(environment["VITE_API_BASE_URL"], "/api")
+        self.assertEqual(environment["VITE_AUDIO_BASE_URL"], "")
+
     def test_tree_fingerprint_is_stable_and_content_sensitive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -121,6 +153,9 @@ class MsiConfigTests(unittest.TestCase):
         self.assertIn("LocalAppDataFolder", xml)
         self.assertIn('InstallScope="perUser"', xml)
         self.assertIn("DesktopShortcut", xml)
+        self.assertIn("Software\\Classes\\.bookvoice", xml)
+        self.assertIn("BookVoice.PreparedBook", xml)
+        self.assertIn('&quot;[INSTALLDIR]Launcher.exe&quot; &quot;%1&quot;', xml)
 
 
 class EmbedPythonTests(unittest.TestCase):
@@ -156,23 +191,14 @@ class EmbedPythonTests(unittest.TestCase):
             nt_python.write_bytes(b"")
             self.assertTrue(module.embed_is_ready(cache))
 
-    def test_dist_includes_embed_python_with_venv_when_built(self):
-        embed_exe = ROOT / "dist" / "runtime" / "python" / "python.exe"
-        venv_init = ROOT / "dist" / "runtime" / "python" / "Lib" / "venv" / "__init__.py"
-        nt_python = (
-            ROOT / "dist" / "runtime" / "python" / "Lib" / "venv" / "scripts" / "nt" / "python.exe"
-        )
-        if not embed_exe.is_file():
-            self.skipTest("dist/runtime/python not built yet — run python build.py")
-        self.assertTrue(embed_exe.is_file())
-        self.assertTrue(
-            venv_init.is_file(),
-            "bundled embed Python must include Lib/venv (embeddable zip omits it)",
-        )
-        self.assertTrue(
-            nt_python.is_file(),
-            "bundled embed Python must include Lib/venv/scripts/nt/python.exe",
-        )
+    def test_dist_includes_portable_worker_when_built(self):
+        worker = ROOT / "dist" / "runtime" / "worker"
+        if not worker.is_dir():
+            self.skipTest("dist/runtime/worker not built yet — run python build.py")
+        self.assertTrue((worker / "python.exe").is_file())
+        self.assertTrue((worker / "python310.dll").is_file())
+        self.assertTrue((worker / "Lib" / "site-packages" / "chatterbox").is_dir())
+        self.assertFalse((ROOT / "dist" / "runtime" / "python").exists())
 
 
 if __name__ == "__main__":

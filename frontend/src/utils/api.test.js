@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exportCachedAudio, narrateTextStream, pronounceText } from './api';
+import { exportCachedAudio, getPreparedBook, narrateTextStream, pronounceText } from './api';
 
 describe('pronounceText', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -63,5 +63,22 @@ describe('exportCachedAudio', () => {
     });
     expect(result.pages).toEqual([1, 2]);
     expect(result.audioUrl).toContain('/sessions/s/export.wav');
+  });
+});
+
+describe('getPreparedBook', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('loads the current manifest so preparation can resume missing text pages', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'book', pageHashes: { '1.json': 'hash' } }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getPreparedBook('book');
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/books\/book$/));
+    expect(result.pageHashes).toEqual({ '1.json': 'hash' });
   });
 });

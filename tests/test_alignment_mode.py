@@ -30,19 +30,45 @@ class AlignmentModeTests(unittest.TestCase):
                 os.environ["DISABLE_FORCED_ALIGNMENT"] = value
                 self.assertEqual(alignment_mode(), "disabled")
 
-    def test_estimate_when_whisper_unavailable(self) -> None:
+    def test_estimate_when_no_aligner_is_available(self) -> None:
         with mock.patch.object(
             alignment_service.importlib.util, "find_spec", return_value=None
         ):
             self.assertEqual(alignment_mode(), "estimate")
 
-    def test_whisper_when_package_importable(self) -> None:
-        with mock.patch.object(
-            alignment_service.importlib.util, "find_spec", return_value=mock.Mock()
+    def test_whisper_when_package_importable_and_no_ctc_model(self) -> None:
+        with (
+            mock.patch.object(alignment_service, "_ctc_model_dir", return_value=None),
+            mock.patch.object(
+                alignment_service.importlib.util, "find_spec", return_value=mock.Mock()
+            ),
         ):
             self.assertEqual(alignment_mode(), "whisper")
 
-    def test_disabled_flag_takes_precedence_over_whisper(self) -> None:
+    def test_ctc_when_a_bundled_model_exists(self) -> None:
+        with (
+            mock.patch.object(
+                alignment_service, "_ctc_model_dir", return_value="/models/alignment/en"
+            ),
+            mock.patch.object(
+                alignment_service.importlib.util, "find_spec", return_value=mock.Mock()
+            ),
+        ):
+            self.assertEqual(alignment_mode(), "ctc")
+
+    def test_ctc_is_skipped_after_a_load_failure(self) -> None:
+        with (
+            mock.patch.object(
+                alignment_service, "_ctc_model_dir", return_value="/models/alignment/en"
+            ),
+            mock.patch.object(
+                alignment_service.importlib.util, "find_spec", return_value=mock.Mock()
+            ),
+            mock.patch.object(alignment_service, "_ctc_failed", {"en"}),
+        ):
+            self.assertEqual(alignment_mode(), "whisper")
+
+    def test_disabled_flag_takes_precedence_over_all_tiers(self) -> None:
         os.environ["DISABLE_FORCED_ALIGNMENT"] = "true"
         with mock.patch.object(
             alignment_service.importlib.util, "find_spec", return_value=mock.Mock()

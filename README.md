@@ -82,10 +82,7 @@ Output: `installer/BookVoice.msi`, `installer/BookVoice-User.msi`, and `dist/` (
 
 ```bash
 cd dist
-runtime/python/python.exe -m venv .venv
-.venv/Scripts/activate   # Windows
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+runtime/worker/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 Or from repo root: `python launch.py --browser`
@@ -106,7 +103,7 @@ npm run dev
 
 - Frontend → `dist/static`
 - Backend → `dist/main.py`, `routes/`, `services/`
-- Embeddable Python 3.10 → `dist/runtime/python`
+- Portable Python 3.10 worker and locked packages → `dist/runtime/worker`
 - Bundled English models, default voices, `launch.py`, `Launcher.exe`
 
 ```bash
@@ -124,7 +121,7 @@ python scripts/smoke_launch.py --app-dir dist --skip-server
 PDF reading position, bookmarks, zoom and playback speed are stored locally in
 the app browser profile. Translation uses the `deep-translator` Google backend
 and therefore sends the selected page text to that external service; narration,
-OCR and PDF viewing otherwise run locally after model setup.
+OCR and PDF viewing otherwise run locally from the bundled runtime.
 
 
 ## Packaging (Windows installers)
@@ -136,15 +133,15 @@ OCR and PDF viewing otherwise run locally after model setup.
 | `BookVoice.msi` | perMachine | Program Files |
 | `BookVoice-User.msi` | perUser | `%LocalAppData%\BookVoice\App` |
 
-Both ship the same `dist/` payload. Writable runtime (`.venv`, sessions, config)
-is created on first launch under `%LocalAppData%\BookVoice\installs\<install-id>\`.
+Both ship the same self-contained `dist/` payload. Writable sessions, config,
+and logs are created under `%LocalAppData%\BookVoice\installs\<install-id>\`.
 
 ```bash
 python build.py --msi --per-user
 ```
 
-On first launch, `Launcher.exe` bootstraps a Python venv using the bundled
-embeddable Python — no system Python on PATH required.
+On first launch, `Launcher.exe` verifies and starts the bundled worker. It never
+creates a venv or invokes pip, and no system Python on PATH is required.
 
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.

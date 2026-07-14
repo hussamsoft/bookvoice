@@ -2,21 +2,38 @@ import { useCallback, useEffect, useState } from 'react';
 
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 
-export function useAudioTransport(audioRef) {
+export function useAudioTransport(audioRef, timelineRef = null) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [mediaError, setMediaError] = useState('');
 
+    const readCurrentTime = useCallback((audio) => {
+        const mapped = timelineRef?.current?.getCurrentTime?.(audio);
+        return Number.isFinite(mapped) ? Math.max(0, mapped) : (Number(audio?.currentTime) || 0);
+    }, [timelineRef]);
+
+    const readDuration = useCallback((audio) => {
+        const mapped = timelineRef?.current?.getDuration?.(audio);
+        if (Number.isFinite(mapped)) return Math.max(0, mapped);
+        const nativeDuration = Number(audio?.duration);
+        return Number.isFinite(nativeDuration) && nativeDuration > 0 ? nativeDuration : 0;
+    }, [timelineRef]);
+
+    const refresh = useCallback(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        setCurrentTime(readCurrentTime(audio));
+        setDuration(readDuration(audio));
+        setPlaybackRate(Number(audio.playbackRate) || 1);
+    }, [audioRef, readCurrentTime, readDuration]);
+
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return undefined;
-        const updateTime = () => setCurrentTime(Number(audio.currentTime) || 0);
-        const updateDuration = () => {
-            const next = Number(audio.duration);
-            setDuration(Number.isFinite(next) && next > 0 ? next : 0);
-        };
+        const updateTime = () => setCurrentTime(readCurrentTime(audio));
+        const updateDuration = () => setDuration(readDuration(audio));
         const onPlay = () => {
             setMediaError('');
             setIsPlaying(true);
@@ -48,7 +65,7 @@ export function useAudioTransport(audioRef) {
             audio.removeEventListener('ratechange', onRate);
             audio.removeEventListener('error', onError);
         };
-    }, [audioRef]);
+    }, [audioRef, readCurrentTime, readDuration]);
 
     const toggle = useCallback(async () => {
         const audio = audioRef.current;
@@ -70,19 +87,33 @@ export function useAudioTransport(audioRef) {
         (seconds) => {
             const audio = audioRef.current;
             if (!audio) return;
-            const max = Number.isFinite(audio.duration) && audio.duration > 0
-                ? audio.duration
-                : Math.max(0, Number(seconds) || 0);
-            audio.currentTime = Math.max(0, Math.min(max, Number(seconds) || 0));
-            setCurrentTime(audio.currentTime);
+            const requested = Math.max(0, Number(seconds) || 0);
+            const max = readDuration(audio) || requested;
+            const target = Math.max(0, Math.min(max, requested));
+            const mappedSeek = timelineRef?.current?.seekTo;
+            let displayed = target;
+            if (mappedSeek) {
+                const result = mappedSeek(target, audio);
+                if (Number.isFinite(result)) displayed = result;
+            } else {
+                audio.currentTime = target;
+                displayed = audio.currentTime;
+            }
+            setCurrentTime(displayed);
+            setDuration(readDuration(audio));
             audio.dispatchEvent(new Event('seeked'));
+            return displayed;
         },
-        [audioRef]
+        [audioRef, readDuration, timelineRef]
     );
 
     const skipBy = useCallback(
-        (seconds) => seekTo((Number(audioRef.current?.currentTime) || 0) + seconds),
-        [audioRef, seekTo]
+        (seconds) => {
+            const audio = audioRef.current;
+            if (!audio) return;
+            return seekTo(readCurrentTime(audio) + seconds);
+        },
+        [audioRef, readCurrentTime, seekTo]
     );
 
     const cycleRate = useCallback(() => {
@@ -112,6 +143,7 @@ export function useAudioTransport(audioRef) {
         isPlaying,
         mediaError,
         playbackRate,
+        refresh,
         seekTo,
         setRate,
         skipBy,

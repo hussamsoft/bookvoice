@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { cacheKey } from '../utils/pageAudioCache';
 
-export const PREFETCH_RADIUS = 1;
+export const PREFETCH_AHEAD = 2;
+export const PREFETCH_BEHIND = 1;
 
 /**
  * Background prefetch queue for adjacent PDF pages.
@@ -96,15 +97,15 @@ export function usePrefetch({
             const generation = generationRef.current;
             const voiceId = activeVoiceRef.current;
             const languageId = langRef.current;
-            const lo = Math.max(1, centerPage - PREFETCH_RADIUS);
-            const hi = Math.min(total, centerPage + PREFETCH_RADIUS);
+            const lo = Math.max(1, centerPage - PREFETCH_BEHIND);
+            const hi = Math.min(total, centerPage + PREFETCH_AHEAD);
             cacheRef.current.retainPageWindow(lo, hi);
 
             const order = [];
-            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
+            for (let d = 1; d <= PREFETCH_AHEAD; d++) {
                 if (centerPage + d <= total) order.push(centerPage + d);
             }
-            for (let d = 1; d <= PREFETCH_RADIUS; d++) {
+            for (let d = 1; d <= PREFETCH_BEHIND; d++) {
                 if (centerPage - d >= 1) order.push(centerPage - d);
             }
 

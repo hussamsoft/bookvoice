@@ -7,7 +7,7 @@ BookVoice ships as Windows installers built from the same `dist/` payload.
 1. Run **`BookVoice-User.msi`**
 2. Installs to `%LocalAppData%\BookVoice\App` (writable, no administrator prompt)
 3. Launch **BookVoice** from the Start Menu or desktop shortcut
-4. First launch creates a scoped Python environment and installs dependencies (several minutes)
+4. First launch verifies the bundled runtime and starts the reader; no package installation runs
 
 ## Standard install (all users)
 
@@ -18,9 +18,9 @@ BookVoice ships as Windows installers built from the same `dist/` payload.
 ## What happens on first launch
 
 - The launcher validates the install (`main.py`, `static/`, bundled models)
-- Creates/reuses a venv under `%LocalAppData%\BookVoice\installs\<install-id>\.venv`
-- Uses bundled **Python 3.10** from `runtime\python\` (no system Python required)
-- Upgrades to CUDA PyTorch automatically when an NVIDIA GPU is present
+- Uses bundled **Python 3.10** and application packages from `runtime\worker\`
+- Creates only writable data, session, config, and log directories
+- Uses the packaged CUDA PyTorch build when an NVIDIA GPU is present
 - Opens a desktop window (or browser via `BookVoice.bat --browser`)
 
 ## Logs
@@ -28,7 +28,6 @@ BookVoice ships as Windows installers built from the same `dist/` payload.
 | Log | Location |
 |-----|----------|
 | Launcher | `%LocalAppData%\BookVoice\installs\<id>\bookvoice_launch.log` |
-| Venv setup | `...\bookvoice_setup.log` |
 | Backend | `...\bookvoice_server.log` |
 
 ## Developer / build artifact
@@ -44,10 +43,7 @@ Manual backend start (developers):
 
 ```bat
 cd dist
-runtime\python\python.exe -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+runtime\worker\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ## USB / fully local runtime

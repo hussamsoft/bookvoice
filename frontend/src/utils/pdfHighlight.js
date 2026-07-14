@@ -114,13 +114,6 @@ export function applyWordHighlight(textLayerEl, wordSpanMap, currentWord, prevSp
     if (span) {
         span.classList.add('highlight-active');
         if (prevSpanRef) prevSpanRef.current = span;
-
-        // Keep active word roughly in view inside the scroll container
-        try {
-            span.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
-        } catch {
-            /* ignore */
-        }
     }
 }
 

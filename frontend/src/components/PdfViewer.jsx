@@ -18,11 +18,28 @@ import {
     BookmarkCheck,
     Download,
     Search,
+    SlidersHorizontal,
 } from 'lucide-react';
-import { exportCachedAudio, pronounceText, translateText, narrateTextStream } from '../utils/api';
+import {
+    createBookArchive,
+    createBookPreparation,
+    cancelBookPreparation,
+    exportCachedAudio,
+    getBookPreparation,
+    getPreparedBook,
+    getPreparedPage,
+    importPreparedBook,
+    listPreparedBooks,
+    narrateTextStream,
+    preparedBookSource,
+    pronounceText,
+    savePreparedPage,
+    translateText,
+    updatePreparedProgress,
+} from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
-import { createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
+import { canonicalAudioUrl, createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
 import { clearPdfHighlights } from '../utils/pdfHighlight';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
@@ -32,8 +49,15 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import VoiceSettings from './VoiceSettings';
 import Transcript from './Transcript';
 import PlaybackControls from './PlaybackControls';
+import PreparationProgress from './PreparationProgress';
 import { useAudioTransport } from '../hooks/useAudioTransport';
-import { waitForAudioMetadata } from '../utils/media';
+import { audioRangeForWord, waitForAudioMetadata } from '../utils/media';
+import { resolvePageContent } from '../utils/pageContentResolver';
+import {
+    activePreparedProfile,
+    missingPreparedTextPages,
+    preparationForActiveProfile,
+} from '../utils/preparedPages';
 import {
     documentFingerprint,
     loadReadingProgress,
@@ -47,7 +71,12 @@ import { usePdfDocument } from '../hooks/usePdfDocument';
 import { useWordHighlight } from '../hooks/useWordHighlight';
 import { usePageNarration } from '../hooks/usePageNarration';
 import { usePrefetch } from '../hooks/usePrefetch';
-import { buildPlaylist, nextChunkIndex } from '../utils/playlistController';
+import {
+    buildPlaylist,
+    globalTimeForChunk,
+    nextChunkIndex,
+    playbackTargetAtGlobalTime,
+} from '../utils/playlistController';
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;
@@ -71,6 +100,10 @@ export default function PdfViewer({ onDirty }) {
     const [pageNumber, setPageNumber] = useState(1);
     const [pageJumpInput, setPageJumpInput] = useState('1');
     const [isPlaying, setIsPlaying] = useState(false);
+    const [transportState, setTransportState] = useState('idle');
+    const [followNarration, setFollowNarration] = useState(
+        () => localStorage.getItem('bookvoice:follow-narration') === 'true'
+    );
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
     const [isOcring, setIsOcring] = useState(false);
@@ -94,13 +127,26 @@ export default function PdfViewer({ onDirty }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [showReadingOptions, setShowReadingOptions] = useState(false);
+    const [libraryBooks, setLibraryBooks] = useState([]);
+    const [libraryBookId, setLibraryBookId] = useState(null);
+    const [activeProfileId, setActiveProfileId] = useState(null);
+    const [preparation, setPreparation] = useState(null);
+    const [isCancellingPreparation, setIsCancellingPreparation] = useState(false);
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
+    const pronounceStopTimerRef = useRef(0);
+    const currentEntryRef = useRef(null);
     const containerRef = useRef(null);
     const fileRef = useRef(null);
     const pageWordsRef = useRef([]);
     const wordTimesRef = useRef([]);
+    // Measured word end times + how the current timings were produced
+    // ('aligned' = backend forced alignment, 'estimate' = heuristics). The
+    // paused word-click flow only slices cached page audio when aligned.
+    const wordEndsRef = useRef([]);
+    const timingModeRef = useRef('estimate');
     const langRef = useRef(targetLanguage);
     const pageTextRef = useRef('');
     const pageNumberRef = useRef(1);
@@ -119,10 +165,25 @@ export default function PdfViewer({ onDirty }) {
     const audioTimeOffsetRef = useRef(0);
     const playlistRef = useRef([]); // [{url, start_s, end_s}] for the active page
     const playlistIndexRef = useRef(0); // current chunk index in the playlist
+    const playlistExpectedTotalRef = useRef(0);
+    const playlistWaitingRef = useRef(false);
+    const playlistShouldPlayRef = useRef(false);
+    const playlistSeekGenerationRef = useRef(0);
+    const chunkPreloadsRef = useRef(new Map());
+    const timelineRef = useRef(null);
     const streamAbortRef = useRef(null); // AbortController for an in-flight stream
     const advancePlaylistRef = useRef(() => {}); // set by the streaming effect
     const handlePlayRef = useRef(() => {});
-    const transport = useAudioTransport(audioRef);
+    const openLibraryBookRef = useRef(() => {});
+    const startupBookOpenedRef = useRef(false);
+    const autoResumedPreparationRef = useRef('');
+    const transport = useAudioTransport(audioRef, timelineRef);
+    const {
+        refresh: refreshTransport,
+        seekTo: seekTransportTo,
+        setRate: setTransportRate,
+        skipBy: skipTransportBy,
+    } = transport;
 
     langRef.current = targetLanguage;
     pageTextRef.current = pageText;
@@ -132,6 +193,39 @@ export default function PdfViewer({ onDirty }) {
     currentWordRef.current = currentWord;
     activeVoiceRef.current = activeVoiceId;
     isGeneratingRef.current = isGenerating;
+
+    useEffect(() => {
+        localStorage.setItem('bookvoice:follow-narration', String(followNarration));
+    }, [followNarration]);
+
+    useEffect(() => {
+        listPreparedBooks().then((books) => {
+            setLibraryBooks(books);
+            const startupBookId = new URLSearchParams(window.location.search).get('book');
+            const startupBook = books.find((book) => book.id === startupBookId);
+            if (startupBook && !startupBookOpenedRef.current) {
+                startupBookOpenedRef.current = true;
+                openLibraryBookRef.current(startupBook);
+            }
+        }).catch(() => {});
+    }, []);
+
+    useEffect(() => {
+        if (!preparation?.id || !['QUEUED', 'RUNNING'].includes(preparation.status)) return;
+        const timer = setInterval(async () => {
+            try {
+                const next = await getBookPreparation(preparation.id);
+                setPreparation(next);
+                if (next.status === 'COMPLETED') {
+                    setActiveProfileId(next.profileId);
+                    listPreparedBooks().then(setLibraryBooks).catch(() => {});
+                }
+            } catch {
+                /* retain the last visible progress state */
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [preparation?.id, preparation?.status]);
 
     const {
         adoptPdfDocument,
@@ -235,26 +329,20 @@ export default function PdfViewer({ onDirty }) {
             const tag = e.target?.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
             if (e.target?.isContentEditable) return;
-            const audio = audioRef.current;
-            if (!audio) return;
             if (e.code === 'Space') {
                 e.preventDefault();
                 handlePlayRef.current();
             } else if (e.key === 'ArrowLeft') {
                 e.preventDefault();
-                const t = Math.max(0, (audio.currentTime || 0) - 10);
-                audio.currentTime = t;
-                syncHighlightAt(t);
+                skipTransportBy(-10);
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
-                const t = Math.min(audio.duration || Infinity, (audio.currentTime || 0) + 10);
-                audio.currentTime = t;
-                syncHighlightAt(t);
+                skipTransportBy(10);
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [syncHighlightAt]);
+    }, [skipTransportBy]);
 
     useEffect(() => {
         if (!documentId) return undefined;
@@ -270,6 +358,33 @@ export default function PdfViewer({ onDirty }) {
         return () => clearTimeout(timer);
     }, [bookmarks, documentId, pageNumber, transport.currentTime, transport.playbackRate, zoom]);
 
+    useEffect(() => {
+        if (!libraryBookId) return undefined;
+        const timer = setTimeout(() => {
+            updatePreparedProgress(libraryBookId, {
+                page: pageNumber,
+                time: transport.currentTime,
+                bookmarks,
+                updatedAt: Math.floor(Date.now() / 1000),
+            }).catch(() => {});
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [bookmarks, libraryBookId, pageNumber, transport.currentTime]);
+
+    useEffect(() => {
+        if (!modelReady || !libraryBookId || preparation?.status !== 'PAUSED') return;
+        const resumeKey = `${libraryBookId}:${preparation.profileId || ''}`;
+        if (autoResumedPreparationRef.current === resumeKey) return;
+        autoResumedPreparationRef.current = resumeKey;
+        createBookPreparation(
+            libraryBookId,
+            preparation.voiceId || null,
+            preparation.languageId || 'en'
+        ).then(setPreparation).catch(() => {
+            autoResumedPreparationRef.current = '';
+        });
+    }, [libraryBookId, modelReady, preparation]);
+
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -284,14 +399,65 @@ export default function PdfViewer({ onDirty }) {
     }, [prevHighlightSpanRef, rafRef]);
 
     const pauseAudio = useCallback(() => {
+        playlistShouldPlayRef.current = false;
         if (audioRef.current) audioRef.current.pause();
         setIsPlaying(false);
+        setTransportState('paused');
         isPlayingRef.current = false;
         if (rafRef.current) {
             cancelAnimationFrame(rafRef.current);
             rafRef.current = 0;
         }
     }, [rafRef]);
+
+    const stopPlayback = useCallback(() => {
+        if (streamAbortRef.current) streamAbortRef.current.abort();
+        cancelGeneration();
+        playlistRef.current = [];
+        playlistIndexRef.current = 0;
+        playlistExpectedTotalRef.current = 0;
+        playlistWaitingRef.current = false;
+        playlistShouldPlayRef.current = false;
+        playlistSeekGenerationRef.current += 1;
+        chunkPreloadsRef.current.clear();
+        timelineRef.current = null;
+        audioTimeOffsetRef.current = 0;
+        const audio = audioRef.current;
+        if (audio) {
+            audio.pause();
+            const canonicalUrl = canonicalAudioUrl(currentEntryRef.current, {
+                page: pageNumberRef.current,
+                voiceId: activeVoiceRef.current,
+                languageId: langRef.current,
+            });
+            if (canonicalUrl) {
+                audio.src = canonicalUrl;
+            } else {
+                audio.removeAttribute('src');
+                currentEntryRef.current = null;
+                setAudioUrl(null);
+                setAudioPage(null);
+                audioPageRef.current = null;
+            }
+            try {
+                audio.currentTime = 0;
+            } catch {
+                /* ignore */
+            }
+        }
+        if (pronounceRef.current) pronounceRef.current.pause();
+        clearTimeout(pronounceStopTimerRef.current);
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        setIsGenerating(false);
+        isGeneratingRef.current = false;
+        setTransportState('stopped');
+        setCurrentWord(0);
+        currentWordRef.current = 0;
+        setStatusHint('');
+        syncHighlightAt(0);
+        refreshTransport();
+    }, [cancelGeneration, refreshTransport, syncHighlightAt]);
 
     // Fit base page width into the scroll viewport
     useEffect(() => {
@@ -319,14 +485,71 @@ export default function PdfViewer({ onDirty }) {
     }, [file, numPages]);
 
     const applyWordState = useCallback(
-        (words, times) => {
+        (words, times, { ends = [], mode = 'estimate' } = {}) => {
             setPageWords(words);
             pageWordsRef.current = words;
             wordTimesRef.current = times;
+            wordEndsRef.current = ends;
+            timingModeRef.current = mode;
             requestAnimationFrame(() => rebindWordSpans());
         },
         [rebindWordSpans]
     );
+
+    const seekPlaylistGlobal = useCallback(
+        (requestedTime, media = audioRef.current) => {
+            const playlist = buildPlaylist(playlistRef.current);
+            const target = playbackTargetAtGlobalTime(playlist, requestedTime);
+            if (!media || !target) return 0;
+
+            const seekGeneration = ++playlistSeekGenerationRef.current;
+            const shouldResume = playlistShouldPlayRef.current;
+            const playbackRate = Number(media.playbackRate) || 1;
+            playlistIndexRef.current = target.chunkIndex;
+            audioTimeOffsetRef.current = target.chunk.start_s;
+            playlistWaitingRef.current = false;
+
+            const commitSeek = () => {
+                if (seekGeneration !== playlistSeekGenerationRef.current) return;
+                try {
+                    media.currentTime = target.localTime;
+                } catch {
+                    return;
+                }
+                media.playbackRate = playbackRate;
+                syncHighlightAt(target.localTime);
+                refreshTransport();
+                media.dispatchEvent(new Event('seeked'));
+                if (shouldResume) media.play().catch(() => {});
+            };
+
+            const currentSource = media.currentSrc || media.src || media.getAttribute('src');
+            if (currentSource === target.chunk.url || media.getAttribute('src') === target.chunk.url) {
+                commitSeek();
+            } else {
+                media.src = target.chunk.url;
+                media.playbackRate = playbackRate;
+                if (media.readyState >= 1) commitSeek();
+                else media.addEventListener('loadedmetadata', commitSeek, { once: true });
+            }
+            setTransportState(shouldResume ? 'playing' : 'paused');
+            return target.globalTime;
+        },
+        [refreshTransport, syncHighlightAt]
+    );
+
+    const installPlaylistTimeline = useCallback(() => {
+        timelineRef.current = {
+            getCurrentTime: (media) => globalTimeForChunk(
+                buildPlaylist(playlistRef.current),
+                playlistIndexRef.current,
+                Number(media?.currentTime) || 0
+            ),
+            getDuration: () => buildPlaylist(playlistRef.current).totalDurationS,
+            seekTo: seekPlaylistGlobal,
+        };
+        refreshTransport();
+    }, [refreshTransport, seekPlaylistGlobal]);
 
     useEffect(() => {
         const audio = audioRef.current;
@@ -334,11 +557,13 @@ export default function PdfViewer({ onDirty }) {
 
         const handlePlay = () => {
             setIsPlaying(true);
+            setTransportState('playing');
             isPlayingRef.current = true;
             startHighlightLoop();
         };
         const handlePause = () => {
             setIsPlaying(false);
+            setTransportState((state) => (state === 'stopped' ? state : 'paused'));
             isPlayingRef.current = false;
             if (rafRef.current) {
                 cancelAnimationFrame(rafRef.current);
@@ -351,9 +576,27 @@ export default function PdfViewer({ onDirty }) {
             if (playlistRef.current.length > 0) {
                 const advanced = advancePlaylistRef.current();
                 if (advanced) return;
+                if (
+                    isGeneratingRef.current &&
+                    playlistIndexRef.current + 1 < playlistExpectedTotalRef.current
+                ) {
+                    playlistWaitingRef.current = true;
+                    // Keep the transport intent active so the primary control
+                    // remains Pause while generation catches up.
+                    setIsPlaying(true);
+                    setTransportState('buffering');
+                    isPlayingRef.current = true;
+                    if (rafRef.current) {
+                        cancelAnimationFrame(rafRef.current);
+                        rafRef.current = 0;
+                    }
+                    return;
+                }
             }
             // Soft end: leave resume on last word
+            playlistShouldPlayRef.current = false;
             setIsPlaying(false);
+            setTransportState('stopped');
             isPlayingRef.current = false;
             if (rafRef.current) {
                 cancelAnimationFrame(rafRef.current);
@@ -363,14 +606,17 @@ export default function PdfViewer({ onDirty }) {
             setCurrentWord(last);
             currentWordRef.current = last;
         };
+        const handleSeeked = () => syncHighlightAt(Number(audio.currentTime) || 0);
 
         audio.addEventListener('play', handlePlay);
         audio.addEventListener('pause', handlePause);
         audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('seeked', handleSeeked);
         return () => {
             audio.removeEventListener('play', handlePlay);
             audio.removeEventListener('pause', handlePause);
             audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('seeked', handleSeeked);
             stopHighlightLoop();
         };
     }, [rafRef, startHighlightLoop, stopHighlightLoop, syncHighlightAt]);
@@ -387,7 +633,18 @@ export default function PdfViewer({ onDirty }) {
             const audio = audioRef.current;
             if (!audio || !entry?.audioUrl) return;
 
+            playlistSeekGenerationRef.current += 1;
+            playlistRef.current = [];
+            playlistIndexRef.current = 0;
+            playlistExpectedTotalRef.current = 0;
+            playlistWaitingRef.current = false;
+            playlistShouldPlayRef.current = autoplay;
+            chunkPreloadsRef.current.clear();
+            timelineRef.current = null;
+            audioTimeOffsetRef.current = 0;
+
             segmentsRef.current = entry.segments || [];
+            currentEntryRef.current = entry;
             setAudioUrl(entry.audioUrl);
             setAudioPage(entry.page);
             audioPageRef.current = entry.page;
@@ -397,6 +654,7 @@ export default function PdfViewer({ onDirty }) {
 
             audio.src = entry.audioUrl;
             await waitForAudioMetadata(audio);
+            refreshTransport();
 
             let words = entry.words;
             let times = entry.times;
@@ -411,8 +669,13 @@ export default function PdfViewer({ onDirty }) {
                 times = built.times;
                 entry.words = words;
                 entry.times = times;
+                entry.ends = built.ends || [];
+                entry.timingMode = built.mode || 'estimate';
             }
-            applyWordState(words, times);
+            applyWordState(words, times, {
+                ends: entry.ends || [],
+                mode: entry.timingMode || 'estimate',
+            });
 
             // For partial clips, resumeWordIndex is a page word with audio time 0.
             // For full clips, seek to that word's absolute time.
@@ -447,6 +710,7 @@ export default function PdfViewer({ onDirty }) {
                 try {
                     await audio.play();
                     setIsPlaying(true);
+                    setTransportState('playing');
                     isPlayingRef.current = true;
                     startHighlightLoop();
                 } catch (error) {
@@ -456,10 +720,11 @@ export default function PdfViewer({ onDirty }) {
                 }
             } else {
                 setIsPlaying(false);
+                setTransportState('paused');
                 isPlayingRef.current = false;
             }
         },
-        [applyWordState, buildTimings, startHighlightLoop, syncHighlightAt, toast]
+        [applyWordState, buildTimings, refreshTransport, startHighlightLoop, syncHighlightAt, toast]
     );
 
     /**
@@ -478,11 +743,19 @@ export default function PdfViewer({ onDirty }) {
             const signal = streamAbortRef.current.signal;
             playlistRef.current = [];
             playlistIndexRef.current = 0;
+            playlistExpectedTotalRef.current = 0;
+            playlistWaitingRef.current = false;
+            playlistShouldPlayRef.current = autoplay;
+            playlistSeekGenerationRef.current += 1;
+            chunkPreloadsRef.current.clear();
             audioTimeOffsetRef.current = 0;
+            installPlaylistTimeline();
 
             setAudioPage(pageNum);
             audioPageRef.current = pageNum;
             audioVoiceRef.current = voiceId ?? null;
+            currentEntryRef.current = null;
+            setAudioUrl(null);
             setPageText(text);
             pageTextRef.current = text;
             const words = text.split(/\s+/).filter(Boolean);
@@ -499,11 +772,21 @@ export default function PdfViewer({ onDirty }) {
                 const next = nextChunkIndex(playlist, playlistIndexRef.current);
                 if (next == null) return false;
                 const chunk = playlist.chunks[next];
+                const playbackRate = Number(audio.playbackRate) || 1;
                 playlistIndexRef.current = next;
                 audioTimeOffsetRef.current = chunk.start_s;
+                playlistWaitingRef.current = false;
+                playlistSeekGenerationRef.current += 1;
                 audio.src = chunk.url;
-                // Best-effort gapless: the next chunk preloaded while the prior played.
-                audio.play().catch(() => {});
+                audio.playbackRate = playbackRate;
+                try {
+                    audio.currentTime = 0;
+                } catch {
+                    /* metadata will initialize the chunk at zero */
+                }
+                refreshTransport();
+                if (playlistShouldPlayRef.current) audio.play().catch(() => {});
+                else setTransportState('paused');
                 return true;
             };
 
@@ -518,12 +801,12 @@ export default function PdfViewer({ onDirty }) {
                         if (event.type === 'chunk') {
                             collectedChunks.push(event);
                             playlistRef.current = collectedChunks;
-                            // Preload the next chunk while the current one plays.
-                            const playlist = buildPlaylist(collectedChunks);
-                            const next = nextChunkIndex(playlist, event.index);
-                            if (next != null) {
-                                const preloadAudio = new Audio(playlist.chunks[next].url);
+                            playlistExpectedTotalRef.current = Number(event.total) || collectedChunks.length;
+                            refreshTransport();
+                            if (firstChunkPlayed && event.index > playlistIndexRef.current) {
+                                const preloadAudio = new Audio(event.url);
                                 preloadAudio.preload = 'auto';
+                                chunkPreloadsRef.current.set(event.url, preloadAudio);
                             }
                             if (!firstChunkPlayed) {
                                 firstChunkPlayed = true;
@@ -531,10 +814,12 @@ export default function PdfViewer({ onDirty }) {
                                 playlistIndexRef.current = event.index;
                                 audio.src = event.url;
                                 await waitForAudioMetadata(audio);
+                                refreshTransport();
                                 if (autoplay) {
                                     try {
                                         await audio.play();
                                         setIsPlaying(true);
+                                        setTransportState('playing');
                                         isPlayingRef.current = true;
                                         startHighlightLoop();
                                     } catch (error) {
@@ -544,6 +829,8 @@ export default function PdfViewer({ onDirty }) {
                                         );
                                     }
                                 }
+                            } else if (playlistWaitingRef.current) {
+                                advancePlaylistRef.current();
                             }
                         } else if (event.type === 'done') {
                             doneEvent = event;
@@ -552,12 +839,6 @@ export default function PdfViewer({ onDirty }) {
                 },
                 signal
             );
-
-            // Preload the next chunk while current plays (gapless transition).
-            if (collectedChunks.length > 1) {
-                const preloadAudio = new Audio(collectedChunks[1].url);
-                preloadAudio.preload = 'auto';
-            }
 
             // Assemble full-page timings from the done event (if it arrived).
             if (!doneEvent) {
@@ -584,15 +865,68 @@ export default function PdfViewer({ onDirty }) {
                 duration_s: duration,
                 words: built.words,
                 times: built.times,
+                ends: built.ends || [],
+                timingMode: built.mode || 'estimate',
                 fromWord: 0,
                 partial: false,
             };
 
             const key = cacheKey(pageNum, voiceId, langRef.current);
             cacheRef.current.set(key, entry);
+            currentEntryRef.current = entry;
+            setAudioUrl(entry.audioUrl);
+            applyWordState(entry.words, entry.times, {
+                ends: entry.ends,
+                mode: entry.timingMode,
+            });
+
+            // Promote the completed canonical WAV without losing the logical
+            // position, pause state, or playback speed from the chunk playlist.
+            const logicalTime = timelineRef.current?.getCurrentTime?.(audio) || 0;
+            const shouldContinue =
+                playlistShouldPlayRef.current && logicalTime < Math.max(0, duration - 0.01);
+            const playbackRate = Number(audio.playbackRate) || 1;
+            playlistSeekGenerationRef.current += 1;
+            playlistRef.current = [];
+            playlistIndexRef.current = 0;
+            playlistExpectedTotalRef.current = 0;
+            playlistWaitingRef.current = false;
+            chunkPreloadsRef.current.clear();
+            timelineRef.current = null;
+            audioTimeOffsetRef.current = 0;
+            audio.src = entry.audioUrl;
+            await waitForAudioMetadata(audio);
+            audio.playbackRate = playbackRate;
+            try {
+                audio.currentTime = Math.max(
+                    0,
+                    Math.min(logicalTime, Number(audio.duration) || duration || logicalTime)
+                );
+            } catch {
+                /* keep the canonical audio at its default position */
+            }
+            refreshTransport();
+            syncHighlightAt(Number(audio.currentTime) || 0);
+            if (shouldContinue) {
+                await audio.play().catch(() => {});
+            } else {
+                playlistShouldPlayRef.current = false;
+                setIsPlaying(false);
+                isPlayingRef.current = false;
+                setTransportState(logicalTime >= duration ? 'stopped' : 'paused');
+            }
             return entry;
         },
-        [buildTimings, sessionId, startHighlightLoop, toast]
+        [
+            applyWordState,
+            buildTimings,
+            installPlaylistTimeline,
+            sessionId,
+            startHighlightLoop,
+            syncHighlightAt,
+            toast,
+            refreshTransport,
+        ]
     );
 
     const generateAndPlay = useCallback(
@@ -613,6 +947,7 @@ export default function PdfViewer({ onDirty }) {
             }
 
             setIsGenerating(true);
+            setTransportState('buffering');
             isGeneratingRef.current = true;
             try {
                 // Full-page, non-cached narration: stream chunks for first-audio-early.
@@ -650,6 +985,7 @@ export default function PdfViewer({ onDirty }) {
             } finally {
                 setIsGenerating(false);
                 isGeneratingRef.current = false;
+                setTransportState((state) => (state === 'buffering' ? 'paused' : state));
                 setStatusHint('');
             }
         },
@@ -663,17 +999,61 @@ export default function PdfViewer({ onDirty }) {
             if (streamAbortRef.current) streamAbortRef.current.abort();
             playlistRef.current = [];
             playlistIndexRef.current = 0;
+            playlistExpectedTotalRef.current = 0;
+            playlistWaitingRef.current = false;
+            playlistShouldPlayRef.current = false;
+            playlistSeekGenerationRef.current += 1;
+            chunkPreloadsRef.current.clear();
+            timelineRef.current = null;
             audioTimeOffsetRef.current = 0;
             pauseAudio();
+            refreshTransport();
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
 
             try {
-                const text = await preparePageText(pageNum, { setIsOcring });
+                const resolved = await resolvePageContent({
+                    bookId: libraryBookId,
+                    profileId: activeProfileId,
+                    page: pageNum,
+                    getPreparedPage,
+                    preparePageText: (page) => preparePageText(page, { setIsOcring }),
+                });
+                const { text, prepared, source } = resolved;
                 setPageText(text);
                 pageTextRef.current = text;
                 setPageWords(text.split(/\s+/).filter(Boolean));
                 pageWordsRef.current = text.split(/\s+/).filter(Boolean);
+                cachePageText(pageNum, text);
+
+                if (libraryBookId && source !== 'prepared') {
+                    savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum).catch(() => {});
+                }
+
+                if (prepared?.audioUrl) {
+                    const times = (prepared.wordTimings || []).map((item) => Number(item.start_s) || 0);
+                    const words = (prepared.wordTimings || []).map((item) => item.word);
+                    const ends = (prepared.wordTimings || []).map((item) => Number(item.end_s) || 0);
+                    const entry = {
+                        status: 'ready',
+                        page: pageNum,
+                        voiceId: activeVoiceRef.current,
+                        languageId: langRef.current,
+                        text,
+                        audioUrl: prepared.audioUrl,
+                        segments: [],
+                        duration_s: prepared.audio?.duration || 0,
+                        words: words.length ? words : text.split(/\s+/).filter(Boolean),
+                        times,
+                        ends: times.length ? ends : [],
+                        timingMode: times.length ? 'aligned' : 'estimate',
+                        fromWord: 0,
+                        partial: false,
+                    };
+                    cacheRef.current.set(cacheKey(pageNum, activeVoiceRef.current, langRef.current), entry);
+                    await applyReadyAudio(entry, { autoplay, resumeWordIndex: 0 });
+                    return;
+                }
 
                 const key = cacheKey(pageNum, activeVoiceRef.current, langRef.current);
                 if (cacheRef.current.hasReady(key)) {
@@ -686,6 +1066,8 @@ export default function PdfViewer({ onDirty }) {
                     setAudioPage(null);
                     audioPageRef.current = null;
                     wordTimesRef.current = [];
+                    wordEndsRef.current = [];
+                    timingModeRef.current = 'estimate';
                     setCurrentWord(-1);
                     if (autoplay && modelReady) {
                         await generateAndPlay(pageNum, text, {
@@ -701,15 +1083,19 @@ export default function PdfViewer({ onDirty }) {
         },
         [
             applyReadyAudio,
+            cachePageText,
             cancelGeneration,
             cancelPrefetch,
             generateAndPlay,
+            activeProfileId,
+            libraryBookId,
             modelReady,
             numPages,
             pauseAudio,
             preparePageText,
             schedulePrefetchSafe,
             toast,
+            refreshTransport,
         ]
     );
 
@@ -822,8 +1208,37 @@ export default function PdfViewer({ onDirty }) {
         cancelPrefetch();
         if (!file || !numPages) return;
 
-        if (isPlaying) {
+        const audio = audioRef.current;
+        if (playlistWaitingRef.current && isPlaying) {
             pauseAudio();
+            return;
+        }
+        if (audio && !audio.paused && !audio.ended) {
+            pauseAudio();
+            return;
+        }
+
+        // A progressive stream already owns the player. Resume its current
+        // chunk or wait for the next one instead of starting duplicate TTS.
+        if (playlistRef.current.length && audio) {
+            playlistShouldPlayRef.current = true;
+            if (playlistWaitingRef.current || audio.ended) {
+                if (!advancePlaylistRef.current()) {
+                    playlistWaitingRef.current = true;
+                    setTransportState('buffering');
+                    return;
+                }
+                return;
+            }
+            try {
+                await audio.play();
+                setIsPlaying(true);
+                isPlayingRef.current = true;
+                setTransportState('playing');
+                startHighlightLoop();
+            } catch (error) {
+                toast.error(error?.message || 'Audio playback was blocked. Press Play again.');
+            }
             return;
         }
 
@@ -930,21 +1345,47 @@ export default function PdfViewer({ onDirty }) {
             currentWordRef.current = idx;
             const t = Math.max(0, times[idx] ?? 0);
             if (audioRef.current && audioPageRef.current === pageNumberRef.current) {
-                try {
-                    audioRef.current.currentTime = t;
-                } catch {
-                    /* ignore */
-                }
+                seekTransportTo(t);
             }
-            syncHighlightAt(t);
         },
-        [syncHighlightAt]
+        [seekTransportTo]
     );
 
     const pronounceWord = useCallback(
-        async (word) => {
+        async (word, index) => {
             const clean = cleanPronounceWord(word);
             if (!clean) return;
+            const el = pronounceRef.current;
+            // Replaying a slice of the cached page audio is only trustworthy
+            // when the timings were force-aligned by the backend. Estimated
+            // timings drift, and a wrong slice speaks a different word — so
+            // fall through and synthesize the exact word instead.
+            const cachedPageReady =
+                timingModeRef.current === 'aligned' &&
+                audioPageRef.current === pageNumberRef.current &&
+                currentEntryRef.current?.audioUrl &&
+                wordTimesRef.current.length;
+            if (cachedPageReady && el) {
+                const range = audioRangeForWord(
+                    wordTimesRef.current,
+                    index,
+                    currentEntryRef.current.duration_s || audioRef.current?.duration || 0,
+                    wordEndsRef.current
+                );
+                clearTimeout(pronounceStopTimerRef.current);
+                el.pause();
+                el.src = currentEntryRef.current.audioUrl;
+                await waitForAudioMetadata(el);
+                // Small pre-roll so a leading plosive isn't clipped.
+                const sliceStart = Math.max(0, range.start - 0.04);
+                el.currentTime = sliceStart;
+                await el.play();
+                pronounceStopTimerRef.current = setTimeout(
+                    () => el.pause(),
+                    Math.max(120, (range.end - sliceStart) * 1000)
+                );
+                return;
+            }
             if (!modelReady) {
                 toast.error('Voice model is still loading.');
                 return;
@@ -955,7 +1396,6 @@ export default function PdfViewer({ onDirty }) {
                 activeVoiceRef.current,
                 langRef.current
             );
-            const el = pronounceRef.current;
             if (!el) return;
             el.src = url;
             await el.play();
@@ -975,8 +1415,7 @@ export default function PdfViewer({ onDirty }) {
             if (playing) {
                 const t = wordTimesRef.current[index];
                 if (typeof t === 'number' && t >= 0 && audioRef.current) {
-                    audioRef.current.currentTime = t;
-                    syncHighlightAt(t);
+                    seekTransportTo(t);
                 }
                 return;
             }
@@ -990,12 +1429,12 @@ export default function PdfViewer({ onDirty }) {
             }
 
             try {
-                await pronounceWord(word);
+                await pronounceWord(word, index);
             } catch (e) {
                 toast.error(e.message || 'Could not pronounce word');
             }
         },
-        [cancelPrefetch, pronounceWord, setResumePoint, syncHighlightAt, toast]
+        [cancelPrefetch, pronounceWord, seekTransportTo, setResumePoint, toast]
     );
 
     const handleTranslatePage = async () => {
@@ -1034,16 +1473,16 @@ export default function PdfViewer({ onDirty }) {
         toast.info('Text updated — press Read to narrate.');
     };
 
-    const handleFileChange = (e) => {
-        const f = e.target.files[0];
+    const activateBookFile = (f, book = null) => {
         if (!f) return;
+        const preparedProfile = activePreparedProfile(book);
         cancelPrefetch();
         const nextDocumentId = documentFingerprint(f);
         const progress = loadReadingProgress(nextDocumentId);
         setDocumentId(nextDocumentId);
         setBookmarks(progress.bookmarks);
         savedResumeRef.current = { page: progress.page, time: progress.time };
-        transport.setRate(progress.playbackRate);
+        setTransportRate(progress.playbackRate);
         setFile(f);
         fileRef.current = f;
         resetDocument();
@@ -1058,13 +1497,136 @@ export default function PdfViewer({ onDirty }) {
         setPageWords([]);
         pageWordsRef.current = [];
         wordTimesRef.current = [];
+        wordEndsRef.current = [];
+        timingModeRef.current = 'estimate';
         segmentsRef.current = [];
+        playlistRef.current = [];
+        playlistIndexRef.current = 0;
+        playlistExpectedTotalRef.current = 0;
+        playlistWaitingRef.current = false;
+        playlistShouldPlayRef.current = false;
+        playlistSeekGenerationRef.current += 1;
+        chunkPreloadsRef.current.clear();
+        timelineRef.current = null;
+        audioTimeOffsetRef.current = 0;
         cacheRef.current.clear();
         audioVoiceRef.current = null;
         setZoom(progress.zoom);
         setDisplayZoom(progress.zoom);
+        setLibraryBookId(book?.id || null);
+        setActiveProfileId(preparedProfile?.id || null);
+        setPreparation(preparationForActiveProfile(book));
+        if (preparedProfile) {
+            const profileVoice = preparedProfile.voiceId ?? null;
+            const profileLanguage = preparedProfile.languageId || 'en';
+            setActiveVoiceId(profileVoice);
+            activeVoiceRef.current = profileVoice;
+            audioVoiceRef.current = profileVoice;
+            setTargetLanguage(profileLanguage);
+            langRef.current = profileLanguage;
+        }
         clearPlaybackState();
+        refreshTransport();
         onDirty?.();
+    };
+
+    const handlePrepareWholeBook = async () => {
+        if (!libraryBookId || !numPages || !modelReady) {
+            toast.error('Open a library book and wait for the voice model before preparing it.');
+            return;
+        }
+        try {
+            const manifest = await getPreparedBook(libraryBookId);
+            const missingPages = missingPreparedTextPages(numPages, manifest.pageHashes);
+            for (let index = 0; index < missingPages.length; index += 1) {
+                const page = missingPages[index];
+                setStatusHint(
+                    `Extracting missing page ${index + 1} of ${missingPages.length}…`
+                );
+                const text = await preparePageText(page, { quiet: true, setIsOcring });
+                await savePreparedPage(libraryBookId, page, text, numPages);
+            }
+            if (!missingPages.length) setStatusHint('All page text is already prepared…');
+            const job = await createBookPreparation(
+                libraryBookId,
+                activeVoiceRef.current,
+                langRef.current
+            );
+            setPreparation(job);
+            toast.success('Whole-book preparation started. Current-page actions stay prioritized.');
+        } catch (error) {
+            toast.error(error.message || 'Could not start whole-book preparation.');
+        } finally {
+            setStatusHint('');
+        }
+    };
+
+    const handleCancelPreparation = async () => {
+        if (!preparation?.id || isCancellingPreparation) return;
+        setIsCancellingPreparation(true);
+        try {
+            const cancelled = await cancelBookPreparation(preparation.id);
+            setPreparation((current) => ({ ...current, ...cancelled }));
+            toast.success('Whole-book preparation cancelled.');
+        } catch (error) {
+            toast.error(error.message || 'Could not cancel whole-book preparation.');
+        } finally {
+            setIsCancellingPreparation(false);
+        }
+    };
+
+    const handleCreatePreparedFile = async () => {
+        if (!libraryBookId || !activeProfileId) return;
+        try {
+            const archive = await createBookArchive(libraryBookId, activeProfileId);
+            const link = document.createElement('a');
+            link.href = archive.downloadUrl;
+            link.download = `${(file?.name || 'book').replace(/\.pdf$/i, '')}.bookvoice`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            toast.error(error.message || 'Could not create the prepared-book file.');
+        }
+    };
+
+    const openLibraryBook = async (book) => {
+        try {
+            const source = await preparedBookSource(book.id);
+            const pdf = new File([source], `${book.title || 'Prepared book'}.pdf`, {
+                type: 'application/pdf',
+                lastModified: Number(book.updatedAt || Date.now()) * 1000,
+            });
+            activateBookFile(pdf, book);
+        } catch (error) {
+            toast.error(error.message || 'Could not open the prepared book.');
+        }
+    };
+    openLibraryBookRef.current = openLibraryBook;
+
+    const handleFileChange = async (e) => {
+        const selected = e.target.files[0];
+        if (!selected) return;
+        const isArchive = selected.name.toLowerCase().endsWith('.bookvoice');
+        if (!isArchive) activateBookFile(selected, null);
+        try {
+            setStatusHint('Adding book to your library…');
+            const book = await importPreparedBook(selected);
+            setLibraryBooks(await listPreparedBooks());
+            if (isArchive) {
+                await openLibraryBook(book);
+            } else {
+                setLibraryBookId(book.id);
+                setActiveProfileId(book.activeProfileId || book.profiles?.[0]?.id || null);
+                setPreparation(book.preparation || null);
+            }
+        } catch (error) {
+            if (isArchive) toast.error(error.message || 'Could not open this book.');
+            else toast.error('The PDF is open, but it could not be added to the prepared library.');
+        } finally {
+            setStatusHint('');
+            e.target.value = '';
+        }
     };
 
     const handleSearch = async (event) => {
@@ -1123,6 +1685,8 @@ export default function PdfViewer({ onDirty }) {
     }, [zoom, file]);
 
     const getPlayButtonState = () => {
+        if (isPlaying)
+            return { text: ' Pause', disabled: false, icon: <Pause size={16} /> };
         if (modelError) return { text: 'AI model error', disabled: true, icon: null };
         if (!modelReady)
             return {
@@ -1136,14 +1700,12 @@ export default function PdfViewer({ onDirty }) {
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
-        if (isGenerating)
+        if (isGenerating && !audioRef.current?.src)
             return {
                 text: statusHint ? ` ${statusHint}` : ' Generating…',
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
-        if (isPlaying)
-            return { text: ' Pause', disabled: false, icon: <Pause size={16} /> };
         if (audioUrl && audioPage === pageNumber)
             return { text: ' Resume', disabled: false, icon: <Play size={16} /> };
         return {
@@ -1156,24 +1718,47 @@ export default function PdfViewer({ onDirty }) {
     const playBtn = getPlayButtonState();
 
     return (
-        <div className="pdf-viewer-container">
+        <div className="pdf-viewer-container" data-transport-state={transportState}>
             {!file ? (
                 <div className="upload-state pdf-upload-state">
                     <input
                         type="file"
-                        accept=".pdf,application/pdf"
+                        accept=".pdf,.bookvoice,application/pdf,application/zip"
                         onChange={handleFileChange}
                         id="pdf-upload"
                         className="file-input"
                     />
-                    <label htmlFor="pdf-upload" className="btn primary">
-                        Select PDF Book
-                    </label>
-                    <p className="pdf-upload-hint">
-                        {deviceInfo === 'cpu'
-                            ? 'Text PDFs read instantly. TTS on CPU is slow — nearby page prefetch is disabled.'
-                            : 'Text PDFs read instantly. Nearby pages warm in the background for seamless flipping.'}
-                    </p>
+                    <div className="pdf-upload-card">
+                        <p className="pdf-upload-eyebrow">Your reading room</p>
+                        <h2>Start a listening session</h2>
+                        <p className="pdf-upload-intro">
+                            Open a text-based PDF to read and hear it in one place.
+                        </p>
+                        <label htmlFor="pdf-upload" className="btn primary">
+                            Select PDF Book
+                        </label>
+                        <p className="pdf-upload-hint">
+                            {deviceInfo === 'cpu'
+                                ? 'Text is ready immediately. CPU narration is slower, so page prefetch stays off.'
+                                : 'Your book stays local. Nearby pages warm in the background for seamless flipping.'}
+                        </p>
+                        {libraryBooks.length ? (
+                            <div className="prepared-library">
+                                <p className="prepared-library-title">Prepared library</p>
+                                {libraryBooks.slice(0, 5).map((book) => (
+                                    <button
+                                        type="button"
+                                        className="prepared-book-row"
+                                        key={book.id}
+                                        onClick={() => openLibraryBook(book)}
+                                    >
+                                        <span>{book.title}</span>
+                                        <small>{book.pageCount || '—'} pages</small>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
             ) : (
                 <>
@@ -1194,7 +1779,7 @@ export default function PdfViewer({ onDirty }) {
                     {deviceInfo === 'cpu' && modelReady && (
                         <div className="model-loading-status-bar error">
                             <span>
-                                TTS is on CPU (very slow). Run fix_cuda_torch.bat for GPU.
+                                TTS is on CPU, so narration will be much slower than GPU mode.
                             </span>
                         </div>
                     )}
@@ -1204,6 +1789,11 @@ export default function PdfViewer({ onDirty }) {
                             <span>{prefetchHint}</span>
                         </div>
                     )}
+                    <PreparationProgress
+                        preparation={preparation}
+                        onCancel={handleCancelPreparation}
+                        cancelling={isCancellingPreparation}
+                    />
 
                     {showResumeChoice && (
                         <div
@@ -1236,8 +1826,118 @@ export default function PdfViewer({ onDirty }) {
                         </div>
                     )}
 
+                    <div className="reader-navigation" role="toolbar" aria-label="Reader navigation">
+                        <button
+                            className="btn secondary btn-compact"
+                            onClick={() => goToPage(pageNumber - 1)}
+                            disabled={pageNumber <= 1}
+                            aria-label="Previous page"
+                        >
+                            <ChevronUp size={15} /> Previous
+                        </button>
+                        <form className="page-jump" onSubmit={handlePageJump}>
+                            <label htmlFor="reader-page-input">Page</label>
+                            <input
+                                id="reader-page-input"
+                                type="number"
+                                min={1}
+                                max={numPages || 1}
+                                value={pageJumpInput}
+                                onChange={(event) => setPageJumpInput(event.target.value)}
+                                onBlur={handlePageJump}
+                            />
+                            <span>/ {numPages || '—'}</span>
+                        </form>
+                        <button
+                            className="btn secondary btn-compact"
+                            onClick={() => goToPage(pageNumber + 1)}
+                            disabled={pageNumber >= numPages}
+                            aria-label="Next page"
+                        >
+                            Next <ChevronDown size={15} />
+                        </button>
+                        <form className="page-search" onSubmit={handleSearch}>
+                            <Search size={14} />
+                            <input
+                                type="search"
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                placeholder="Find in book"
+                                aria-label="Find text in book"
+                            />
+                            <button className="btn secondary btn-compact" disabled={!searchQuery.trim() || isSearching}>
+                                {isSearching ? <Loader2 className="spinner" size={14} /> : 'Find'}
+                            </button>
+                        </form>
+                        <button
+                            type="button"
+                            className="btn secondary btn-compact"
+                            onClick={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
+                            aria-label={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
+                        >
+                            {bookmarks.includes(pageNumber) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
+                            Bookmark
+                        </button>
+                        <button
+                            type="button"
+                            className="btn secondary btn-compact reader-options-toggle"
+                            onClick={() => setShowReadingOptions((open) => !open)}
+                            aria-expanded={showReadingOptions}
+                            aria-label="Reading options"
+                        >
+                            <SlidersHorizontal size={15} /> Reading options
+                        </button>
+                    </div>
+
+                    {showReadingOptions ? (
+                        <section className="reading-options" aria-label="Reading options panel">
+                            <VoiceSettings
+                                compact
+                                backendReady={modelReady}
+                                activeVoiceId={activeVoiceId}
+                                onVoiceChange={handleVoiceChange}
+                            />
+                            <label className="reading-option-field">
+                                Language
+                                <select
+                                    value={targetLanguage}
+                                    onChange={(event) => handleLanguageChange(event.target.value)}
+                                    disabled={isGenerating || isOcring}
+                                >
+                                    {SUPPORTED_LANGUAGES.map((lang) => (
+                                        <option key={lang.code} value={lang.code}>{lang.name}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <div className="zoom-controls" title="Document zoom">
+                                <button className="btn secondary btn-compact" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))} aria-label="Zoom out"><ZoomOut size={15} /></button>
+                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
+                                <button className="btn secondary btn-compact" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))} aria-label="Zoom in"><ZoomIn size={15} /></button>
+                                <button className="btn secondary btn-compact" onClick={() => setZoom(1)} aria-label="Reset zoom"><Maximize2 size={15} /></button>
+                            </div>
+                            <button className="btn secondary btn-compact" onClick={handleForceOcr} disabled={isGenerating || isOcring}>
+                                <ScanText size={15} /> {isOcring ? 'Running OCR…' : 'Re-run OCR'}
+                            </button>
+                            <button className="btn secondary btn-compact" onClick={() => { setEditTextDraft(pageText); setIsEditingText((value) => !value); }} disabled={!pageText}>
+                                {isEditingText ? 'Cancel editing' : 'Edit extracted text'}
+                            </button>
+                            <button className="btn secondary btn-compact" onClick={handleTranslatePage} disabled={!pageText || isGenerating}>
+                                Translate to {targetLanguage === 'ar' ? 'Arabic' : 'English'}
+                            </button>
+                            <button className="btn primary btn-compact" onClick={handlePrepareWholeBook} disabled={!modelReady || !libraryBookId || preparation?.status === 'RUNNING'}>
+                                Prepare whole book
+                            </button>
+                            {activeProfileId ? (
+                                <button className="btn secondary btn-compact" onClick={handleCreatePreparedFile}>
+                                    <Download size={15} /> Save .bookvoice file
+                                </button>
+                            ) : null}
+                        </section>
+                    ) : null}
+
                     <div className="pdf-layout">
                         <div className="pdf-main">
+                            <h3 className="reader-section-label">Original PDF</h3>
                             <div
                                 className={`pdf-scroll-area ${zoom > 1.02 ? 'zoomable' : ''}`}
                                 ref={containerRef}
@@ -1254,6 +1954,7 @@ export default function PdfViewer({ onDirty }) {
                                         setPageNumber(restoredPage);
                                         pageNumberRef.current = restoredPage;
                                         schedulePrefetchSafe(restoredPage, pdf.numPages);
+                                        loadPageIntoView(restoredPage, { autoplay: false });
                                     }}
                                     loading={
                                         <div className="pdf-loading">
@@ -1334,15 +2035,17 @@ export default function PdfViewer({ onDirty }) {
                                     statusHint ||
                                     (isGenerating ? 'Generating narration…' : undefined)
                                 }
+                                followNarration={followNarration}
                             />
                             )}
                         </div>
                     </div>
 
-                    <div className="pdf-toolbar">
+                    <div className="pdf-toolbar" role="region" aria-label="Narration player">
                         <div className="pdf-toolbar-voice">
                             <VoiceSettings
                                 compact
+                                backendReady={modelReady}
                                 activeVoiceId={activeVoiceId}
                                 onVoiceChange={handleVoiceChange}
                             />
@@ -1476,10 +2179,15 @@ export default function PdfViewer({ onDirty }) {
                                 <ChevronUp size={15} />
                             </button>
                             <PlaybackControls
-                                compact
                                 transport={{ ...transport, isPlaying }}
                                 onToggle={handlePlay}
+                                onStop={stopPlayback}
                                 disabled={playBtn.disabled}
+                                generating={isGenerating}
+                                hasMedia={!!audioRef.current?.src || !!audioUrl}
+                                pageLabel={`Page ${pageNumber} of ${numPages || '?'}`}
+                                followNarration={followNarration}
+                                onFollowChange={setFollowNarration}
                             />
                             {audioUrl && audioPage === pageNumber ? (
                                 <a

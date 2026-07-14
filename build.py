@@ -5,8 +5,8 @@ BookVoice build script.
 Produces the release package in dist/ (same payload as both MSI variants):
   - React frontend → dist/static
   - FastAPI backend → dist/main.py, routes/, services/
-  - Embeddable Python 3.10 → dist/runtime/python
-  - requirements.txt, setup_venv.bat, fix_cuda_torch.bat, launch.py
+  - Immutable Python worker runtime → dist/runtime/worker
+  - runtime manifest, requirements provenance, launch.py
   - default voices + bundled English model weights
   - Launcher.exe (rebuilt from launch.py via PyInstaller)
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,6 +54,16 @@ def tree_fingerprint(root: Path, excluded_top_level: set[str] | None = None) -> 
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def fixed_loopback_assets(static_dir: Path) -> list[str]:
+    """Return built JS assets that would bypass the launcher's selected origin."""
+    forbidden = (b"http://localhost:8000", b"http://127.0.0.1:8000")
+    offenders = []
+    for asset in sorted(static_dir.rglob("*.js")):
+        if any(value in asset.read_bytes() for value in forbidden):
+            offenders.append(asset.relative_to(static_dir).as_posix())
+    return offenders
 
 
 def write_release_manifest(
@@ -93,24 +104,13 @@ this folder manually.
 | `BookVoice.msi` | Program Files | Yes (at install) |
 | `BookVoice-User.msi` | `%LocalAppData%\\BookVoice\\App` | **No** |
 
-Both use the same payload. First launch creates a scoped Python environment
-under `%LocalAppData%\\BookVoice\\installs\\<id>\\`.
+Both use the same self-contained payload. First launch only creates writable
+data and log directories under `%LocalAppData%\\BookVoice\\installs\\<id>\\`.
 
 ## Developer manual start
 
 ```bat
-setup_venv.bat
-.venv\\Scripts\\activate
-uvicorn main:app --host 127.0.0.1 --port 8000
-```
-
-Bundled bootstrap Python (no system Python required):
-
-```bat
-runtime\\python\\python.exe -m venv .venv
-.venv\\Scripts\\activate
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ## Layout
@@ -120,15 +120,14 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 | `Launcher.exe` | Desktop window entry (Start Menu shortcut target) |
 | `BookVoice.bat` | Browser fallback launcher |
 | `launch.py` | Shared launcher logic |
-| `runtime/python/` | Embeddable Python 3.10 (venv bootstrap) |
+| `runtime/worker/` | Portable Python 3.10 + locked application packages |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
-| `setup_venv.bat` | Create/repair `.venv` + CUDA torch |
 
 ## Notes
 
-- Writable runtime (`.venv`, sessions, config) lives under
+- Writable runtime (sessions, config, logs) lives under
   `%LocalAppData%\\BookVoice\\installs\\<install-id>\\`.
 - Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
 - English TTS is offline once `data/models/en` is present.
@@ -143,10 +142,10 @@ def _exe(name: str) -> str:
     return name
 
 
-def run(cmd, cwd, check=True):
+def run(cmd, cwd, check=True, env=None):
     resolved = [_exe(cmd[0]) if i == 0 else c for i, c in enumerate(cmd)]
     print(f"[build] {' '.join(str(c) for c in resolved)}  (cwd={cwd})")
-    return subprocess.run(resolved, cwd=str(cwd), check=check)
+    return subprocess.run(resolved, cwd=str(cwd), check=check, env=env)
 
 
 def copytree(src: Path, dst: Path):
@@ -198,12 +197,41 @@ def copy_py_dir(src: Path, dst: Path):
         shutil.copy2(f, dst / f.name)
 
 
+def release_frontend_environment(base_environment: dict[str, str] | None = None) -> dict[str, str]:
+    """Pin packaged UI requests to the server that delivered the page.
+
+    Local frontend `.env` files are useful for `npm run dev`, but baking a
+    fixed localhost hostname into a release breaks when the launcher selects
+    127.0.0.1 (and violates the same-origin CSP).
+    """
+    environment = dict(os.environ if base_environment is None else base_environment)
+    environment["VITE_API_BASE_URL"] = "/api"
+    environment["VITE_AUDIO_BASE_URL"] = ""
+    return environment
+
+
 def build_frontend():
     if not (FRONTEND / "node_modules").exists():
         run(["npm", "install"], FRONTEND)
     else:
         run(["npm", "ci"], FRONTEND)
-    run(["npm", "run", "build"], FRONTEND)
+    run(["npm", "run", "build"], FRONTEND, env=release_frontend_environment())
+
+
+def stage_default_voices():
+    """Ensure the release payload ships bundled voice reference clips."""
+    script = ROOT / "scripts" / "ensure_default_voices.py"
+    if not script.is_file():
+        raise SystemExit("scripts/ensure_default_voices.py missing")
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("ensure_default_voices", script)
+    if not spec or not spec.loader:
+        raise SystemExit("Could not load ensure_default_voices.py")
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    destination = mod.ensure_default_voices(ROOT)
+    print(f"[build] ensured default voice clips → {destination}")
 
 
 def assemble_dist():
@@ -245,7 +273,7 @@ def assemble_dist():
     if env.exists():
         env.unlink()
 
-    for name in ("setup_venv.bat", "fix_cuda_torch.bat", "BookVoice.bat"):
+    for name in ("BookVoice.bat",):
         src = ROOT / name
         if src.is_file():
             shutil.copy2(src, DIST / name)
@@ -255,6 +283,7 @@ def assemble_dist():
         shutil.copy2(launch_src, DIST / "launch.py")
 
     stage_embed_python()
+    stage_runtime_bundle()
 
     # Portable bat uses this helper to terminate the full stale uvicorn tree.
     scripts_src = ROOT / "scripts" / "kill_stale_bookvoice.ps1"
@@ -273,6 +302,8 @@ def assemble_dist():
         default_voices_dst.mkdir(parents=True, exist_ok=True)
         for wav in voices_src.glob("*.wav"):
             shutil.copy2(wav, default_voices_dst / wav.name)
+    else:
+        print("[build] WARNING: voices/ missing after ensure_default_voices()")
 
     models_src = BACKEND / "data" / "models"
     if models_src.is_dir():
@@ -317,6 +348,64 @@ def stage_embed_python():
     mod = _ilu.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.stage_embed_python(ROOT, DIST)
+
+
+def stage_runtime_bundle():
+    """Stage the prebuilt worker that production startup is allowed to use."""
+    script = ROOT / "scripts" / "stage_runtime_bundle.py"
+    if not script.is_file():
+        raise SystemExit("scripts/stage_runtime_bundle.py missing")
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("stage_runtime_bundle", script)
+    if not spec or not spec.loader:
+        raise SystemExit("Could not load stage_runtime_bundle.py")
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    destination = mod.stage_runtime_bundle(ROOT, DIST, version)
+    print(f"[build] staged immutable worker runtime → {destination}")
+
+
+def runtime_contract_errors(dist: Path) -> list[str]:
+    """Return release errors when the package could self-provision at startup."""
+    manifest_path = dist / "runtime-manifest.json"
+    if not manifest_path.is_file():
+        return ["runtime manifest missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ["runtime manifest is invalid"]
+    if manifest.get("startup_provisioning") != "forbidden":
+        return ["runtime manifest forbids no startup provisioning"]
+    worker = dist / "runtime" / "worker"
+    required = [
+        worker / "python.exe",
+        worker / "python310.dll",
+    ]
+    errors = [
+        f"runtime worker missing: {path.relative_to(dist)}"
+        for path in required
+        if not path.exists()
+    ]
+    packages = worker / "Lib" / "site-packages"
+    for package in (
+        "fastapi",
+        "uvicorn",
+        "chatterbox",
+        "torch",
+        "torchaudio",
+        "transformers",
+        "deep_translator",
+        "easyocr",
+        "PIL",
+        "numpy",
+        "cv2",
+        "soundfile",
+    ):
+        if not (packages / package).is_dir() and not (packages / f"{package}.py").is_file():
+            errors.append(f"runtime worker missing import: {package}")
+    return errors
 
 
 def build_launcher(launcher_backup: Path | None):
@@ -394,11 +483,10 @@ def validate():
         "VERSION",
         "release-manifest.json",
         "requirements.txt",
-        "setup_venv.bat",
-        "fix_cuda_torch.bat",
         "BookVoice.bat",
         "scripts/kill_stale_bookvoice.ps1",
-        "runtime/python/python.exe",
+        "runtime/worker/python.exe",
+        "runtime-manifest.json",
         "Launcher.exe",
         "routes/tts.py",
         "routes/voices.py",
@@ -416,6 +504,12 @@ def validate():
         if not p.exists():
             errors.append(f"required missing: {rel}")
 
+    default_voice_count = len(list((DIST / "data" / "default_voices").glob("*.wav")))
+    if default_voice_count == 0:
+        errors.append("data/default_voices must include at least one .wav voice clip")
+
+    errors.extend(runtime_contract_errors(DIST))
+
     source_pairs = [(BACKEND / "main.py", DIST / "main.py")]
     for source_dir in (BACKEND / "routes", BACKEND / "services"):
         for source in source_dir.glob("*.py"):
@@ -430,6 +524,13 @@ def validate():
         backend_hash = tree_fingerprint(BACKEND / "static")
         if frontend_hash != dist_hash or dist_hash != backend_hash:
             errors.append("frontend/dist, dist/static and backend/static are not identical")
+
+    fixed_origins = fixed_loopback_assets(DIST / "static")
+    if fixed_origins:
+        errors.append(
+            "packaged JavaScript contains a fixed loopback origin: "
+            + ", ".join(fixed_origins)
+        )
 
     # Parity with the MSI payload: no runtime state in the package
     for forbidden in (".env", "data/voices", "data/sessions"):
@@ -490,6 +591,7 @@ def main():
     args = parser.parse_args()
 
     print("[build] Building BookVoice portable dist/ …")
+    stage_default_voices()
     if not args.skip_frontend:
         build_frontend()
     else:

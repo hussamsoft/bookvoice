@@ -30,6 +30,7 @@ export function useTtsStatus({ pollWhileGenerating = false } = {}) {
     useEffect(() => {
         let cancelled = false;
         let timer = null;
+        let failures = 0;
 
         const schedule = (ms) => {
             timer = setTimeout(poll, ms);
@@ -40,6 +41,7 @@ export function useTtsStatus({ pollWhileGenerating = false } = {}) {
                 const status = await getTtsStatus();
                 if (cancelled) return;
 
+                failures = 0;
                 if (status.device) setDeviceInfo(status.device);
 
                 if (status.status === 'ready') {
@@ -83,10 +85,31 @@ export function useTtsStatus({ pollWhileGenerating = false } = {}) {
                     return;
                 }
 
+                if (status.status === 'idle') {
+                    setModelReady(false);
+                    setModelError(null);
+                    setModelStatusDetail('Starting voice engine...');
+                    schedule(1500);
+                    return;
+                }
+
                 setModelStatusDetail(status.detail || 'Initializing model preload...');
                 schedule(2000);
             } catch {
-                if (!cancelled) schedule(2500);
+                if (cancelled) return;
+                failures += 1;
+                setModelReady(false);
+                if (failures >= 4) {
+                    setModelError(
+                        'Cannot reach the reading engine. Make sure BookVoice finished starting.'
+                    );
+                    setModelStatusDetail('');
+                    schedule(5000);
+                    return;
+                }
+                setModelError(null);
+                setModelStatusDetail('Connecting to reading engine...');
+                schedule(1500);
             }
         };
 

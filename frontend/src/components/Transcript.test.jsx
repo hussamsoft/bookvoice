@@ -46,4 +46,36 @@ describe('Transcript accessibility', () => {
     const wordsContainer = container.querySelector('.transcript-words');
     expect(wordsContainer.getAttribute('dir')).toBe('ltr');
   });
+
+  it('keeps real spaces between interactive words for natural wrapping', () => {
+    const { container } = render(<Transcript {...baseProps} />);
+    expect(container.querySelector('.transcript-words').textContent).toBe('Hello world today');
+  });
+
+  it('does not insert a layout-changing spinner when a word is activated', () => {
+    const pending = new Promise(() => {});
+    const { container } = render(
+      <Transcript {...baseProps} onWordActivate={() => pending} />
+    );
+    fireEvent.click(screen.getAllByRole('button')[0]);
+    expect(container.querySelector('.word-pronounce-spinner')).toBeNull();
+    expect(screen.getAllByRole('button')[0].textContent).toBe('Hello');
+  });
+
+  it('does not move the text column unless follow narration is enabled', () => {
+    const { container, rerender } = render(<Transcript {...baseProps} currentWord={1} />);
+    const wordsContainer = container.querySelector('.transcript-words');
+    Object.defineProperty(wordsContainer, 'clientHeight', { configurable: true, value: 100 });
+    const word = wordsContainer.querySelector('[data-word-index="1"]');
+    Object.defineProperty(word, 'offsetTop', { configurable: true, value: 240 });
+    Object.defineProperty(word, 'offsetHeight', { configurable: true, value: 20 });
+
+    expect(wordsContainer.scrollTop).toBe(0);
+    rerender(<Transcript {...baseProps} currentWord={2} followNarration />);
+    const followed = wordsContainer.querySelector('[data-word-index="2"]');
+    Object.defineProperty(followed, 'offsetTop', { configurable: true, value: 300 });
+    Object.defineProperty(followed, 'offsetHeight', { configurable: true, value: 20 });
+    rerender(<Transcript {...baseProps} currentWord={1} followNarration />);
+    expect(wordsContainer.scrollTop).toBeGreaterThan(0);
+  });
 });

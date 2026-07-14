@@ -39,6 +39,13 @@ tools/python-embed/
 build/
 *.spec
 
+# MSI build output (installer/*.msi, WiX intermediates, cabs) — regenerate
+# with build_msi.py / package_msi.bat; too large and derivable to commit.
+installer/
+
+# Local tool state unrelated to the app.
+.zcode/
+
 # dist/ is the committed, self-contained app. Ignore only its
 # generated/runtime contents, not the source-of-truth build output.
 dist/data/sessions/
@@ -50,6 +57,12 @@ dist/routes/__pycache__/
 dist/services/__pycache__/
 dist/*.log
 dist/.env
+
+# The immutable worker runtime (dist/runtime/worker) bundles a full Python
+# venv with torch/transformers/etc — tens of thousands of files, multiple GB.
+# It's staged by scripts/stage_runtime_bundle.py and shipped via the MSI
+# installers, never via git.
+dist/runtime/
 
 # Keep the committed, preloaded default voices (override the global *.wav rule)
 !voices/*.wav

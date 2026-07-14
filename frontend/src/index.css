@@ -1,22 +1,24 @@
 :root {
-  --bg: #14110f;
-  --bg-color: #14110f;
-  --surface: #1f1b17;
-  --surface-elevated: #2a241e;
-  --primary: #c9956b;
-  --primary-dark: #a67c52;
-  --primary-glow: rgba(201, 149, 107, 0.25);
-  --text: #f0e8dc;
-  --text-muted: #9a8b7a;
-  --border: #3d352c;
-  --error: #e07070;
-  --error-bg: rgba(224, 112, 112, 0.12);
-  --success: #7dba8a;
-  --font-display: "Cormorant Garamond", Georgia, serif;
-  --font-body: "Outfit", system-ui, sans-serif;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --bg: #e9e5dc;
+  --bg-color: #e9e5dc;
+  --surface: #f7f4ed;
+  --surface-elevated: #fffdfa;
+  --primary: #496b86;
+  --primary-dark: #34536d;
+  --primary-glow: rgba(73, 107, 134, 0.18);
+  --accent: #496b86;
+  --text: #22262b;
+  --text-muted: #68727d;
+  --border: #d9d4c9;
+  --error: #ba3e45;
+  --danger: #ba3e45;
+  --error-bg: rgba(186, 62, 69, 0.1);
+  --success: #2f7a68;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow: 0 10px 28px rgba(5, 25, 42, 0.12);
 }
 
 * {
@@ -28,9 +30,7 @@
 body {
   font-family: var(--font-body);
   background-color: var(--bg-color);
-  background-image:
-    radial-gradient(ellipse at 20% 0%, rgba(201, 149, 107, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 100%, rgba(201, 149, 107, 0.05) 0%, transparent 40%);
+  background-image: none;
   color: var(--text);
   line-height: 1.6;
   min-height: 100vh;
@@ -58,6 +58,11 @@ body {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.transport-label {
+  white-space: nowrap;
 }
 
 .transport-rate {
@@ -762,6 +767,40 @@ body {
 }
 
 @media (max-width: 600px) {
+  .pdf-toolbar .playback-transport {
+    display: grid;
+    grid-template-columns: repeat(4, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .pdf-toolbar .transport-seek {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .pdf-toolbar .transport-time {
+    grid-column: 1 / span 2;
+    grid-row: 3;
+  }
+
+  .pdf-toolbar .transport-rate,
+  .pdf-toolbar .transport-page,
+  .pdf-toolbar .transport-follow {
+    grid-row: 3;
+  }
+
+  .pdf-toolbar .transport-status,
+  .pdf-toolbar .transport-error {
+    grid-column: 1 / -1;
+  }
+
+  .pdf-toolbar {
+    z-index: 20;
+    background: var(--surface-elevated);
+  }
+
   .app-container {
     padding: 1rem 0.75rem 2rem;
   }
@@ -832,6 +871,177 @@ textarea:focus-visible,
   outline-offset: 2px;
 }
 
+@media (max-width: 420px) {
+  .pdf-toolbar .transport-skip .transport-label {
+    display: none;
+  }
+}
+
+/* BookVoice 2.0 application shell — the reader is the center of gravity. */
+.app-shell {
+  max-width: 1500px;
+  padding: 1.25rem clamp(1rem, 3vw, 3rem) 2rem;
+}
+
+.app-header {
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.app-brand,
+.brand-lockup,
+.header-tools,
+.mode-switcher,
+.app-status,
+.mode-button {
+  display: flex;
+  align-items: center;
+}
+
+.app-brand {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brand-lockup {
+  gap: 0.75rem;
+}
+
+.app-header .brand-icon {
+  color: #e7b48f;
+}
+
+.app-header h1 {
+  color: var(--text);
+  font-size: clamp(1.8rem, 3vw, 2.45rem);
+  letter-spacing: -0.03em;
+}
+
+.app-header .brand p {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.header-tools {
+  gap: 0.8rem;
+}
+
+.app-status {
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.mode-switcher {
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-left: 2.5rem;
+}
+
+.mode-button {
+  position: relative;
+  min-width: 10.5rem;
+  gap: 0.42rem;
+  padding: 0.65rem 0.75rem 0.65rem 0.9rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.mode-button span {
+  font-weight: 650;
+  color: inherit;
+}
+
+.mode-button small {
+  display: none;
+}
+
+.mode-button::after {
+  content: "";
+  position: absolute;
+  right: 0.75rem;
+  bottom: -1px;
+  left: 0.75rem;
+  height: 2px;
+  background: transparent;
+}
+
+.mode-button:hover {
+  color: var(--text);
+  background: rgba(73, 107, 134, 0.08);
+}
+
+.mode-button.is-active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.mode-button.is-active::after {
+  background: var(--primary);
+}
+
+.reading-stage {
+  position: relative;
+}
+
+.reading-stage::before {
+  content: "";
+  position: absolute;
+  top: 1.25rem;
+  bottom: 1.25rem;
+  left: -0.5rem;
+  width: 2px;
+  background: linear-gradient(#e7b48f, rgba(231, 180, 143, 0));
+  border-radius: 99px;
+}
+
+.pdf-viewer-container,
+.book-session {
+  box-shadow: var(--shadow);
+}
+
+.settings-dropdown,
+.toast,
+.resume-modal {
+  background: #fffdf7;
+}
+
+@media (max-width: 760px) {
+  .app-brand {
+    align-items: flex-start;
+  }
+
+  .app-status {
+    display: none;
+  }
+
+  .mode-switcher {
+    padding-left: 0;
+  }
+
+  .mode-button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .mode-button small {
+    display: block;
+    flex-basis: 100%;
+    margin-left: 1.45rem;
+    color: inherit;
+    font-size: 0.7rem;
+    opacity: 0.76;
+  }
+}
+
 /* PDF Viewer Enhancements */
 .highlight-active {
   background-color: rgba(201, 149, 107, 0.5) !important;
@@ -857,23 +1067,116 @@ textarea:focus-visible,
 }
 
 .pdf-upload-state {
-  padding: 4rem 2rem;
+  padding: clamp(2rem, 8vh, 5rem) 2rem;
   text-align: center;
-  border: 2px dashed var(--border);
   border-radius: var(--radius);
-  background: var(--surface-elevated);
+  background:
+    linear-gradient(90deg, var(--primary) 0 2px, transparent 2px 100%) left / 2px 100% no-repeat,
+    radial-gradient(ellipse at 50% 0%, rgba(184, 106, 58, 0.08), transparent 52%),
+    var(--surface-elevated);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.85rem;
   flex: 1;
 }
 
-.pdf-upload-hint {
+.pdf-upload-card {
+  width: min(100%, 31rem);
+  padding: clamp(1.75rem, 4vw, 2.75rem);
+  background: rgba(255, 253, 247, 0.94);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 46px rgba(5, 25, 42, 0.14);
+}
+
+.pdf-upload-eyebrow {
+  margin: 0 0 0.55rem;
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pdf-upload-card h2 {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  line-height: 1.08;
+}
+
+.pdf-upload-intro {
+  max-width: 25rem;
+  margin: 0.8rem auto 1.4rem;
   color: var(--text-muted);
-  font-size: 0.9rem;
-  max-width: 28rem;
+  font-size: 1rem;
+}
+
+.pdf-upload-hint {
+  max-width: 25rem;
+  margin: 1rem auto 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.prepared-library {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.prepared-library-title {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prepared-book-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+}
+
+.prepared-book-row:hover {
+  border-color: var(--primary);
+}
+
+.prepared-book-row small {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.preparation-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.7rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+}
+
+.preparation-progress progress {
+  flex: 1;
+  accent-color: var(--primary);
 }
 
 .file-input {
@@ -1143,6 +1446,119 @@ textarea:focus-visible,
   color: var(--primary);
 }
 
+.reader-navigation {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.reader-navigation .page-search {
+  flex: 1 1 16rem;
+  justify-content: center;
+}
+
+.reader-navigation .page-search input {
+  width: min(22rem, 100%);
+  flex: 1;
+}
+
+.reader-options-toggle {
+  margin-left: auto;
+}
+
+.reading-options {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.reading-options .voice-settings {
+  flex: 1 1 15rem;
+}
+
+.reading-option-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.pdf-toolbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 253, 250, 0.98);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 -8px 24px rgba(34, 38, 43, 0.08);
+}
+
+.pdf-toolbar-voice,
+.pdf-toolbar .lang-select-group,
+.pdf-toolbar .page-jump,
+.pdf-toolbar .page-search,
+.pdf-toolbar .bookmark-controls,
+.pdf-toolbar .zoom-controls,
+.pdf-toolbar-controls > button {
+  display: none;
+}
+
+.pdf-toolbar-controls {
+  width: 100%;
+}
+
+.pdf-toolbar .playback-transport {
+  width: 100%;
+}
+
+.transport-page,
+.transport-status,
+.transport-follow {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.transport-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.transport-stop {
+  color: var(--danger);
+}
+
+.pdf-transcript-actions {
+  display: none;
+}
+
+.transcript-panel {
+  padding: clamp(1rem, 2vw, 1.6rem);
+  background: var(--surface-elevated);
+}
+
+.transcript-words {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1rem, 1.15vw, 1.18rem);
+  line-height: 1.9;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
+}
+
 /* Two-column PDF layout: source page + transcript (equal stage height) */
 .pdf-layout {
   display: flex;
@@ -1233,10 +1649,13 @@ textarea:focus-visible,
 
 .transcript-word {
   cursor: pointer;
-  padding: 0.08rem 0.12rem;
+  padding: 0.08rem 0.04rem;
   border-radius: 3px;
   transition: background-color 0.08s linear, color 0.08s linear;
   display: inline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  hyphens: auto;
 }
 
 .transcript-word:hover {
@@ -1251,24 +1670,13 @@ textarea:focus-visible,
 .transcript-word.current {
   background: var(--primary);
   color: var(--bg);
-  font-weight: 600;
   border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(201, 149, 107, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(201, 149, 107, 0.35);
 }
 
 .transcript-word.pronouncing {
-  outline: 1px solid var(--primary);
   background: rgba(201, 149, 107, 0.22);
-}
-
-.transcript-word.hovered {
-  background: rgba(201, 149, 107, 0.15);
-  border-bottom: 2px solid var(--primary);
-}
-
-.word-pronounce-spinner {
-  margin-inline-start: 4px;
-  vertical-align: middle;
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 
 .transcript-empty {
@@ -1371,7 +1779,7 @@ textarea:focus-visible,
 
   /* PDF is the source of truth but transcript gets real reading room */
   .pdf-main {
-    flex: 1.2 1 0;
+    flex: 1 1 0;
     min-width: 0;
   }
 
@@ -1400,6 +1808,23 @@ textarea:focus-visible,
     max-width: 100%;
     height: auto;
   }
+}
+
+.reader-section-label {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--surface-elevated);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.reader-section-label + .pdf-scroll-area {
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 
 /* Tablet adjustments */
@@ -1506,5 +1931,182 @@ textarea:focus-visible,
 
   .resume-modal-actions {
     flex-direction: column;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Fixed viewport shell + integrated title bar (BookVoice 2.1)
+
+   The app owns the whole window: header and title bar are fixed rows, the
+   reading stage fills the rest, and only the PDF page and transcript panels
+   scroll. In the native pywebview shell the window is frameless, so the
+   title bar doubles as the drag region and hosts the window controls.
+   These rules intentionally come last to override the flow layout above.
+--------------------------------------------------------------------------- */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell {
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell .app-header {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* Title bar — the topmost strip, themed like the rest of the app */
+.titlebar {
+  display: flex;
+  align-items: stretch;
+  height: 2.75rem;
+  background: linear-gradient(#eeeae1, #e4dfd3);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.titlebar-drag {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding-left: 1rem;
+}
+
+.titlebar .brand-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.titlebar h1 {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.titlebar-tagline {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 0.55rem;
+  border-left: 1px solid var(--border);
+  line-height: 1.2;
+}
+
+.titlebar-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0 0.75rem;
+  flex-shrink: 0;
+}
+
+.titlebar-tools .app-status {
+  font-size: 0.74rem;
+}
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.window-control {
+  width: 2.9rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.window-control:hover {
+  background: rgba(34, 38, 43, 0.09);
+  color: var(--text);
+}
+
+.window-control:focus-visible {
+  outline-offset: -2px;
+}
+
+.window-control-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Mode tabs sit directly under the title bar */
+.app-shell .mode-switcher {
+  margin: 0.55rem 1.1rem 0;
+  padding-left: 1.4rem;
+}
+
+/* Reading stage fills the remaining height; inner panels scroll */
+.app-shell .reading-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 1.1rem 0.9rem;
+}
+
+.app-shell .pdf-viewer-container {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.app-shell .book-session {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-shell .loading-state {
+  flex: 1 1 auto;
+}
+
+/* Below the side-by-side breakpoint the stacked reader can exceed the
+   viewport; scroll the stage internally, never the page. */
+@media (max-width: 1023px) {
+  .app-shell .reading-stage {
+    overflow-y: auto;
+  }
+
+  .app-shell .pdf-viewer-container,
+  .app-shell .book-session {
+    flex: none;
+    height: auto;
+    overflow: visible;
+  }
+
+  .titlebar-tagline,
+  .titlebar-tools .app-status {
+    display: none;
   }
 }

@@ -65,6 +65,26 @@ export function localTimeForChunk(playlist, chunkIndex, globalTimeS) {
 }
 
 /**
+ * Resolve a logical page time to a concrete streamed chunk and local offset.
+ * The requested time is clamped to the currently available playlist span.
+ */
+export function playbackTargetAtGlobalTime(playlist, globalTimeS) {
+    if (!playlist.chunks.length) return null;
+    const globalTime = Math.max(
+        0,
+        Math.min(Number(globalTimeS) || 0, playlist.totalDurationS)
+    );
+    const chunkIndex = chunkIndexAtGlobalTime(playlist, globalTime);
+    const chunk = playlist.chunks[chunkIndex];
+    const span = Math.max(0, chunk.end_s - chunk.start_s);
+    const localTime = Math.max(
+        0,
+        Math.min(globalTime - chunk.start_s, span)
+    );
+    return { chunk, chunkIndex, globalTime, localTime };
+}
+
+/**
  * Whether all chunks have arrived (playlist complete) for a given expected total.
  */
 export function isComplete(playlist, expectedTotal) {

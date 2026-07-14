@@ -183,6 +183,35 @@ def build_wxs(files, product: MsiProduct):
     })
     ET.SubElement(feature, "ComponentRef", {"Id": "StartMenuShortcut"})
 
+    association_root = "HKCU" if product.install_scope == "perUser" else "HKLM"
+    association = ET.SubElement(instdir, "Component", {"Id": "PreparedBookAssociation", "Guid": "*"})
+    ET.SubElement(association, "RegistryValue", {
+        "Root": association_root,
+        "Key": "Software\\Classes\\.bookvoice",
+        "Type": "string",
+        "Value": "BookVoice.PreparedBook",
+        "KeyPath": "yes",
+    })
+    ET.SubElement(association, "RegistryValue", {
+        "Root": association_root,
+        "Key": "Software\\Classes\\BookVoice.PreparedBook",
+        "Type": "string",
+        "Value": "BookVoice Prepared Book",
+    })
+    ET.SubElement(association, "RegistryValue", {
+        "Root": association_root,
+        "Key": "Software\\Classes\\BookVoice.PreparedBook\\DefaultIcon",
+        "Type": "string",
+        "Value": "[INSTALLDIR]bookvoice.ico,0",
+    })
+    ET.SubElement(association, "RegistryValue", {
+        "Root": association_root,
+        "Key": "Software\\Classes\\BookVoice.PreparedBook\\shell\\open\\command",
+        "Type": "string",
+        "Value": '\"[INSTALLDIR]Launcher.exe\" \"%1\"',
+    })
+    ET.SubElement(feature, "ComponentRef", {"Id": "PreparedBookAssociation"})
+
     if product.install_scope == "perUser":
         install_cleanup = ET.SubElement(instdir, "Component", {"Id": "InstallDirCleanup", "Guid": "*"})
         ET.SubElement(install_cleanup, "RemoveFolder", {"Id": "RemoveInstallDir", "On": "uninstall"})
@@ -278,6 +307,15 @@ def compile_msi(wxs_path: Path, msi_path: Path, *, per_user: bool = False) -> No
         "-sice:ICE38",
         "-sice:ICE43",
         "-sice:ICE57",
+        # The immutable worker expands to more than 44k components. Full ICE
+        # validation becomes effectively quadratic at that size and can spend
+        # hours after all cabinets are already complete. The release suite
+        # validates the generated WiX and payload separately; reuse identical
+        # cabinet content across the machine/user products.
+        "-sval",
+        "-reusecab",
+        "-cc",
+        str(OUT),
     ]
     if per_user:
         light_cmd.append("-sice:ICE64")

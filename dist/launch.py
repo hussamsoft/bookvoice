@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 
@@ -203,14 +205,10 @@ def bundled_python(app_dir: str) -> str | None:
     return candidate if os.path.isfile(candidate) else None
 
 
-def venv_python(runtime_dir: str) -> str:
-    return os.path.join(runtime_dir, ".venv", "Scripts", "python.exe")
-
-
-def venv_has_chatterbox(runtime_dir: str) -> bool:
-    return os.path.isdir(
-        os.path.join(runtime_dir, ".venv", "Lib", "site-packages", "chatterbox")
-    )
+def bundled_worker_python(app_dir: str) -> str | None:
+    """Return the immutable worker included in the application payload."""
+    candidate = os.path.join(app_dir, "runtime", "worker", "python.exe")
+    return candidate if os.path.isfile(candidate) else None
 
 
 def venv_cuda_ok(py: str, log: Logger) -> bool:
@@ -234,65 +232,12 @@ def _no_window() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
-def ensure_venv(app_dir: str, runtime_dir: str, log: Logger, status_cb) -> str | None:
-    py = venv_python(runtime_dir)
-    os.makedirs(runtime_dir, exist_ok=True)
-    embed = bundled_python(app_dir)
-
-    if not (os.path.isfile(py) and venv_has_chatterbox(runtime_dir)):
-        status_cb("First-time setup", "Installing Python packages (several minutes)...")
-        log.write("Running setup_venv.bat")
-        for name in ("requirements.txt", "setup_venv.bat", "fix_cuda_torch.bat"):
-            src = os.path.join(app_dir, name)
-            if os.path.isfile(src):
-                shutil.copy2(src, os.path.join(runtime_dir, name))
-        setup = os.path.join(runtime_dir, "setup_venv.bat")
-        if not os.path.isfile(setup):
-            setup = os.path.join(app_dir, "setup_venv.bat")
-        if not os.path.isfile(setup):
-            log.write("setup_venv.bat missing")
-            return None
-        setup_log = os.path.join(runtime_dir, "bookvoice_setup.log")
-        env = os.environ.copy()
-        if embed:
-            env["BOOKVOICE_EMBED_PYTHON"] = embed
-        try:
-            with open(setup_log, "w", encoding="utf-8", errors="replace") as lf:
-                subprocess.run(
-                    setup,
-                    cwd=runtime_dir,
-                    env=env,
-                    stdout=lf,
-                    stderr=subprocess.STDOUT,
-                    shell=True,
-                    check=True,
-                    creationflags=_no_window(),
-                )
-        except Exception as exc:
-            log.write(f"setup_venv failed: {exc}")
-            return None
-        if not os.path.isfile(py):
-            log.write("venv python still missing after setup")
-            return None
-
-    if not venv_cuda_ok(py, log):
-        status_cb("Enabling GPU", "Installing CUDA PyTorch (one-time large download)...")
-        fix = os.path.join(app_dir, "fix_cuda_torch.bat")
-        if os.path.isfile(fix):
-            fix_log = os.path.join(runtime_dir, "bookvoice_cuda_fix.log")
-            try:
-                with open(fix_log, "w", encoding="utf-8", errors="replace") as lf:
-                    subprocess.run(
-                        ["cmd", "/c", fix, py],
-                        cwd=runtime_dir,
-                        stdout=lf,
-                        stderr=subprocess.STDOUT,
-                        creationflags=_no_window(),
-                    )
-            except Exception as exc:
-                log.write(f"cuda fix failed: {exc}")
-        log.write(f"cuda after fix: {venv_cuda_ok(py, log)}")
-
+def packaged_worker(app_dir: str, log: Logger) -> str | None:
+    """Validate the worker; production startup must never provision packages."""
+    py = bundled_worker_python(app_dir)
+    if not py:
+        log.write("packaged worker missing: runtime/worker/python.exe")
+        return None
     return py
 
 
@@ -321,7 +266,10 @@ def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
 
     if psutil is None:
         return
-    venv_marker = os.path.join(runtime_dir, ".venv").lower()
+    server_markers = (
+        os.path.join(runtime_dir, ".venv").lower(),
+        os.path.join(app_dir, "runtime", "worker").lower(),
+    )
     victims = []
     try:
         for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
@@ -331,7 +279,12 @@ def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
                     continue
                 cmd = " ".join(proc.info["cmdline"] or []).lower()
                 exe = (proc.info["exe"] or "").lower()
-                if "uvicorn" in cmd and "main:app" in cmd and venv_marker in (exe + " " + cmd):
+                process_text = exe + " " + cmd
+                if (
+                    "uvicorn" in cmd
+                    and "main:app" in cmd
+                    and any(marker in process_text for marker in server_markers)
+                ):
                     victims.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
@@ -374,28 +327,16 @@ def pick_port(log: Logger) -> int:
 
 
 def backend_readiness(base_url: str) -> tuple[bool, str, bool]:
-    """Return whether both HTTP and the bundled TTS model are ready.
+    """Return readiness as soon as the HTTP application is available.
 
-    The FastAPI server can accept requests while the model is still loading on
-    its dedicated TTS thread.  Opening the UI at that point leaves it showing
-    a misleading permanent-looking "Warming up" state, so the launcher waits
-    for the model's explicit status as well.
+    TTS readiness is intentionally independent: the library and cached audio
+    remain usable while the model warms up or even if model loading fails.
     """
     try:
         with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as response:
             if response.status != 200:
                 return False, "Waiting for backend connection…", False
-        with urllib.request.urlopen(f"{base_url}/api/tts/status", timeout=1) as response:
-            if response.status != 200:
-                return False, "Waiting for TTS status…", False
-            payload = json.loads(response.read().decode("utf-8"))
-        status = str(payload.get("status", "")).lower()
-        detail = str(payload.get("detail", "")).strip()
-        if status == "ready":
-            return True, detail or "AI voices ready.", False
-        if status == "error":
-            return False, detail or "The TTS model failed to load.", True
-        return False, detail or "Loading AI voices…", False
+        return True, "Library ready. AI voices may continue warming in the background.", False
     except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
         return False, "Waiting for backend connection…", False
 
@@ -403,6 +344,44 @@ def backend_readiness(base_url: str) -> tuple[bool, str, bool]:
 def backend_is_ready(base_url: str) -> bool:
     """Compatibility helper for readiness checks and unit tests."""
     return backend_readiness(base_url)[0]
+
+
+def import_prepared_book(base_url: str, archive_path: str) -> str:
+    """Stream a .bookvoice archive into the local backend without loading it in RAM."""
+    path = os.path.abspath(archive_path)
+    if not path.lower().endswith(".bookvoice") or not os.path.isfile(path):
+        raise ValueError("The prepared-book file does not exist or is not a .bookvoice archive.")
+    parsed = urllib.parse.urlsplit(base_url)
+    boundary = f"----BookVoice{hashlib.sha256(path.encode('utf-8')).hexdigest()[:24]}"
+    filename = os.path.basename(path).replace('"', "")
+    prefix = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        "Content-Type: application/zip\r\n\r\n"
+    ).encode("utf-8")
+    suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=300)
+    try:
+        connection.putrequest("POST", "/api/books")
+        connection.putheader("Content-Type", f"multipart/form-data; boundary={boundary}")
+        connection.putheader("Content-Length", str(len(prefix) + os.path.getsize(path) + len(suffix)))
+        connection.endheaders()
+        connection.send(prefix)
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                connection.send(chunk)
+        connection.send(suffix)
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        if response.status not in (200, 201):
+            detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
+            raise ValueError(detail.get("message") or "The prepared book could not be imported.")
+        book_id = str(payload.get("id", ""))
+        if len(book_id) != 64:
+            raise ValueError("The backend returned an invalid prepared-book identity.")
+        return book_id
+    finally:
+        connection.close()
 
 
 def build_env(app_dir: str, runtime_dir: str) -> dict:
@@ -417,9 +396,6 @@ def build_env(app_dir: str, runtime_dir: str) -> dict:
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONNOUSERSITE"] = "1"
-    embed = bundled_python(app_dir)
-    if embed:
-        env["BOOKVOICE_EMBED_PYTHON"] = embed
     return env
 
 
@@ -445,11 +421,14 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
             pass
     text = (message + "\n\n" + detail).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
     html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-    body{{font-family:Segoe UI,sans-serif;background:#14110f;color:#e5e5e5;padding:2rem}}
-    h2{{color:#f87171}} pre{{background:#1f1b18;padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#fca5a5}}
-    </style></head><body><h2>BookVoice failed to start</h2><pre>{text}</pre>
+    body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
+    {CHROME_CSS}
+    .stage{{flex:1;overflow:auto;padding:2rem}}
+    h2{{color:#ba3e45}} pre{{background:#f7f4ed;border:1px solid #d9d4c9;padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#8a2f35}}
+    p{{color:#68727d}}
+    </style></head><body>{CHROME_BAR}<div class="stage"><h2>BookVoice failed to start</h2><pre>{text}</pre>
     <p>See bookvoice_launch.log in your runtime folder.</p>
-    </body></html>"""
+    </div></body></html>"""
     if window is not None and webview is not None:
         try:
             window.load_html(html)
@@ -472,14 +451,29 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
         pass
 
 
-SPLASH = """<!doctype html><html><head><meta charset="utf-8"><style>
-body{font-family:Segoe UI,sans-serif;background:#14110f;color:#e5e5e5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-.box{text-align:center;max-width:28rem;padding:1rem}
-.loader{border:3px solid rgba(255,255,255,.1);border-top:3px solid #c9956b;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}
-@keyframes spin{to{transform:rotate(360deg)}}
-h2{font-weight:500;font-size:1.15rem;margin:0} p{color:#9ca3af;margin-top:.5rem;line-height:1.4}
-</style></head><body><div class="box"><div class="loader"></div>
-<h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></body></html>"""
+# Shared frameless-window chrome: a themed drag strip with a close control so
+# the splash and error pages stay movable/closable before the app UI loads.
+CHROME_CSS = """
+.bar{display:flex;align-items:center;height:44px;background:linear-gradient(#eeeae1,#e4dfd3);border-bottom:1px solid #d9d4c9;user-select:none;flex-shrink:0}
+.bar .drag{flex:1;height:100%;display:flex;align-items:center;padding-left:1rem;font-weight:600;font-size:.95rem;color:#22262b;font-family:Georgia,serif}
+.bar button{width:46px;height:100%;border:0;background:transparent;color:#68727d;font-size:14px;cursor:pointer}
+.bar button:hover{background:#ba3e45;color:#fff}
+"""
+
+CHROME_BAR = """<div class="bar"><div class="drag pywebview-drag-region">BookVoice</div>
+<button aria-label="Close" title="Close"
+ onclick="window.pywebview&&window.pywebview.api.close()">&#10005;</button></div>"""
+
+SPLASH = f"""<!doctype html><html><head><meta charset="utf-8"><style>
+body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;display:flex;flex-direction:column;height:100vh;margin:0;overflow:hidden}}
+{CHROME_CSS}
+.stage{{flex:1;display:flex;align-items:center;justify-content:center}}
+.box{{text-align:center;max-width:28rem;padding:1rem}}
+.loader{{border:3px solid rgba(73,107,134,.15);border-top:3px solid #496b86;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
+h2{{font-weight:600;font-size:1.15rem;margin:0}} p{{color:#68727d;margin-top:.5rem;line-height:1.4}}
+</style></head><body>{CHROME_BAR}<div class="stage"><div class="box"><div class="loader"></div>
+<h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></div></body></html>"""
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -494,7 +488,63 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start the backend only (no UI shell)",
     )
+    parser.add_argument(
+        "book_path",
+        nargs="?",
+        help="A .bookvoice archive to import and open.",
+    )
     return parser.parse_args(argv)
+
+
+class WindowApi:
+    """Window controls exposed to the frameless UI as window.pywebview.api."""
+
+    def __init__(self):
+        self._window = None
+
+    def attach(self, window) -> None:
+        self._window = window
+
+    def minimize(self) -> None:
+        if self._window is not None:
+            self._window.minimize()
+
+    def toggle_maximize(self) -> bool:
+        window = self._window
+        if window is None:
+            return False
+        maximized = False
+        try:
+            maximized = "maximized" in str(getattr(window, "state", "")).lower()
+        except Exception:
+            maximized = False
+        if maximized:
+            window.restore()
+            return False
+        window.maximize()
+        return True
+
+    def close(self) -> None:
+        if self._window is not None:
+            self._window.destroy()
+
+
+def create_main_window(webview_module, js_api=None):
+    # Frameless: the React app renders its own themed title bar and window
+    # controls (see frontend TitleBar.jsx). min_size matches the smallest
+    # window at which the side-by-side reader layout fits without squishing.
+    return webview_module.create_window(
+        "BookVoice",
+        html=SPLASH,
+        js_api=js_api,
+        width=1440,
+        height=900,
+        min_size=(1024, 700),
+        resizable=True,
+        frameless=True,
+        easy_drag=False,
+        background_color="#e9e5dc",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -529,7 +579,9 @@ def main(argv: list[str] | None = None) -> int:
     log_file = None
 
     if use_webview:
-        window = webview.create_window("BookVoice", html=SPLASH, width=1280, height=800)
+        window_api = WindowApi()
+        window = create_main_window(webview, js_api=window_api)
+        window_api.attach(window)
 
     state = {"error": None}
 
@@ -540,11 +592,11 @@ def main(argv: list[str] | None = None) -> int:
                 set_status(window, title, detail)
                 log.write(f"status: {title} | {detail}")
 
-            status("Checking environment", "Looking for Python packages…")
-            py = ensure_venv(app_dir, runtime_dir, log, status)
+            status("Checking runtime", "Verifying the bundled reading engine…")
+            py = packaged_worker(app_dir, log)
             if not py:
-                state["error"] = "Failed to create Python environment. See bookvoice_setup.log"
-                show_error(window, state["error"], os.path.join(runtime_dir, "bookvoice_setup.log"))
+                state["error"] = "The packaged reading engine is incomplete. Reinstall BookVoice."
+                show_error(window, state["error"], log.path)
                 return
 
             kill_stale_servers(app_dir, runtime_dir, log)
@@ -586,13 +638,24 @@ def main(argv: list[str] | None = None) -> int:
                 ready, detail, failed = backend_readiness(url)
                 if ready:
                     log.write(f"ready {url}")
+                    params = {}
+                    if window is not None:
+                        # Tell the frontend it runs inside the frameless
+                        # native shell so it renders the window controls.
+                        params["shell"] = "native"
+                    if args.book_path:
+                        status("Opening prepared book", "Validating and importing the archive…")
+                        book_id = import_prepared_book(url, args.book_path)
+                        params["book"] = book_id
+                        log.write(f"imported prepared book {book_id}")
+                    open_url = f"{url}/?{urllib.parse.urlencode(params)}" if params else url
                     if args.no_window:
                         log.write("backend ready (--no-window)")
                         return
                     if window is not None:
-                        window.load_url(url)
+                        window.load_url(open_url)
                     else:
-                        os.startfile(url)  # type: ignore[attr-defined]
+                        os.startfile(open_url)  # type: ignore[attr-defined]
                     return
                 if failed:
                     state["error"] = f"TTS model failed to load: {detail}"

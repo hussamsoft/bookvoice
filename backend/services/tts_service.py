@@ -5,7 +5,6 @@ import re
 import sys
 import threading
 import time
-import uuid
 from concurrent.futures import Future
 from enum import IntEnum
 from pathlib import Path
@@ -29,6 +28,7 @@ class TtsPriority(IntEnum):
     INTERACTIVE = 0  # word pronounce, voice-switch partials
     CURRENT = 1      # active page narration
     PREFETCH = 2     # background prefetch
+    PREPARE = 3      # resumable whole-book preparation
 
 
 _tts_job_queue: PriorityQueue | None = None
@@ -498,8 +498,8 @@ def get_model(language_id="en"):
             if device == "cpu":
                 _log(
                     "WARNING: TTS is running on CPU. Generation will be VERY slow "
-                    "(minutes per page). Install CUDA PyTorch for your NVIDIA GPU - "
-                    "see setup_venv.bat / fix_cuda_torch.bat."
+                    "(minutes per page). Install the GPU-enabled BookVoice build or "
+                    "set TTS_DEVICE=cpu deliberately for CPU-only machines."
                 )
                 _model_state["detail"] = (
                     f"Loading model on CPU (slow) from {model_hint}…"
@@ -670,6 +670,9 @@ def maybe_cleanup_sessions(force: bool = False) -> None:
         try:
             if not os.path.isdir(path):
                 continue
+            if name == "pronunciation-cache":
+                _trim_pronunciation_cache(path)
+                continue
             mtime = os.path.getmtime(path)
             if now - mtime > _SESSION_MAX_AGE_SECONDS:
                 for root, dirs, files in os.walk(path, topdown=False):
@@ -796,11 +799,13 @@ def _synthesize_audio(
         "duration_s": round(float(wav.shape[-1]) / sr, 4) if sr > 0 else 0.0,
     }
 
-    # Optional forced alignment (Whisper) for accurate word timestamps.
+    # Forced alignment (CTC, with Whisper fallback) for accurate word
+    # timestamps. Chunk boundaries let the aligner work per sentence so
+    # timing error cannot accumulate across chunks.
     try:
         from services.alignment_service import align_words
 
-        word_timings = align_words(text, output_path, language_id)
+        word_timings = align_words(text, output_path, language_id, segments=segment_meta)
         if word_timings:
             result["word_timings"] = word_timings
     except Exception as exc:  # noqa: BLE001 - alignment is optional; timing falls back
@@ -858,11 +863,44 @@ def _audio_filename(
 
 
 def pronounce_text(text, session_id, voice_id=None, language_id="en"):
-    """Short interactive clip for word pronunciation (no page_index)."""
-    session_id = validate_session_id(session_id)
-    clip_id = uuid.uuid4().hex[:12]
-    filename = f"clip_{clip_id}.wav"
-    return _synthesize_audio(text, session_id, filename, voice_id, language_id)
+    """Return a persistent deterministic pronunciation clip."""
+    validate_session_id(session_id)
+    text = validate_text_length(text)
+    language_id = validate_language_id(language_id)
+    _, voices_dir, sessions_dir = _data_dirs()
+    safe_voice = voice_id or "default"
+    voice_signature = safe_voice
+    if voice_id:
+        voice_path = safe_join(voices_dir, f"{validate_voice_id(voice_id)}.wav")
+        if os.path.isfile(voice_path):
+            stat = os.stat(voice_path)
+            voice_signature = f"{safe_voice}:{stat.st_size}:{stat.st_mtime_ns}"
+    model_dir = os.environ.get("MODEL_DIR", "")
+    identity = "\0".join((text, language_id, voice_signature, model_dir))
+    filename = f"clip_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}.wav"
+    cache_session = "pronunciation-cache"
+    cache_dir = safe_join(sessions_dir, cache_session)
+    cache_path = safe_join(cache_dir, filename)
+    if os.path.isfile(cache_path):
+        os.utime(cache_path, None)
+        return {"audio_url": f"/sessions/{cache_session}/{filename}"}
+    result = _synthesize_audio(text, cache_session, filename, voice_id, language_id)
+    _trim_pronunciation_cache(cache_dir)
+    return result
+
+
+def _trim_pronunciation_cache(cache_dir: str, max_files: int = 1000) -> None:
+    """Bound the persistent word cache by least-recently-used file time."""
+    try:
+        files = sorted(
+            (entry for entry in os.scandir(cache_dir) if entry.is_file() and entry.name.endswith(".wav")),
+            key=lambda entry: entry.stat().st_mtime,
+            reverse=True,
+        )
+        for entry in files[max_files:]:
+            os.remove(entry.path)
+    except OSError:
+        pass
 
 
 def narrate_text_streaming(
@@ -1013,7 +1051,7 @@ def narrate_text_streaming(
     try:
         from services.alignment_service import align_words
 
-        word_timings = align_words(text, full_path, language_id)
+        word_timings = align_words(text, full_path, language_id, segments=segment_meta)
         if word_timings:
             result["word_timings"] = word_timings
     except Exception as exc:  # noqa: BLE001 - alignment is optional

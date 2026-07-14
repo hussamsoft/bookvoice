@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "app_version": "2.0.0",
+  "worker_python": "runtime/worker/python.exe",
+  "startup_provisioning": "forbidden",
+  "required_packages": [
+    "fastapi",
+    "uvicorn",
+    "chatterbox",
+    "torch",
+    "torchaudio",
+    "transformers",
+    "deep_translator",
+    "easyocr",
+    "PIL",
+    "numpy",
+    "cv2",
+    "soundfile"
+  ]
+}

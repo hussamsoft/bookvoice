@@ -1,10 +1,10 @@
 import React, { lazy, Suspense, useState } from 'react';
-import { BookOpen } from 'lucide-react';
+import { FileText, ScanLine } from 'lucide-react';
 import { useToast } from './components/Toast';
+import TitleBar from './components/TitleBar';
 
 const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
-const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 
 function App() {
     const toast = useToast();
@@ -27,40 +27,34 @@ function App() {
     };
 
     return (
-        <div className="app-container">
-            <header className="main-header">
-                <div
-                    className="brand"
-                    style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <BookOpen className="brand-icon" size={28} strokeWidth={1.5} />
-                        <div>
-                            <h1>BookVoice</h1>
-                            <p>Turn any page into narration</p>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <Suspense fallback={null}>
-                            <SettingsPanel />
-                        </Suspense>
-                        <button
-                            className={`btn ${mode === 'camera' ? 'primary' : 'secondary'}`}
-                            onClick={() => requestMode('camera')}
-                        >
-                            Camera Mode
-                        </button>
-                        <button
-                            className={`btn ${mode === 'pdf' ? 'primary' : 'secondary'}`}
-                            onClick={() => requestMode('pdf')}
-                        >
-                            PDF Mode
-                        </button>
-                    </div>
-                </div>
+        <div className="app-container app-shell">
+            <header className="main-header app-header">
+                <TitleBar />
+                <nav className="mode-switcher" aria-label="Reading mode">
+                    <button
+                        className={`mode-button ${mode === 'pdf' ? 'is-active' : ''}`}
+                        aria-label="PDF reader"
+                        aria-pressed={mode === 'pdf'}
+                        onClick={() => requestMode('pdf')}
+                    >
+                        <FileText size={17} aria-hidden="true" />
+                        <span>PDF reader</span>
+                        <small>Open a book file</small>
+                    </button>
+                    <button
+                        className={`mode-button ${mode === 'camera' ? 'is-active' : ''}`}
+                        aria-label="Scan a page"
+                        aria-pressed={mode === 'camera'}
+                        onClick={() => requestMode('camera')}
+                    >
+                        <ScanLine size={17} aria-hidden="true" />
+                        <span>Scan a page</span>
+                        <small>Capture a physical book</small>
+                    </button>
+                </nav>
             </header>
 
-            <main className="main-content">
+            <main className="main-content reading-stage">
                 <Suspense fallback={<div className="loading-state" role="status">Loading reader…</div>}>
                     {mode === 'camera' ? (
                         <BookSession key="camera" onDirty={() => setSessionDirty(true)} />

@@ -24,3 +24,20 @@ export function waitForAudioMetadata(audio, timeoutMs = 15000) {
         }, timeoutMs);
     });
 }
+
+export function audioRangeForWord(wordStarts, index, duration, wordEnds = []) {
+    const starts = Array.isArray(wordStarts) ? wordStarts : [];
+    const safeIndex = Math.max(0, Math.min(Number(index) || 0, Math.max(0, starts.length - 1)));
+    const start = Math.max(0, Number(starts[safeIndex]) || 0);
+    const next = Number(starts[safeIndex + 1]);
+    const total = Number(duration);
+    const fallbackEnd = Number.isFinite(total) && total > start ? total : start + 0.6;
+    let end = Number.isFinite(next) && next > start ? next : fallbackEnd;
+    // A measured (forced-aligned) end beats the next word's onset: stop at the
+    // word's own tail plus a small pad, but never overlap the next word.
+    const aligned = Number(Array.isArray(wordEnds) ? wordEnds[safeIndex] : undefined);
+    if (Number.isFinite(aligned) && aligned > start) {
+        end = Math.min(aligned + 0.08, end);
+    }
+    return { start, end: Math.max(start + 0.12, end) };
+}

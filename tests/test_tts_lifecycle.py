@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -321,6 +322,28 @@ class TtsLifecycleTests(unittest.TestCase):
 
         self.assertEqual(count["n"], 1)
 
+    def test_pronunciation_cache_reuses_a_deterministic_clip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sessions = Path(temp_dir) / "sessions"
+            voices = Path(temp_dir) / "voices"
+            voices.mkdir()
+
+            def synthesize(text, session_id, filename, voice_id, language_id):
+                target = sessions / session_id / filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"wav")
+                return {"audio_url": f"/sessions/{session_id}/{filename}"}
+
+            with patch.object(
+                self.tts, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
+            ):
+                with patch.object(self.tts, "_synthesize_audio", side_effect=synthesize) as generate:
+                    first = self.tts.pronounce_text("hello", "session1", None, "en")
+                    second = self.tts.pronounce_text("hello", "session2", None, "en")
+
+        self.assertEqual(first["audio_url"], second["audio_url"])
+        generate.assert_called_once()
+
     def test_export_cached_pages_concatenates_latest_full_page_audio(self):
         """Export uses one canonical full-page WAV per requested page, never chunks."""
         import torch
@@ -355,6 +378,50 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertTrue(result["audio_url"].startswith("/sessions/session1/export_1-2_"))
         self.assertEqual(result["pages"], [1, 2])
         save.assert_called_once()
+
+
+class TtsStreamRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_progressive_narration_uses_priority_tts_worker(self):
+        """Streaming synthesis must stay on the serialized priority worker."""
+        import routes.tts as tts_routes
+
+        request = tts_routes.NarrateRequest(
+            text="Hello world.",
+            session_id="session1",
+            page_index=0,
+            language_id="en",
+            priority="current",
+        )
+        scheduled_priorities = []
+        executor = ThreadPoolExecutor(max_workers=1)
+
+        def submit(priority, fn, *args, **kwargs):
+            scheduled_priorities.append(priority)
+            return executor.submit(fn, *args, **kwargs)
+
+        events = iter(
+            [
+                {
+                    "type": "done",
+                    "audio_url": "/sessions/session1/page.wav",
+                    "segments": [],
+                    "duration_s": 1.0,
+                    "word_timings": [],
+                }
+            ]
+        )
+        try:
+            with patch.object(tts_routes, "submit_tts", side_effect=submit):
+                with patch.object(tts_routes, "narrate_text_streaming", return_value=events):
+                    response = await tts_routes.narrate_stream(request)
+                    body = []
+                    async for chunk in response.body_iterator:
+                        body.append(chunk)
+        finally:
+            executor.shutdown(wait=True)
+
+        self.assertEqual(scheduled_priorities, [tts_routes.TtsPriority.CURRENT])
+        self.assertIn('"type": "done"', "".join(body))
 
 
 class KillStaleServersTests(unittest.TestCase):
@@ -402,6 +469,37 @@ class KillStaleServersTests(unittest.TestCase):
 
         parent.terminate.assert_called_once()
         child.terminate.assert_called_once()
+
+    def test_terminates_packaged_worker_server(self):
+        psutil = MagicMock()
+        parent = MagicMock()
+        parent.pid = 200
+        parent.info = {
+            "pid": 200,
+            "name": "python.exe",
+            "exe": r"C:\BookVoice\App\runtime\worker\python.exe",
+            "cmdline": [
+                r"C:\BookVoice\App\runtime\worker\python.exe",
+                "-m",
+                "uvicorn",
+                "main:app",
+            ],
+        }
+        parent.children.return_value = []
+        psutil.process_iter.return_value = [parent]
+        psutil.wait_procs.return_value = ([parent], [])
+        psutil.NoSuchProcess = type("NoSuchProcess", (Exception,), {})
+        psutil.AccessDenied = type("AccessDenied", (Exception,), {})
+
+        with patch.object(self.launch, "psutil", psutil):
+            with patch.object(self.launch.time, "sleep"):
+                self.launch.kill_stale_servers(
+                    r"C:\BookVoice\App",
+                    r"C:\Users\u\AppData\Local\BookVoice",
+                    MagicMock(),
+                )
+
+        parent.terminate.assert_called_once()
 
     def test_missing_process_is_ignored(self):
         psutil = MagicMock()
@@ -469,7 +567,7 @@ class KillStaleServersTests(unittest.TestCase):
 
 
 class LauncherReadinessTests(unittest.TestCase):
-    def test_backend_is_ready_requires_health_and_a_ready_tts_model(self):
+    def test_backend_is_ready_opens_as_soon_as_health_is_ready(self):
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
         import launch  # noqa: WPS433
@@ -477,33 +575,26 @@ class LauncherReadinessTests(unittest.TestCase):
         health = MagicMock()
         health.status = 200
         health.__enter__.return_value = health
-        status = MagicMock()
-        status.status = 200
-        status.read.return_value = b'{"status":"ready","detail":"Model ready on CUDA."}'
-        status.__enter__.return_value = status
-        with patch.object(launch.urllib.request, "urlopen", side_effect=[health, status]) as urlopen:
+        with patch.object(launch.urllib.request, "urlopen", return_value=health) as urlopen:
             self.assertTrue(launch.backend_is_ready("http://127.0.0.1:8000"))
 
         self.assertEqual(
             urlopen.call_args_list,
             [
                 (("http://127.0.0.1:8000/api/health",), {"timeout": 1}),
-                (("http://127.0.0.1:8000/api/tts/status",), {"timeout": 1}),
             ],
         )
 
-    def test_backend_is_ready_waits_for_a_loading_tts_model(self):
+    def test_backend_is_ready_does_not_query_a_loading_tts_model(self):
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
         import launch  # noqa: WPS433
 
         health = MagicMock(status=200)
         health.__enter__.return_value = health
-        status = MagicMock(status=200)
-        status.read.return_value = b'{"status":"loading","detail":"Loading model"}'
-        status.__enter__.return_value = status
-        with patch.object(launch.urllib.request, "urlopen", side_effect=[health, status]):
-            self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
+        with patch.object(launch.urllib.request, "urlopen", return_value=health) as urlopen:
+            self.assertTrue(launch.backend_is_ready("http://127.0.0.1:8000"))
+        self.assertEqual(urlopen.call_count, 1)
 
     def test_backend_is_ready_rejects_a_connection_error(self):
         if str(ROOT) not in sys.path:
@@ -512,6 +603,14 @@ class LauncherReadinessTests(unittest.TestCase):
 
         with patch.object(launch.urllib.request, "urlopen", side_effect=OSError("not ready")):
             self.assertFalse(launch.backend_is_ready("http://127.0.0.1:8000"))
+
+    def test_launcher_accepts_a_prepared_book_path(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import launch  # noqa: WPS433
+
+        args = launch.parse_args([r"C:\Books\sample.bookvoice"])
+        self.assertEqual(args.book_path, r"C:\Books\sample.bookvoice")
 
 
 class LauncherRuntimeTests(unittest.TestCase):

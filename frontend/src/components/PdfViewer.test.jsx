@@ -25,7 +25,9 @@ vi.mock('./Toast', () => ({
 describe('PdfViewer Component', () => {
   it('renders upload state initially', () => {
     const { unmount } = render(<PdfViewer />);
+    expect(screen.getByRole('heading', { name: 'Start a listening session' })).toBeInTheDocument();
     expect(screen.getByText('Select PDF Book')).toBeInTheDocument();
+    expect(screen.getByText('Open a text-based PDF to read and hear it in one place.')).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute('dir', 'ltr');
     expect(document.documentElement).toHaveAttribute('lang', 'en');
     unmount();
@@ -38,6 +40,10 @@ describe('PdfViewer Component', () => {
     fireEvent.change(input, { target: { files: [pdf] } });
 
     await waitFor(() => expect(container.querySelector('.pdf-toolbar')).toBeInTheDocument());
+    expect(screen.getByRole('toolbar', { name: 'Reader navigation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reading options' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Narration player' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Original PDF' })).toBeInTheDocument();
     const workspace = container.querySelector('.pdf-layout');
     const toolbar = container.querySelector('.pdf-toolbar');
     expect(workspace.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

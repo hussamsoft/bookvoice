@@ -156,14 +156,16 @@ export function highlightLagMs(languageId = 'en') {
 }
 
 /**
- * Build word start times from backend forced-alignment data.
+ * Build word start (and, when measured, end) times from backend
+ * forced-alignment data. Returns { words, times, ends }; `ends[i]` is null
+ * for words whose end had to be inferred rather than measured.
  */
 export function timesFromWordTimings(wordTimings, pageText) {
     const words = String(pageText || '')
         .split(/\s+/)
         .filter(Boolean);
     if (!words.length || !wordTimings?.length) {
-        return { words, times: [] };
+        return { words, times: [], ends: [] };
     }
     const anchors = [];
     let ti = 0;
@@ -173,13 +175,18 @@ export function timesFromWordTimings(wordTimings, pageText) {
         if (norm(wt.word) === norm(words[i])) {
             const start = Number(wt.start_s);
             if (Number.isFinite(start) && start >= 0) {
-                anchors.push({ index: i, start });
+                const end = Number(wt.end_s);
+                anchors.push({
+                    index: i,
+                    start,
+                    end: Number.isFinite(end) && end > start ? end : null,
+                });
             }
             ti++;
         }
     }
     if (anchors.length < words.length * 0.5) {
-        return { words, times: [] };
+        return { words, times: [], ends: [] };
     }
 
     const times = new Array(words.length).fill(null);
@@ -217,9 +224,23 @@ export function timesFromWordTimings(wordTimings, pageText) {
     }
 
     if (times.some((t, i) => !Number.isFinite(t) || t < 0 || (i > 0 && t < times[i - 1]))) {
-        return { words, times: [] };
+        return { words, times: [], ends: [] };
     }
-    return { words, times };
+
+    // Measured ends where the aligner reported them; inferred words fall back
+    // to the next word's start so slicing never overlaps a neighbour.
+    const ends = new Array(words.length).fill(null);
+    for (const anchor of anchors) {
+        if (anchor.end !== null) ends[anchor.index] = anchor.end;
+    }
+    for (let i = 0; i < ends.length; i++) {
+        if (ends[i] === null || ends[i] <= times[i]) {
+            const next = i + 1 < times.length ? times[i + 1] : times[i] + 0.35;
+            ends[i] = Math.max(times[i] + 0.05, next);
+        }
+    }
+
+    return { words, times, ends };
 }
 
 /**

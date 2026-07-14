@@ -1,5 +1,30 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import TranscriptWord from './TranscriptWord';
+
+function updatePlaybackClasses(container, previousWord, currentWord) {
+    if (!container || previousWord === currentWord) return;
+    if (previousWord >= 0) {
+        container.querySelector(`[data-word-index="${previousWord}"]`)?.classList.remove('current');
+    }
+    if (currentWord < 0) {
+        container.querySelectorAll('.transcript-word').forEach((element) => {
+            element.classList.remove('current', 'past');
+        });
+        return;
+    }
+    if (previousWord < currentWord) {
+        for (let index = Math.max(0, previousWord); index < currentWord; index += 1) {
+            container.querySelector(`[data-word-index="${index}"]`)?.classList.add('past');
+        }
+    } else {
+        for (let index = currentWord; index < previousWord; index += 1) {
+            container.querySelector(`[data-word-index="${index}"]`)?.classList.remove('past');
+        }
+    }
+    const current = container.querySelector(`[data-word-index="${currentWord}"]`);
+    current?.classList.remove('past');
+    current?.classList.add('current');
+}
 
 /**
  * Follow-along transcript.
@@ -18,47 +43,66 @@ export default React.memo(function Transcript({
     onWordActivate,
     statusHint,
     languageId,
+    followNarration = false,
 }) {
-    const [hoveredWord, setHoveredWord] = useState(null);
-    const [pronouncing, setPronouncing] = useState(null);
     const wordsContainerRef = useRef(null);
+    const previousWordRef = useRef(-1);
+    const currentWordValueRef = useRef(currentWord);
+    const interactionRef = useRef({ onWordActivate, isPlaying, isPaused });
+    currentWordValueRef.current = currentWord;
+    interactionRef.current = { onWordActivate, isPlaying, isPaused };
+
+    const handleWordActivate = useCallback(async (index, word) => {
+        const interaction = interactionRef.current;
+        await interaction.onWordActivate?.(index, word, {
+            isPlaying: interaction.isPlaying,
+            isPaused: interaction.isPaused,
+        });
+    }, []);
+
+    const wordElements = useMemo(
+        () =>
+            (words || []).map((word, index) => (
+                <React.Fragment key={index}>
+                    <TranscriptWord
+                        index={index}
+                        word={word}
+                        onActivate={handleWordActivate}
+                    />
+                    {index < words.length - 1 ? ' ' : null}
+                </React.Fragment>
+            )),
+        [handleWordActivate, words]
+    );
+
+    useLayoutEffect(() => {
+        const container = wordsContainerRef.current;
+        if (!container) return;
+        container.querySelectorAll('.transcript-word').forEach((element) => {
+            element.classList.remove('current', 'past');
+        });
+        previousWordRef.current = -1;
+        updatePlaybackClasses(container, -1, currentWordValueRef.current);
+        previousWordRef.current = currentWordValueRef.current;
+    }, [words]);
+
+    useLayoutEffect(() => {
+        const container = wordsContainerRef.current;
+        if (!container) return;
+        updatePlaybackClasses(container, previousWordRef.current, currentWord);
+        previousWordRef.current = currentWord;
+    }, [currentWord, words]);
 
     useEffect(() => {
-        if (currentWord < 0 || !wordsContainerRef.current) return;
-        const el = wordsContainerRef.current.querySelector(
+        const container = wordsContainerRef.current;
+        if (!followNarration || currentWord < 0 || !container) return;
+        const el = container.querySelector(
             `[data-word-index="${currentWord}"]`
         );
         if (!el) return;
-        const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        try {
-            el.scrollIntoView({
-                block: 'center',
-                inline: 'nearest',
-                behavior: prefersReduced ? 'auto' : 'smooth',
-            });
-        } catch {
-            /* ignore */
-        }
-    }, [currentWord]);
-
-    const handleWordClick = async (index, word) => {
-        setPronouncing(index);
-        try {
-            await onWordActivate?.(index, word, {
-                isPlaying,
-                isPaused,
-            });
-        } finally {
-            setPronouncing(null);
-        }
-    };
-
-    const handleWordKeyDown = (event, index, word) => {
-        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
-            event.preventDefault();
-            handleWordClick(index, word);
-        }
-    };
+        const target = Math.max(0, el.offsetTop - (container.clientHeight - el.offsetHeight) / 2);
+        container.scrollTop = target;
+    }, [currentWord, followNarration]);
 
     if (!words || words.length === 0) {
         return (
@@ -90,45 +134,8 @@ export default React.memo(function Transcript({
                       ? 'Click a word to hear it — resume starts there'
                       : 'Click a word to hear pronunciation'}
             </p>
-            <div className="transcript-words" dir={dir} ref={wordsContainerRef}>
-                {words.map((word, i) => {
-                    const isCurrent = i === currentWord;
-                    const isPast = currentWord >= 0 && i < currentWord;
-                    const isHovered = i === hoveredWord;
-                    const isPronouncing = i === pronouncing;
-                    return (
-                        <span
-                            key={i}
-                            data-word-index={i}
-                            className={`transcript-word ${isCurrent ? 'current' : ''} ${
-                                isPast ? 'past' : ''
-                            } ${isHovered ? 'hovered' : ''} ${
-                                isPronouncing ? 'pronouncing' : ''
-                            }`}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => handleWordClick(i, word)}
-                            onKeyDown={(e) => handleWordKeyDown(e, i, word)}
-                            onMouseEnter={() => setHoveredWord(i)}
-                            onMouseLeave={() => setHoveredWord(null)}
-                            aria-label={
-                                isPlaying
-                                    ? `Jump to word ${i + 1}: ${word}`
-                                    : `Hear word ${i + 1}: ${word}`
-                            }
-                            title={
-                                isPlaying
-                                    ? 'Jump to this word'
-                                    : 'Hear this word (sets resume point)'
-                            }
-                        >
-                            {word}
-                            {isPronouncing && (
-                                <Loader2 className="spin word-pronounce-spinner" size={10} />
-                            )}
-                        </span>
-                    );
-                })}
+            <div className="transcript-words" dir={dir} lang={languageId || 'en'} ref={wordsContainerRef}>
+                {wordElements}
             </div>
         </div>
     );

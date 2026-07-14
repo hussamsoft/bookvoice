@@ -1,17 +1,38 @@
 # Changelog
 
+## 2.0.0 - 2026-07-12
+
+### Added
+
+- Responsive progressive narration transport with independent buffering and playback states, immediate pause, dedicated stop, cross-chunk seeking, and cached word-range pronunciation.
+- Equal-width PDF and wrapped-text reader, quiet editorial theme, reading-options panel, independent scrolling, and a sticky bottom player with optional text-only narration following.
+- Persistent SHA-256-addressed prepared-book library, resumable background preparation, stable prepared audio, and reading progress.
+- Validated `.bookvoice` import/export with active-profile audio, checksums, safe archive paths, launcher support, and MSI file association.
+- Frameless desktop window with an integrated, theme-matched title bar: the brand strip is the drag region and hosts minimize/maximize/close controls, so the OS chrome no longer breaks the reading theme. The splash and startup-error screens carry the same chrome.
+- Exact word-level narration timestamps via CTC forced alignment: the known narrated text is Viterbi-aligned against a bundled wav2vec2 acoustic model (~180 MB, staged by `scripts/prepare_alignment_model.py`), per synthesized chunk so timing error cannot accumulate across sentences. `alignment_mode` now reports `ctc`; Whisper and estimates remain as fallbacks. Verified end to end by `scripts/verify_alignment.py`, which decodes each aligned word's audio slice back to text.
+
+### Fixed
+
+- Clicking a word while paused could speak a neighboring word: the pronunciation flow sliced cached page audio using estimated timings. Slicing now happens only when timings are force-aligned (using measured word end times plus a small pre-roll so leading plosives are not clipped); otherwise the exact word is synthesized, which is always correct.
+- The immutable worker runtime contract now requires `torchaudio` and `transformers` alongside `torch`, so CTC force-alignment cannot ship without its acoustic-model stack.
+
+### Changed
+
+- The desktop UI now opens as soon as the backend health check succeeds; model warming no longer blocks library browsing or cached playback.
+- The app now fills the window with no page-level scrolling: the title bar and mode tabs are fixed rows, the reading stage claims the rest, and only the PDF page and follow-along transcript scroll. The window's minimum size (1024×700) is pinned to the smallest size at which the side-by-side reader fits without squishing.
+
 ## 1.10.1 - 2026-07-10
 
 ### Fixed
 
-- Bundled embeddable Python now includes `venv` / `ensurepip` and Windows venv script binaries, so first-run environment creation no longer fails with `No module named venv`.
+- Release payloads now ship a prebuilt immutable worker under `runtime/worker/`, so first launch never creates a virtual environment or runs `pip`.
 
 ## 1.10.0 - 2026-07-10
 
 ### Added
 
 - `BookVoice-User.msi` per-user installer (no admin) as the supported portable replacement, installing to `%LocalAppData%\BookVoice\App`.
-- Bundled embeddable Python 3.10 under `runtime/python/` so first-run setup does not require system Python on PATH.
+- Bundled Python 3.10 worker runtime so startup does not require system Python on PATH.
 - Install-scoped runtime directories under `%LocalAppData%\BookVoice\installs\<id>\` with one-time migration from the legacy flat runtime.
 - `scripts/smoke_launch.py` for automated install-directory validation.
 

@@ -55,4 +55,20 @@ describe('useTtsStatus', () => {
     // Polling restarted (epoch bump) — status fetch ran again after reload.
     expect(getTtsStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('surfaces a connection error after repeated poll failures', async () => {
+    vi.useFakeTimers();
+    getTtsStatus.mockRejectedValue(new Error('network down'));
+
+    const { result } = renderHook(() => useTtsStatus());
+
+    for (let i = 0; i < 4; i += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+    }
+
+    expect(result.current.modelError).toMatch(/Cannot reach the reading engine/i);
+    expect(result.current.modelReady).toBe(false);
+  });
 });

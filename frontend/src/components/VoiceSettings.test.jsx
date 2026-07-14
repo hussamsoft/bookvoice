@@ -91,4 +91,24 @@ describe('VoiceSettings saved-voice revalidation', () => {
     });
     expect(onVoiceChange).not.toHaveBeenCalled();
   });
+
+  it('retries voice loading after the backend becomes ready', async () => {
+    getVoices
+      .mockRejectedValueOnce(new Error('starting'))
+      .mockResolvedValue(VOICES);
+
+    const { rerender } = render(
+      <VoiceSettings backendReady={false} activeVoiceId={null} onVoiceChange={vi.fn()} />
+    );
+
+    await waitFor(() => expect(getVoices).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      rerender(
+        <VoiceSettings backendReady={true} activeVoiceId={null} onVoiceChange={vi.fn()} />
+      );
+    });
+
+    await waitFor(() => expect(getVoices.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
 });

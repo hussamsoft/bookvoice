@@ -7,6 +7,14 @@ export function cacheKey(page, voiceId, languageId) {
     return `${page}|${voiceId || 'default'}|${languageId || 'en'}`;
 }
 
+export function canonicalAudioUrl(entry, { page, voiceId, languageId }) {
+    if (!entry || entry.status !== 'ready' || entry.partial || !entry.audioUrl) return '';
+    if (Number(entry.page) !== Number(page)) return '';
+    if ((entry.voiceId ?? null) !== (voiceId ?? null)) return '';
+    if ((entry.languageId || 'en') !== (languageId || 'en')) return '';
+    return entry.audioUrl;
+}
+
 export function createPageAudioCache({ maxEntries = 12 } = {}) {
     /** @type {Map<string, object>} */
     const map = new Map();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createPageAudioCache, cacheKey } from './pageAudioCache';
+import { canonicalAudioUrl, createPageAudioCache, cacheKey } from './pageAudioCache';
 
 describe('pageAudioCache', () => {
   it('retains only pages in the window', () => {
@@ -23,5 +23,24 @@ describe('pageAudioCache', () => {
     expect(c.size()).toBe(3);
     expect(c.hasReady(cacheKey(1, null, 'en'))).toBe(false);
     expect(c.hasReady(cacheKey(4, null, 'en'))).toBe(true);
+  });
+
+  it('restores canonical audio only for the active page profile', () => {
+    const entry = {
+      status: 'ready',
+      page: 4,
+      voiceId: 'aria',
+      languageId: 'en',
+      audioUrl: '/page-4.wav',
+      partial: false,
+    };
+
+    expect(canonicalAudioUrl(entry, { page: 4, voiceId: 'aria', languageId: 'en' }))
+      .toBe('/page-4.wav');
+    expect(canonicalAudioUrl(entry, { page: 5, voiceId: 'aria', languageId: 'en' }))
+      .toBe('');
+    expect(canonicalAudioUrl({ ...entry, partial: true }, {
+      page: 4, voiceId: 'aria', languageId: 'en',
+    })).toBe('');
   });
 });

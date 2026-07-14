@@ -32,11 +32,19 @@ describe('App Component', () => {
 
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Camera Mode'));
+    fireEvent.click(screen.getByRole('button', { name: 'Scan a page' }));
     expect(await screen.findByTestId('book-session-mock')).toBeInTheDocument();
     expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('PDF Mode'));
+    fireEvent.click(screen.getByRole('button', { name: 'PDF reader' }));
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
+  });
+
+  it('provides a named reading-mode navigation with a clear local status', async () => {
+    renderApp();
+
+    expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
+    expect(screen.getByText('Local reader · Private by default')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'PDF reader' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

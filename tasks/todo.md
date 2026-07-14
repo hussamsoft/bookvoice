@@ -19,7 +19,7 @@ Work in this order. Do not begin product additions until the stabilization and p
 - [x] Task 4: ship immutable narration URLs and the dedicated pronunciation contract.
 - [x] Task 5: verify the bottom PDF control dock across responsive and packaged builds.
 - [x] Task 6: enforce canonical tokens and monotonic timing arrays.
-- [~] Task 7: benchmark, choose, package, and expose the alignment mode. *(partial — alignment_mode() reports estimate/whisper/disabled honestly; packaging openai-whisper + weights deferred per plan §"Decisions needed after baseline")*
+- [x] Task 7: benchmark, choose, package, and expose the alignment mode. *(CTC forced alignment shipped 2026-07-14: the known narrated text is Viterbi-aligned per synthesized chunk against a bundled fp16 wav2vec2-base-960h (~180 MB, scripts/prepare_alignment_model.py); alignment_mode() reports ctc/whisper/estimate/disabled; scripts/verify_alignment.py proves placement by re-decoding each aligned word slice — 0 neighbour mismatches. Paused word-click now slices cached audio only in aligned mode and synthesizes the exact word otherwise.)*
 - [x] Checkpoint: PDF read, pause, word pronunciation, resume, navigation, voice/language switch, and synchronized highlight pass end to end.
 
 ## Phase 2 — performance

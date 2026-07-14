@@ -153,7 +153,7 @@ export default function BookSession({ onDirty }) {
                     ))}
                 </div>
 
-                <VoiceSettings compact activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
+                <VoiceSettings compact backendReady={modelReady} activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 
                 {!modelReady && modelStatusDetail && (
                     <div className="model-loading-status-bar">
@@ -172,7 +172,7 @@ export default function BookSession({ onDirty }) {
                 {deviceInfo === 'cpu' && modelReady && (
                     <div className="model-loading-status-bar error">
                         <span>
-                            TTS is on CPU (very slow). Run fix_cuda_torch.bat for GPU speed.
+                            TTS is on CPU, so narration will be much slower than GPU mode.
                         </span>
                     </div>
                 )}

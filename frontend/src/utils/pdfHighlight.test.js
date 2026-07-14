@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWordSpanMap, splitTextLayerWordRuns } from './pdfHighlight';
+import { applyWordHighlight, buildWordSpanMap, splitTextLayerWordRuns } from './pdfHighlight';
 
 function fakeSpan(text) {
   return { textContent: text };
@@ -39,5 +39,17 @@ describe('buildWordSpanMap', () => {
     expect(map.every(Boolean)).toBe(true);
     expect(new Set(map).size).toBe(4);
     expect(map.map((span) => span.textContent)).toEqual(['Once', 'upon', 'a', 'time']);
+  });
+
+  it('highlights without scrolling the PDF or outer window', () => {
+    const layer = document.createElement('div');
+    const span = document.createElement('span');
+    span.scrollIntoView = vi.fn();
+    layer.appendChild(span);
+
+    applyWordHighlight(layer, [span], 0, { current: null });
+
+    expect(span).toHaveClass('highlight-active');
+    expect(span.scrollIntoView).not.toHaveBeenCalled();
   });
 });

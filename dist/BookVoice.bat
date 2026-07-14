@@ -10,18 +10,12 @@ if not exist "%APP_DIR%\launch.py" (
   pause & exit /b 1
 )
 
-set "PY=%APP_DIR%\runtime\python\python.exe"
+set "PY=%APP_DIR%\runtime\worker\python.exe"
 if exist "%PY%" (
   "%PY%" "%APP_DIR%\launch.py" --browser
   exit /b %ERRORLEVEL%
 )
 
-where python >nul 2>nul
-if errorlevel 1 (
-  echo ERROR: bundled Python missing and no system python on PATH.
-  echo Reinstall BookVoice or rebuild with: python build.py
-  pause & exit /b 1
-)
-
-python "%APP_DIR%\launch.py" --browser
-exit /b %ERRORLEVEL%
+echo ERROR: packaged BookVoice worker missing.
+echo Reinstall BookVoice or rebuild with: python build.py
+pause & exit /b 1

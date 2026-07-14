@@ -4,6 +4,7 @@ export const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || `${window.l
 function detailMessage(errorData, fallback) {
     const detail = errorData?.detail;
     if (typeof detail === 'string') return detail;
+    if (detail && typeof detail.message === 'string') return detail.message;
     if (Array.isArray(detail)) {
         return detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
     }
@@ -322,4 +323,100 @@ export async function extractTextFromImageApi(imageSrc) {
 
     const data = await response.json();
     return data.text;
+}
+
+export async function listPreparedBooks() {
+    const response = await fetch(`${API_BASE_URL}/books`);
+    if (!response.ok) throw new Error('Could not load the prepared-book library.');
+    return (await response.json()).books || [];
+}
+
+export async function getPreparedBook(bookId) {
+    const response = await fetch(`${API_BASE_URL}/books/${encodeURIComponent(bookId)}`);
+    if (!response.ok) throw new Error('Could not load the prepared-book manifest.');
+    return response.json();
+}
+
+export async function importPreparedBook(file) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const response = await fetch(`${API_BASE_URL}/books`, { method: 'POST', body: form });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Could not import the book.'));
+    }
+    return response.json();
+}
+
+export async function preparedBookSource(bookId) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/source`);
+    if (!response.ok) throw new Error('Prepared-book PDF is unavailable.');
+    return response.blob();
+}
+
+export async function savePreparedPage(bookId, page, text, pageCount) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/pages/${page}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, pageCount }),
+    });
+    if (!response.ok) throw new Error(`Could not store page ${page}.`);
+    return response.json();
+}
+
+export async function updatePreparedProgress(bookId, progress) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/progress`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(progress),
+    });
+    if (!response.ok) throw new Error('Could not save prepared-book progress.');
+    return response.json();
+}
+
+export async function getPreparedPage(bookId, profileId, page) {
+    const response = await fetch(
+        `${API_BASE_URL}/books/${bookId}/profiles/${profileId}/pages/${page}`
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Could not load prepared page ${page}.`);
+    const data = await response.json();
+    if (data.audioUrl) data.audioUrl = `${AUDIO_BASE_URL}${data.audioUrl}`;
+    return data;
+}
+
+export async function createBookPreparation(bookId, voiceId, languageId) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/preparations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voiceId, languageId }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Could not prepare this book.'));
+    }
+    return response.json();
+}
+
+export async function getBookPreparation(jobId) {
+    const response = await fetch(`${API_BASE_URL}/preparations/${jobId}`);
+    if (!response.ok) throw new Error('Could not read preparation progress.');
+    return response.json();
+}
+
+export async function cancelBookPreparation(jobId) {
+    const response = await fetch(`${API_BASE_URL}/preparations/${jobId}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Could not cancel preparation.');
+    return response.json();
+}
+
+export async function createBookArchive(bookId, profileId) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/archives`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId }),
+    });
+    if (!response.ok) throw new Error('Could not create a prepared-book file.');
+    const data = await response.json();
+    return { ...data, downloadUrl: `${AUDIO_BASE_URL}${data.downloadUrl}` };
 }

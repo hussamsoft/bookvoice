@@ -46,7 +46,7 @@ export function useWordHighlight({
         async (text, segments, duration, audioUrlForOnset, wordTimings = []) => {
             const forced = timesFromWordTimings(wordTimings, text);
             if (forced.times.length) {
-                return forced;
+                return { ...forced, mode: 'aligned' };
             }
 
             let { words, times } = estimateWordTimingsFromSegments(
@@ -65,7 +65,7 @@ export function useWordHighlight({
                     times = shiftTimingsToOnset(times, onset, duration || Infinity);
                 }
             }
-            return { words, times };
+            return { words, times, ends: [], mode: 'estimate' };
         },
         [langRef]
     );
