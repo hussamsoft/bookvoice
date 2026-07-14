@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import PdfViewer from './PdfViewer';
 
@@ -47,5 +47,32 @@ describe('PdfViewer Component', () => {
     const workspace = container.querySelector('.pdf-layout');
     const toolbar = container.querySelector('.pdf-toolbar');
     expect(workspace.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps document zoom and follow controls beside page navigation', async () => {
+    const { container } = render(<PdfViewer />);
+    fireEvent.change(container.querySelector('#pdf-upload'), {
+      target: { files: [new File(['pdf'], 'book.pdf', { type: 'application/pdf' })] },
+    });
+
+    const navigation = await screen.findByRole('toolbar', { name: 'Reader navigation' });
+    expect(within(navigation).getByRole('button', { name: 'Zoom in' })).toBeVisible();
+    expect(within(navigation).getByRole('checkbox', { name: 'Follow narration' })).toBeVisible();
+  });
+
+  it('zooms the PDF at the pointer with the mouse wheel', async () => {
+    const { container } = render(<PdfViewer />);
+    fireEvent.change(container.querySelector('#pdf-upload'), {
+      target: { files: [new File(['pdf'], 'book.pdf', { type: 'application/pdf' })] },
+    });
+
+    const scrollArea = await waitFor(() => {
+      const area = container.querySelector('.pdf-scroll-area');
+      expect(area).toBeInTheDocument();
+      return area;
+    });
+    fireEvent.wheel(scrollArea, { deltaY: -120, clientX: 120, clientY: 120 });
+    const navigation = screen.getByRole('toolbar', { name: 'Reader navigation' });
+    await waitFor(() => expect(within(navigation).getByText('115%')).toBeVisible());
   });
 });

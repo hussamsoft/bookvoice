@@ -2,17 +2,17 @@
   "measured_on": "2026-07-14",
   "baseline_pre_split_kib": 672.16,
   "budget_kib": 350.0,
-  "initial_entry_kib": 222.51,
+  "initial_entry_kib": 221.75,
   "pdf_worker_kib": 1021.69,
   "chunks_kib": {
-    "BookSession-C9yEt03Z.js": 12.96,
-    "index-CS4zZeWE.css": 27.51,
-    "index-cVytSgbl.js": 195.0,
+    "BookSession-DdRWSx8a.js": 13.2,
+    "index-BQtvhJWd.js": 194.63,
+    "index-ChqX3dNR.css": 27.12,
     "pdf.worker.min-qwK7q_zL.mjs": 1021.69,
-    "PdfViewer-C7mppVhT.js": 461.22,
+    "PdfViewer-DWTqKnJG.js": 458.59,
     "PdfViewer-rptWOpCb.css": 8.88,
-    "SettingsPanel-DIv5FGt9.js": 2.31,
-    "useTtsStatus-jzTQWGiL.js": 15.04,
-    "useUserConfig-ZGPKUGEk.js": 14.53
+    "SettingsPanel-DdniULLR.js": 2.31,
+    "useTtsStatus-C2ESavsW.js": 14.59,
+    "useUserConfig-5oFEvEDl.js": 14.53
   }
 }

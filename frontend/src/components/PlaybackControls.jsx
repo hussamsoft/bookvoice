@@ -16,8 +16,6 @@ export default function PlaybackControls({
     generating = false,
     hasMedia = false,
     onStop,
-    followNarration = false,
-    onFollowChange,
     pageLabel = '',
 }) {
     const canSeek = transport.duration > 0;
@@ -82,16 +80,6 @@ export default function PlaybackControls({
                 {transport.playbackRate}x
             </button>
             {pageLabel ? <span className="transport-page">{pageLabel}</span> : null}
-            {onFollowChange ? (
-                <label className="transport-follow">
-                    <input
-                        type="checkbox"
-                        checked={followNarration}
-                        onChange={(event) => onFollowChange(event.target.checked)}
-                    />
-                    Follow narration
-                </label>
-            ) : null}
             {generating ? <span className="transport-status">Preparing audio…</span> : null}
             {transport.mediaError ? (
                 <span className="transport-error" role="alert">{transport.mediaError}</span>

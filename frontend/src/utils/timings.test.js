@@ -73,7 +73,8 @@ describe('wordIndexAtTime', () => {
   it('delays the highlight slightly to account for speaker output latency', () => {
     const times = [0, 1, 2];
     expect(highlightLagMs('en')).toBeLessThan(0);
-    expect(wordIndexAtTime(times, 1.02, highlightLagMs('en'))).toBe(0);
+    expect(highlightLagMs('en')).toBeGreaterThanOrEqual(-25);
+    expect(wordIndexAtTime(times, 1.01, highlightLagMs('en'))).toBe(0);
   });
 
   it('does not highlight before the first measured word begins', () => {

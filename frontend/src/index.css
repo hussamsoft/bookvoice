@@ -1299,12 +1299,13 @@ textarea:focus-visible,
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+  overscroll-behavior: contain;
   scroll-behavior: smooth;
 }
 
 .pdf-scroll-area.zoomable {
   cursor: grab;
-  align-items: flex-start;
+  touch-action: none;
 }
 
 .pdf-scroll-area.is-panning {
@@ -1334,7 +1335,7 @@ textarea:focus-visible,
 .pdf-page-wrapper.pdf-page-current {
   /* Single focused page — no stacked multi-page overflow */
   flex-shrink: 0;
-  transition: transform 0.08s ease-out;
+  transition: zoom 0.08s ease-out;
 }
 
 .settings-panel-wrap {
@@ -1493,16 +1494,6 @@ textarea:focus-visible,
   box-shadow: 0 -8px 24px rgba(34, 38, 43, 0.08);
 }
 
-.pdf-toolbar-voice,
-.pdf-toolbar .lang-select-group,
-.pdf-toolbar .page-jump,
-.pdf-toolbar .page-search,
-.pdf-toolbar .bookmark-controls,
-.pdf-toolbar .zoom-controls,
-.pdf-toolbar-controls > button {
-  display: none;
-}
-
 .pdf-toolbar-controls {
   width: 100%;
 }
@@ -1513,13 +1504,13 @@ textarea:focus-visible,
 
 .transport-page,
 .transport-status,
-.transport-follow {
+.reader-follow {
   color: var(--text-muted);
   font-size: 0.76rem;
   white-space: nowrap;
 }
 
-.transport-follow {
+.reader-follow {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1993,17 +1984,6 @@ body {
   white-space: nowrap;
 }
 
-.titlebar-tagline {
-  color: var(--text-muted);
-  font-size: 0.74rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-left: 0.55rem;
-  border-left: 1px solid var(--border);
-  line-height: 1.2;
-}
-
 .titlebar-tools {
   display: flex;
   align-items: center;
@@ -2062,7 +2042,6 @@ body {
     overflow: visible;
   }
 
-  .titlebar-tagline,
   .titlebar-tools .app-status {
     display: none;
   }

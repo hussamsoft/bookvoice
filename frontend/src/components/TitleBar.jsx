@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from 'react';
-import { BookOpen, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 
@@ -12,9 +12,7 @@ function TitleBar() {
     return (
         <div className="titlebar">
             <div className="titlebar-brand">
-                <BookOpen className="brand-icon" size={19} strokeWidth={1.6} aria-hidden="true" />
                 <h1>BookVoice</h1>
-                <p className="titlebar-tagline">Read with your ears</p>
             </div>
             <div className="titlebar-tools">
                 <p className="app-status">

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.1 - 2026-07-14
+
+### Added
+
+- Reader navigation now groups page movement, zoom, follow-narration, and a one-click return to the actively narrated page. The PDF supports wheel zoom and click-drag panning when enlarged.
+- `package_msi.bat` builds both the machine-wide and per-user MSI installers from a double-clickable Windows entry point.
+
+### Fixed
+
+- PDF fit sizing uses the available reading area and keeps enlarged pages centered until the reader intentionally pans them; pages no longer jump to the far right after zooming.
+- Follow narration now turns itself off when a reader moves away from the narrated page during playback, avoiding disruptive page jumps.
+- Highlight timing uses a smaller playback correction so the active word leads the trailing visual marker more closely.
+
+### Changed
+
+- The player is now only a narration transport. PDF controls are beside page navigation, while voice, language, OCR, and other setup actions remain in Reading options.
+- Removed the “Read with your ears” title-bar tagline.
+
 ## 2.0.0 - 2026-07-12
 
 ### Added

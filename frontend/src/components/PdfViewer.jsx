@@ -9,7 +9,6 @@ import {
     ChevronUp,
     ChevronDown,
     X,
-    Languages,
     ScanText,
     ZoomIn,
     ZoomOut,
@@ -70,6 +69,7 @@ import {
     saveReadingProgress,
     toggleBookmark,
 } from '../utils/readingProgress';
+import { shouldDisableFollowNarration } from '../utils/readerNavigation';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -1120,6 +1120,15 @@ export default function PdfViewer({ onDirty }) {
     // word timings. The active narrated page remains the transport source.
     const browsePageIntoView = useCallback(
         async (pageNum) => {
+            if (
+                shouldDisableFollowNarration({
+                    isPlaying: isPlayingRef.current,
+                    narratedPage: audioPageRef.current,
+                    targetPage: pageNum,
+                })
+            ) {
+                setFollowNarration(false);
+            }
             const requestId = ++browseRequestRef.current;
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
@@ -1743,6 +1752,15 @@ export default function PdfViewer({ onDirty }) {
         const el = containerRef.current;
         if (!el) return;
 
+        const onWheel = (ev) => {
+            if (!ev.deltaY) return;
+            ev.preventDefault();
+            setZoom((current) => {
+                const direction = ev.deltaY < 0 ? 1 : -1;
+                return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current + direction * ZOOM_STEP));
+            });
+        };
+
         const onDown = (ev) => {
             if (zoom <= 1.02) return;
             if (ev.button !== 0) return;
@@ -1765,10 +1783,12 @@ export default function PdfViewer({ onDirty }) {
             el.classList.remove('is-panning');
         };
         el.addEventListener('mousedown', onDown);
+        el.addEventListener('wheel', onWheel, { passive: false });
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
         return () => {
             el.removeEventListener('mousedown', onDown);
+            el.removeEventListener('wheel', onWheel);
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
@@ -1956,6 +1976,55 @@ export default function PdfViewer({ onDirty }) {
                                 <LocateFixed size={15} /> Return to narrated page {audioPage}
                             </button>
                         ) : null}
+                        <div className="zoom-controls" title="Zoom with the mouse wheel or these controls">
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
+                                aria-label="Zoom out"
+                            >
+                                <ZoomOut size={15} />
+                            </button>
+                            <span className="zoom-label" aria-label={`Zoom ${Math.round(zoom * 100)} percent`}>
+                                {Math.round(zoom * 100)}%
+                            </span>
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
+                                aria-label="Zoom in"
+                            >
+                                <ZoomIn size={15} />
+                            </button>
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                onClick={() => setZoom(1)}
+                                aria-label="Fit PDF to reading area"
+                            >
+                                <Maximize2 size={15} />
+                            </button>
+                        </div>
+                        <label className="reader-follow">
+                            <input
+                                type="checkbox"
+                                checked={followNarration}
+                                onChange={(event) => setFollowNarration(event.target.checked)}
+                            />
+                            Follow narration
+                        </label>
+                        {pageNumber > 1 ? (
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                onClick={handleExportThroughCurrentPage}
+                                disabled={isExporting}
+                                title={`Export cached audio for pages 1 through ${pageNumber}`}
+                            >
+                                {isExporting ? <Loader2 className="spinner" size={15} /> : <Download size={15} />}
+                                Export 1–{pageNumber}
+                            </button>
+                        ) : null}
                         <form className="page-search" onSubmit={handleSearch}>
                             <Search size={14} />
                             <input
@@ -2009,12 +2078,6 @@ export default function PdfViewer({ onDirty }) {
                                     ))}
                                 </select>
                             </label>
-                            <div className="zoom-controls" title="Document zoom">
-                                <button className="btn secondary btn-compact" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))} aria-label="Zoom out"><ZoomOut size={15} /></button>
-                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-                                <button className="btn secondary btn-compact" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))} aria-label="Zoom in"><ZoomIn size={15} /></button>
-                                <button className="btn secondary btn-compact" onClick={() => setZoom(1)} aria-label="Reset zoom"><Maximize2 size={15} /></button>
-                            </div>
                             <button className="btn secondary btn-compact" onClick={handleForceOcr} disabled={isGenerating || isOcring}>
                                 <ScanText size={15} /> {isOcring ? 'Running OCR…' : 'Re-run OCR'}
                             </button>
@@ -2065,8 +2128,7 @@ export default function PdfViewer({ onDirty }) {
                                     <div
                                         className="pdf-page-wrapper pdf-page-current"
                                         style={{
-                                            transform: `scale(${displayZoom})`,
-                                            transformOrigin: 'top center',
+                                            zoom: displayZoom,
                                         }}
                                     >
                                         <Page
@@ -2142,153 +2204,7 @@ export default function PdfViewer({ onDirty }) {
                     </div>
 
                     <div className="pdf-toolbar" role="region" aria-label="Narration player">
-                        <div className="pdf-toolbar-voice">
-                            <VoiceSettings
-                                compact
-                                backendReady={modelReady}
-                                activeVoiceId={activeVoiceId}
-                                onVoiceChange={handleVoiceChange}
-                            />
-                        </div>
                         <div className="pdf-toolbar-controls">
-                            <div className="lang-select-group">
-                                <Languages size={15} />
-                                <select
-                                    id="pdf-lang"
-                                    value={targetLanguage}
-                                    onChange={(e) => handleLanguageChange(e.target.value)}
-                                    disabled={isGenerating || isOcring}
-                                    aria-label="Narration language"
-                                >
-                                    {SUPPORTED_LANGUAGES.map((lang) => (
-                                        <option key={lang.code} value={lang.code}>
-                                            {lang.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <form className="page-jump" onSubmit={handlePageJump}>
-                                <label htmlFor="page-jump-input">Page</label>
-                                <input
-                                    id="page-jump-input"
-                                    type="number"
-                                    min={1}
-                                    max={numPages || 1}
-                                    value={pageJumpInput}
-                                    onChange={(e) => setPageJumpInput(e.target.value)}
-                                    onBlur={handlePageJump}
-                                />
-                                <span className="page-jump-total">/ {numPages || '—'}</span>
-                            </form>
-
-                            <form className="page-search" onSubmit={handleSearch}>
-                                <Search size={14} />
-                                <input
-                                    type="search"
-                                    value={searchQuery}
-                                    onChange={(event) => setSearchQuery(event.target.value)}
-                                    placeholder="Find in book"
-                                    aria-label="Find text in book"
-                                />
-                                <button
-                                    type="submit"
-                                    className="btn secondary btn-compact"
-                                    disabled={!searchQuery.trim() || isSearching}
-                                >
-                                    {isSearching ? <Loader2 className="spinner" size={14} /> : 'Find'}
-                                </button>
-                            </form>
-
-                            <div className="bookmark-controls">
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
-                                    aria-label={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
-                                    title={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
-                                >
-                                    {bookmarks.includes(pageNumber) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-                                </button>
-                                {bookmarks.length ? (
-                                    <select
-                                        value=""
-                                        onChange={(event) => {
-                                            if (event.target.value) goToPage(Number(event.target.value));
-                                        }}
-                                        aria-label="Go to bookmark"
-                                    >
-                                        <option value="">Bookmarks</option>
-                                        {bookmarks.map((page) => <option key={page} value={page}>Page {page}</option>)}
-                                    </select>
-                                ) : null}
-                            </div>
-
-                            <div className="zoom-controls" title="Zoom & pan (drag when zoomed)">
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() =>
-                                        setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))
-                                    }
-                                    aria-label="Zoom out"
-                                >
-                                    <ZoomOut size={15} />
-                                </button>
-                                <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() =>
-                                        setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))
-                                    }
-                                    aria-label="Zoom in"
-                                >
-                                    <ZoomIn size={15} />
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() => setZoom(1)}
-                                    aria-label="Reset zoom"
-                                >
-                                    <Maximize2 size={15} />
-                                </button>
-                            </div>
-
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={handleForceOcr}
-                                disabled={isGenerating || isOcring}
-                                title="OCR this page"
-                                aria-label="Re-run OCR on this page"
-                            >
-                                {isOcring ? (
-                                    <Loader2 className="spinner" size={15} />
-                                ) : (
-                                    <ScanText size={15} />
-                                )}
-                            </button>
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={() => goToPage(pageNumber - 1)}
-                                disabled={pageNumber <= 1}
-                                aria-label="Previous page"
-                                title="Previous page"
-                            >
-                                <ChevronUp size={15} />
-                            </button>
-                            {audioPage && audioPage !== pageNumber ? (
-                                <button
-                                    type="button"
-                                    className="btn primary btn-compact"
-                                    onClick={() => browsePageIntoView(audioPage)}
-                                    aria-label={`Return to narrated page ${audioPage}`}
-                                    title={`Return to narrated page ${audioPage}`}
-                                >
-                                    <LocateFixed size={15} />
-                                </button>
-                            ) : null}
                             <PlaybackControls
                                 transport={{ ...transport, isPlaying }}
                                 onToggle={handlePlay}
@@ -2301,8 +2217,6 @@ export default function PdfViewer({ onDirty }) {
                                         ? `Narrating page ${audioPage}`
                                         : `Viewing page ${pageNumber} of ${numPages || '?'}`
                                 }
-                                followNarration={followNarration}
-                                onFollowChange={setFollowNarration}
                             />
                             {audioUrl && audioPage === pageNumber ? (
                                 <a
@@ -2315,26 +2229,6 @@ export default function PdfViewer({ onDirty }) {
                                     <Download size={15} />
                                 </a>
                             ) : null}
-                            {pageNumber > 1 ? (
-                                <button
-                                    className="btn secondary btn-compact"
-                                    onClick={handleExportThroughCurrentPage}
-                                    disabled={isExporting}
-                                    aria-label={`Export cached audio for pages 1 through ${pageNumber}`}
-                                    title={`Export cached audio for pages 1–${pageNumber}`}
-                                >
-                                    {isExporting ? <Loader2 className="spinner" size={15} /> : <Download size={15} />}
-                                </button>
-                            ) : null}
-                            <button
-                                className="btn secondary btn-compact"
-                                onClick={() => goToPage(pageNumber + 1)}
-                                disabled={pageNumber >= numPages}
-                                aria-label="Next page"
-                                title="Next page"
-                            >
-                                <ChevronDown size={15} />
-                            </button>
                         </div>
                     </div>
                 </>
