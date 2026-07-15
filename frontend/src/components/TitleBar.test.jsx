@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import TitleBar from './TitleBar';
 
 describe('TitleBar', () => {
@@ -21,5 +21,21 @@ describe('TitleBar', () => {
         expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
         expect(localStorage.getItem('bookvoice:theme')).toBe('dark');
         expect(screen.getByRole('button', { name: 'Use light theme' })).toBeVisible();
+    });
+
+    it('renders and switches themes when local storage is blocked', () => {
+        const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new DOMException('blocked');
+        });
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('blocked');
+        });
+
+        render(<TitleBar />);
+        fireEvent.click(screen.getByRole('button', { name: 'Use dark theme' }));
+
+        expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+        getItem.mockRestore();
+        setItem.mockRestore();
     });
 });

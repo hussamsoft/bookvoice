@@ -8,6 +8,7 @@ import os
 import struct
 import sys
 import tempfile
+import threading
 import unittest
 import wave
 import zipfile
@@ -95,6 +96,23 @@ class BookLibraryTests(unittest.TestCase):
 
         imported = library.import_bookvoice(Path(archive["path"]).read_bytes(), "copy.bookvoice")
         self.assertEqual(imported["id"], book["id"])
+
+    def test_served_archive_cleanup_removes_record_and_temporary_file(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = library.profile_id(None, "en")
+        audio = library.book_dir(book["id"]) / "audio" / profile / "page-1.wav"
+        audio.parent.mkdir(parents=True)
+        audio.write_bytes(valid_wav_bytes())
+        library.mark_page_audio(book["id"], profile, 1, audio, [], 0.1, None, "en")
+        archive = library.create_archive(book["id"], profile)
+        archive_path = Path(archive["path"])
+
+        library.delete_archive(archive["id"])
+
+        self.assertFalse(archive_path.exists())
+        with self.assertRaises(FileNotFoundError):
+            library.get_archive(archive["id"])
 
     def test_archive_path_import_streams_all_large_members(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
@@ -367,6 +385,27 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(library.get_page(book["id"], 1)["text"], "Edited page")
         self.assertEqual(library._jobs[job_id]["status"], "COMPLETED")
 
+    def test_interactive_cache_rejects_page_edited_during_audio_promotion(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        original = library.save_page(book["id"], 1, "Original page", 1)
+        session = Path(self.temp.name) / "sessions" / "reader-session"
+        session.mkdir(parents=True)
+        (session / "page.wav").write_bytes(valid_wav_bytes())
+        real_mark_page_audio = library.mark_page_audio
+
+        def edit_then_promote(*args, **kwargs):
+            library.save_page(book["id"], 1, "Edited page", 1)
+            return real_mark_page_audio(*args, **kwargs)
+
+        with patch.object(library, "mark_page_audio", side_effect=edit_then_promote):
+            with self.assertRaisesRegex(ValueError, "Page text changed"):
+                library.cache_generated_page(
+                    book["id"], 1, original["text"], "/sessions/reader-session/page.wav",
+                    [], 0.1, None, "en",
+                )
+
+        self.assertNotIn("audio", library.get_page(book["id"], 1))
+
     def test_deleting_book_stops_and_removes_its_runtime_job(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         future = Future()
@@ -438,6 +477,35 @@ class BookLibraryTests(unittest.TestCase):
         thread.assert_not_called()
         self.assertFalse(library._jobs)
 
+    def test_concurrent_preparation_starts_deduplicate_one_job(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        barrier = threading.Barrier(3)
+        results = []
+        failures = []
+        real_thread = threading.Thread
+
+        def start():
+            try:
+                barrier.wait()
+                results.append(library.start_preparation(book["id"], None, "en"))
+            except Exception as exc:  # pragma: no cover - asserted below
+                failures.append(exc)
+
+        with patch.object(library.threading, "Thread") as worker_thread:
+            callers = [real_thread(target=start) for _ in range(2)]
+            for caller in callers:
+                caller.start()
+            barrier.wait()
+            for caller in callers:
+                caller.join(timeout=5)
+
+        self.assertFalse(failures)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["id"], results[1]["id"])
+        self.assertEqual(len(library._jobs), 1)
+        worker_thread.assert_called_once()
+
     def test_preparation_finishes_immediately_when_profile_is_already_complete(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         library.save_page(book["id"], 1, "Page one", 1)
@@ -453,6 +521,21 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["completedPages"], [1])
         thread.assert_not_called()
+
+    def test_immediately_completed_preparation_is_retained(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = library.profile_id("Aria", "en")
+        audio = library.book_dir(book["id"]) / "scratch" / "page-1.wav"
+        audio.parent.mkdir(parents=True)
+        audio.write_bytes(valid_wav_bytes())
+        library.mark_page_audio(book["id"], profile, 1, audio, [], 0.1, "Aria", "en")
+
+        with patch.object(library.threading, "Thread"):
+            first = library.start_preparation(book["id"], "Aria", "en")
+            library._prune_runtime_records()
+
+        self.assertEqual(library.get_preparation(first["id"])["status"], "COMPLETED")
 
     def test_preparation_reports_pages_completed_before_resume(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")

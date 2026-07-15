@@ -188,6 +188,7 @@ export default function PdfViewer({ onDirty }) {
     const openLibraryBookRef = useRef(() => {});
     const startupBookOpenedRef = useRef(false);
     const autoResumedPreparationRef = useRef('');
+    const progressSaveFailureRef = useRef(null);
     const transport = useAudioTransport(audioRef, timelineRef);
     const {
         refresh: refreshTransport,
@@ -229,20 +230,33 @@ export default function PdfViewer({ onDirty }) {
 
     useEffect(() => {
         if (!preparation?.id || !['QUEUED', 'RUNNING'].includes(preparation.status)) return;
+        let failureCount = 0;
         const timer = setInterval(async () => {
             try {
                 const next = await getBookPreparation(preparation.id);
+                failureCount = 0;
                 setPreparation(next);
                 if (next.status === 'COMPLETED') {
                     setActiveProfileId(next.profileId);
-                    listPreparedBooks().then(setLibraryBooks).catch(() => {});
+                    listPreparedBooks().then(setLibraryBooks).catch((error) => {
+                        toast.error(error.message || 'Preparation completed, but the library could not refresh.');
+                    });
                 }
-            } catch {
-                /* retain the last visible progress state */
+            } catch (error) {
+                failureCount += 1;
+                if (failureCount >= 3) {
+                    clearInterval(timer);
+                    setPreparation((current) => ({
+                        ...current,
+                        status: 'PAUSED',
+                        error: error.message || 'Preparation progress is temporarily unavailable.',
+                    }));
+                    toast.error('Preparation progress could not be refreshed. Reopen the book to retry.');
+                }
             }
         }, 1000);
         return () => clearInterval(timer);
-    }, [preparation?.id, preparation?.status]);
+    }, [preparation?.id, preparation?.status, toast]);
 
     const {
         adoptPdfDocument,
@@ -396,13 +410,19 @@ export default function PdfViewer({ onDirty }) {
                 bookmarks,
                 updatedAt: Math.floor(Date.now() / 1000),
             }).then((progress) => {
+                progressSaveFailureRef.current = null;
                 setLibraryBooks((books) => books.map((book) => (
                     book.id === libraryBookId ? { ...book, progress } : book
                 )));
-            }).catch(() => {});
+            }).catch((error) => {
+                if (progressSaveFailureRef.current !== libraryBookId) {
+                    progressSaveFailureRef.current = libraryBookId;
+                    toast.error(error.message || 'Could not save prepared-book progress.');
+                }
+            });
         }, 500);
         return () => clearTimeout(timer);
-    }, [bookmarks, libraryBookId, pageNumber, transport.currentTime]);
+    }, [bookmarks, libraryBookId, pageNumber, toast, transport.currentTime]);
 
     useEffect(() => {
         if (!modelReady || !libraryBookId || preparation?.status !== 'PAUSED') return;

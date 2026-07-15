@@ -569,7 +569,15 @@ def cache_generated_page(
         raise ValueError("Generated narration audio path is invalid.")
     profile = profile_id(voice_id, language_id)
     return mark_page_audio(
-        book_id, profile, page, source, word_timings, duration, voice_id, language_id
+        book_id,
+        profile,
+        page,
+        source,
+        word_timings,
+        duration,
+        voice_id,
+        language_id,
+        expected_text_sha256=page_meta.get("textSha256"),
     )
 
 
@@ -655,15 +663,25 @@ def create_archive(book_id: str, profile: str) -> dict:
         temp_output.unlink(missing_ok=True)
         raise
     record = {"id": archive_id, "bookId": book_id, "profileId": profile, "status": "COMPLETED", "path": str(output), "createdAt": time.time()}
-    _archives[archive_id] = record
-    return record
+    with _lock:
+        _archives[archive_id] = record
+        return dict(record)
 
 
 def get_archive(archive_id: str) -> dict:
-    record = _archives.get(archive_id)
-    if not record:
-        raise FileNotFoundError("Prepared-book archive was not found.")
-    return record
+    _prune_runtime_records()
+    with _lock:
+        record = _archives.get(archive_id)
+        if not record:
+            raise FileNotFoundError("Prepared-book archive was not found.")
+        return dict(record)
+
+
+def delete_archive(archive_id: str) -> None:
+    with _lock:
+        record = _archives.pop(archive_id, None)
+    if record:
+        Path(record.get("path") or "").unlink(missing_ok=True)
 
 
 def import_bookvoice(payload: bytes, filename: str) -> dict:
@@ -892,6 +910,8 @@ def _start_preparation_locked(book_id: str, voice_id: str | None, language_id: s
         "error": None,
         "cancelRequested": False,
     }
+    if job["status"] == "COMPLETED":
+        job["_finishedAt"] = time.time()
     if (
         previous_preparation.get("profileId") == profile
         and previous_preparation.get("legacyWavRecoveryAttempted")
@@ -921,24 +941,28 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
         submit_tts,
     )
 
-    job = _jobs[job_id]
-    cancellation = job.setdefault("_cancel", GenerationCancellation())
-    job["status"] = "RUNNING"
+    with _lock:
+        job = _jobs[job_id]
+        cancellation = job.setdefault("_cancel", GenerationCancellation())
+        job["status"] = "RUNNING"
+        book_id = job["bookId"]
+        profile = job["profileId"]
+        total_pages = job["totalPages"]
     try:
-        for page in range(1, job["totalPages"] + 1):
-            if job["cancelRequested"]:
-                job["status"] = "CANCELLED"
+        for page in range(1, total_pages + 1):
+            if _job_cancel_requested(job):
+                _update_job(job, status="CANCELLED")
                 break
             while True:
-                page_meta = get_page(job["bookId"], page)
-                if is_page_prepared(job["bookId"], job["profileId"], page, page_meta):
-                    job["completedPages"] = sorted(set(job["completedPages"]) | {page})
+                page_meta = get_page(book_id, page)
+                if is_page_prepared(book_id, profile, page, page_meta):
+                    _complete_job_page(job, page)
                     _persist_job(job)
                     break
-                job["currentPage"] = page
-                session = f"book-{job['bookId'][:12]}"
-                if job["cancelRequested"]:
-                    job["status"] = "CANCELLED"
+                _update_job(job, currentPage=page)
+                session = f"book-{book_id[:12]}"
+                if _job_cancel_requested(job):
+                    _update_job(job, status="CANCELLED")
                     break
                 future = submit_tts(
                     TtsPriority.PREPARE,
@@ -946,27 +970,27 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                     page_meta["text"], session, page, voice_id, language_id,
                     cancel_event=cancellation,
                 )
-                job["_future"] = future
+                _update_job(job, _future=future)
                 try:
                     result = future.result()
                 except (GenerationCancelled, CancelledError):
-                    if job["cancelRequested"]:
-                        job["status"] = "CANCELLED"
+                    if _job_cancel_requested(job):
+                        _update_job(job, status="CANCELLED")
                         break
-                    job["status"] = "PAUSED"
+                    _update_job(job, status="PAUSED")
                     _persist_job(job)
                     time.sleep(0.25)
-                    job["status"] = "RUNNING"
+                    _update_job(job, status="RUNNING")
                     continue
                 finally:
-                    job.pop("_future", None)
-                if job["status"] == "CANCELLED":
+                    _remove_job_field(job, "_future")
+                if _job_status(job) == "CANCELLED":
                     break
                 relative = str(result["audio_url"]).removeprefix("/sessions/")
                 source = Path(os.environ.get("DATA_DIR", "data")) / "sessions" / relative
                 try:
                     mark_page_audio(
-                        job["bookId"], job["profileId"], page, source,
+                        book_id, profile, page, source,
                         result.get("word_timings") or [], result.get("duration_s") or 0,
                         voice_id, language_id,
                         expected_text_sha256=page_meta.get("textSha256"),
@@ -975,20 +999,43 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                     if str(exc) == "Page text changed while narration was generating.":
                         continue
                     raise
-                job["completedPages"] = sorted(set(job["completedPages"]) | {page})
+                _complete_job_page(job, page)
                 _persist_job(job)
                 break
-            if job["status"] == "CANCELLED":
+            if _job_status(job) == "CANCELLED":
                 break
-        if job["status"] == "RUNNING":
-            job["status"] = "COMPLETED"
+        if _job_status(job) == "RUNNING":
+            _update_job(job, status="COMPLETED")
     except Exception as exc:  # noqa: BLE001 - persisted for the UI
-        job["status"] = "FAILED"
-        job["error"] = str(exc)
+        _update_job(job, status="FAILED", error=str(exc))
     finally:
-        job["currentPage"] = None
-        job["_finishedAt"] = time.time()
+        _update_job(job, currentPage=None, _finishedAt=time.time())
         _persist_job(job)
+
+
+def _update_job(job: dict, **changes) -> None:
+    with _lock:
+        job.update(changes)
+
+
+def _remove_job_field(job: dict, field: str) -> None:
+    with _lock:
+        job.pop(field, None)
+
+
+def _job_cancel_requested(job: dict) -> bool:
+    with _lock:
+        return bool(job.get("cancelRequested"))
+
+
+def _job_status(job: dict) -> str:
+    with _lock:
+        return str(job.get("status") or "")
+
+
+def _complete_job_page(job: dict, page: int) -> None:
+    with _lock:
+        job["completedPages"] = sorted(set(job.get("completedPages", [])) | {page})
 
 
 def _persist_job(job: dict) -> None:
@@ -1009,11 +1056,12 @@ def get_preparation(job_id: str) -> dict:
 
 def _public_job(job: dict) -> dict:
     """Return preparation state without worker-only runtime handles."""
-    return {
-        key: value
-        for key, value in job.copy().items()
-        if key != "cancelRequested" and not key.startswith("_")
-    }
+    with _lock:
+        return {
+            key: value
+            for key, value in job.copy().items()
+            if key != "cancelRequested" and not key.startswith("_")
+        }
 
 
 def cancel_preparation(job_id: str) -> dict:

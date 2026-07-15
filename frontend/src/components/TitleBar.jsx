@@ -9,11 +9,21 @@ const SettingsPanel = lazy(() => import('./SettingsPanel'));
  * handled by the operating system.
  */
 function TitleBar() {
-    const [theme, setTheme] = useState(() => localStorage.getItem('bookvoice:theme') || 'light');
+    const [theme, setTheme] = useState(() => {
+        try {
+            return localStorage.getItem('bookvoice:theme') || 'light';
+        } catch {
+            return 'light';
+        }
+    });
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
-        localStorage.setItem('bookvoice:theme', theme);
+        try {
+            localStorage.setItem('bookvoice:theme', theme);
+        } catch {
+            /* Theme switching still works when browser storage is unavailable. */
+        }
     }, [theme]);
 
     const dark = theme === 'dark';
