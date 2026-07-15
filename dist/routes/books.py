@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from services import book_library_service as library
 
@@ -222,6 +223,11 @@ async def download_archive(archive_id: str):
         path = Path(record["path"])
         if not path.is_file():
             raise FileNotFoundError("Prepared-book archive file is missing.")
-        return FileResponse(path, media_type="application/zip", filename=path.name)
+        return FileResponse(
+            path,
+            media_type="application/zip",
+            filename=path.name,
+            background=BackgroundTask(library.delete_archive, archive_id),
+        )
     except FileNotFoundError as exc:
         _error("ARCHIVE_NOT_FOUND", str(exc), 404)
