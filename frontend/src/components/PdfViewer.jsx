@@ -61,6 +61,7 @@ import { resolvePageContent } from '../utils/pageContentResolver';
 import {
     activePreparedProfile,
     missingPreparedTextPages,
+    preparedBookDetails,
     preparationForActiveProfile,
 } from '../utils/preparedPages';
 import {
@@ -70,6 +71,9 @@ import {
     toggleBookmark,
 } from '../utils/readingProgress';
 import { shouldDisableFollowNarration } from '../utils/readerNavigation';
+import { shouldDisableNarrationStart } from '../utils/readerPlaybackState';
+import { shouldZoomPdfWheel } from '../utils/pdfInteraction';
+import { mapWithConcurrency } from '../utils/boundedConcurrency';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -265,6 +269,7 @@ export default function PdfViewer({ onDirty }) {
         langRef,
         cacheRef,
         buildTimings,
+        bookId: libraryBookId,
     });
 
     const { cancelPrefetch, schedulePrefetch } = usePrefetch({
@@ -378,6 +383,10 @@ export default function PdfViewer({ onDirty }) {
                 time: transport.currentTime,
                 bookmarks,
                 updatedAt: Math.floor(Date.now() / 1000),
+            }).then((progress) => {
+                setLibraryBooks((books) => books.map((book) => (
+                    book.id === libraryBookId ? { ...book, progress } : book
+                )));
             }).catch(() => {});
         }, 500);
         return () => clearTimeout(timer);
@@ -691,6 +700,7 @@ export default function PdfViewer({ onDirty }) {
                 ends: entry.ends || [],
                 mode: entry.timingMode || 'estimate',
             });
+            requestAnimationFrame(() => rebindWordSpans());
 
             // For partial clips, resumeWordIndex is a page word with audio time 0.
             // For full clips, seek to that word's absolute time.
@@ -739,13 +749,13 @@ export default function PdfViewer({ onDirty }) {
                 isPlayingRef.current = false;
             }
         },
-        [applyWordState, buildTimings, refreshTransport, startHighlightLoop, syncHighlightAt, toast]
+        [applyWordState, buildTimings, rebindWordSpans, refreshTransport, startHighlightLoop, syncHighlightAt, toast]
     );
 
     /**
-     * Stream progressive TTS chunks so the first audio plays before the whole
-     * page is synthesized. Builds a playlist; the `ended` handler advances.
-     * On `done`, assembles full-page timings + caches the entry.
+     * Stream TTS generation, but hold playback until the final canonical WAV
+     * and its full page timing map are ready. A partial chunk cannot provide
+     * reliable word highlighting, so it must never reach the player.
      */
     const generateAndPlayStreamed = useCallback(
         async (pageNum, text, { autoplay = true, voiceId = activeVoiceRef.current } = {}) => {
@@ -777,7 +787,6 @@ export default function PdfViewer({ onDirty }) {
             setPageWords(words);
             pageWordsRef.current = words;
 
-            let firstChunkPlayed = false;
             let doneEvent = null;
             const collectedChunks = [];
 
@@ -812,41 +821,12 @@ export default function PdfViewer({ onDirty }) {
                 voiceId,
                 langRef.current,
                 {
+                    bookId: libraryBookId,
                     onChunk: async (event) => {
                         if (event.type === 'chunk') {
                             collectedChunks.push(event);
                             playlistRef.current = collectedChunks;
                             playlistExpectedTotalRef.current = Number(event.total) || collectedChunks.length;
-                            refreshTransport();
-                            if (firstChunkPlayed && event.index > playlistIndexRef.current) {
-                                const preloadAudio = new Audio(event.url);
-                                preloadAudio.preload = 'auto';
-                                chunkPreloadsRef.current.set(event.url, preloadAudio);
-                            }
-                            if (!firstChunkPlayed) {
-                                firstChunkPlayed = true;
-                                audioTimeOffsetRef.current = event.start_s;
-                                playlistIndexRef.current = event.index;
-                                audio.src = event.url;
-                                await waitForAudioMetadata(audio);
-                                refreshTransport();
-                                if (autoplay) {
-                                    try {
-                                        await audio.play();
-                                        setIsPlaying(true);
-                                        setTransportState('playing');
-                                        isPlayingRef.current = true;
-                                        startHighlightLoop();
-                                    } catch (error) {
-                                        toast.error(
-                                            error?.message ||
-                                                'Audio playback was blocked. Press Play again.'
-                                        );
-                                    }
-                                }
-                            } else if (playlistWaitingRef.current) {
-                                advancePlaylistRef.current();
-                            }
                         } else if (event.type === 'done') {
                             doneEvent = event;
                         }
@@ -936,10 +916,9 @@ export default function PdfViewer({ onDirty }) {
             applyWordState,
             buildTimings,
             installPlaylistTimeline,
+            libraryBookId,
             sessionId,
-            startHighlightLoop,
             syncHighlightAt,
-            toast,
             refreshTransport,
         ]
     );
@@ -1043,7 +1022,7 @@ export default function PdfViewer({ onDirty }) {
                 cachePageText(pageNum, text);
 
                 if (libraryBookId && source !== 'prepared') {
-                    savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum).catch(() => {});
+                    await savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum);
                 }
 
                 if (prepared?.audioUrl) {
@@ -1150,7 +1129,7 @@ export default function PdfViewer({ onDirty }) {
                 pageWordsRef.current = words;
                 cachePageText(pageNum, text);
                 if (libraryBookId && source !== 'prepared') {
-                    savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum).catch(() => {});
+                    await savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum);
                 }
                 requestAnimationFrame(() => rebindWordSpans());
             } catch (error) {
@@ -1401,6 +1380,9 @@ export default function PdfViewer({ onDirty }) {
             const text = await preparePageText(pageNumber, { forceOcr: true, setIsOcring });
             setPageText(text);
             pageTextRef.current = text;
+            if (libraryBookId) {
+                await savePreparedPage(libraryBookId, pageNumber, text, numPages || pageNumber);
+            }
             toast.success(`OCR extracted ${text.split(/\s+/).length} words`);
             if (modelReady) {
                 await generateAndPlay(pageNumber, text, {
@@ -1548,6 +1530,9 @@ export default function PdfViewer({ onDirty }) {
             setPageWords(translated.split(/\s+/).filter(Boolean));
             pageWordsRef.current = translated.split(/\s+/).filter(Boolean);
             cachePageText(pageNumber, translated);
+            if (libraryBookId) {
+                await savePreparedPage(libraryBookId, pageNumber, translated, numPages || pageNumber);
+            }
             cacheRef.current.clear();
             setAudioUrl(null);
             toast.success('Text translated — press Read to narrate.');
@@ -1558,7 +1543,7 @@ export default function PdfViewer({ onDirty }) {
         }
     };
 
-    const handleSaveEditedText = () => {
+    const handleSaveEditedText = async () => {
         const text = editTextDraft.trim();
         if (!text) return;
         setPageText(text);
@@ -1566,6 +1551,14 @@ export default function PdfViewer({ onDirty }) {
         setPageWords(text.split(/\s+/).filter(Boolean));
         pageWordsRef.current = text.split(/\s+/).filter(Boolean);
         cachePageText(pageNumber, text);
+        if (libraryBookId) {
+            try {
+                await savePreparedPage(libraryBookId, pageNumber, text, numPages || pageNumber);
+            } catch (error) {
+                toast.error(error.message || 'Could not save the edited page to this book.');
+                return;
+            }
+        }
         cacheRef.current.clear();
         setAudioUrl(null);
         setIsEditingText(false);
@@ -1637,14 +1630,15 @@ export default function PdfViewer({ onDirty }) {
         try {
             const manifest = await getPreparedBook(libraryBookId);
             const missingPages = missingPreparedTextPages(numPages, manifest.pageHashes);
-            for (let index = 0; index < missingPages.length; index += 1) {
-                const page = missingPages[index];
-                setStatusHint(
-                    `Extracting missing page ${index + 1} of ${missingPages.length}…`
-                );
-                const text = await preparePageText(page, { quiet: true, setIsOcring });
-                await savePreparedPage(libraryBookId, page, text, numPages);
-            }
+            await mapWithConcurrency(
+                missingPages,
+                3,
+                async (page) => {
+                    const text = await preparePageText(page, { quiet: true });
+                    await savePreparedPage(libraryBookId, page, text, numPages);
+                },
+                (completed, total) => setStatusHint(`Extracted ${completed} of ${total} pages…`)
+            );
             if (!missingPages.length) setStatusHint('All page text is already prepared…');
             const job = await createBookPreparation(
                 libraryBookId,
@@ -1747,13 +1741,14 @@ export default function PdfViewer({ onDirty }) {
         }
     };
 
-    // Pan via drag when zoomed
+    // Plain wheel scrolls. Ctrl+wheel zooms. Pointer capture provides true
+    // grab-and-drag panning without losing the drag when the cursor leaves.
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
 
         const onWheel = (ev) => {
-            if (!ev.deltaY) return;
+            if (!shouldZoomPdfWheel(ev)) return;
             ev.preventDefault();
             setZoom((current) => {
                 const direction = ev.deltaY < 0 ? 1 : -1;
@@ -1764,6 +1759,8 @@ export default function PdfViewer({ onDirty }) {
         const onDown = (ev) => {
             if (zoom <= 1.02) return;
             if (ev.button !== 0) return;
+            ev.preventDefault();
+            el.setPointerCapture?.(ev.pointerId);
             panDragRef.current = {
                 x: ev.clientX,
                 y: ev.clientY,
@@ -1782,15 +1779,17 @@ export default function PdfViewer({ onDirty }) {
             panDragRef.current = null;
             el.classList.remove('is-panning');
         };
-        el.addEventListener('mousedown', onDown);
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+        el.addEventListener('pointercancel', onUp);
         el.addEventListener('wheel', onWheel, { passive: false });
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
         return () => {
-            el.removeEventListener('mousedown', onDown);
+            el.removeEventListener('pointerdown', onDown);
+            el.removeEventListener('pointermove', onMove);
+            el.removeEventListener('pointerup', onUp);
+            el.removeEventListener('pointercancel', onUp);
             el.removeEventListener('wheel', onWheel);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
         };
     }, [zoom, file]);
 
@@ -1810,7 +1809,13 @@ export default function PdfViewer({ onDirty }) {
                 disabled: true,
                 icon: <Loader2 className="spinner" size={16} />,
             };
-        if (isGenerating && !audioRef.current?.src)
+        if (shouldDisableNarrationStart({
+            isPlaying,
+            modelError,
+            modelReady,
+            isOcring,
+            isGenerating,
+        }))
             return {
                 text: statusHint ? ` ${statusHint}` : ' Generating…',
                 disabled: true,
@@ -1855,17 +1860,23 @@ export default function PdfViewer({ onDirty }) {
                         {libraryBooks.length ? (
                             <div className="prepared-library">
                                 <p className="prepared-library-title">Prepared library</p>
-                                {libraryBooks.slice(0, 5).map((book) => (
-                                    <button
-                                        type="button"
-                                        className="prepared-book-row"
-                                        key={book.id}
-                                        onClick={() => openLibraryBook(book)}
-                                    >
-                                        <span>{book.title}</span>
-                                        <small>{book.pageCount || '—'} pages</small>
-                                    </button>
-                                ))}
+                                {libraryBooks.slice(0, 5).map((book) => {
+                                    const details = preparedBookDetails(book);
+                                    return (
+                                        <button
+                                            type="button"
+                                            className="prepared-book-row"
+                                            key={book.id}
+                                            onClick={() => openLibraryBook(book)}
+                                        >
+                                            <span>{book.title}</span>
+                                            <small>
+                                                Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
+                                                {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
+                                            </small>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         ) : null}
                     </div>
@@ -1976,7 +1987,7 @@ export default function PdfViewer({ onDirty }) {
                                 <LocateFixed size={15} /> Return to narrated page {audioPage}
                             </button>
                         ) : null}
-                        <div className="zoom-controls" title="Zoom with the mouse wheel or these controls">
+              <div className="zoom-controls" title="Zoom with Ctrl+mouse wheel or these controls">
                             <button
                                 type="button"
                                 className="btn secondary btn-compact"
@@ -2045,8 +2056,23 @@ export default function PdfViewer({ onDirty }) {
                             aria-label={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
                         >
                             {bookmarks.includes(pageNumber) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-                            Bookmark
+                            {bookmarks.includes(pageNumber) ? `Bookmarked ${pageNumber}` : 'Bookmark'}
                         </button>
+                        {bookmarks.length ? (
+                            <select
+                                className="bookmark-jump"
+                                aria-label="Go to bookmark"
+                                value=""
+                                onChange={(event) => {
+                                    if (event.target.value) goToPage(Number(event.target.value));
+                                }}
+                            >
+                                <option value="">Bookmarks ({bookmarks.length})</option>
+                                {bookmarks.map((page) => (
+                                    <option key={page} value={page}>Page {page}</option>
+                                ))}
+                            </select>
+                        ) : null}
                         <button
                             type="button"
                             className="btn secondary btn-compact reader-options-toggle"

@@ -11,6 +11,7 @@ function transport(overrides = {}) {
     playbackRate: 1,
     cycleRate: vi.fn(),
     seekTo: vi.fn(),
+    setRate: vi.fn(),
     skipBy: vi.fn(),
     toggle: vi.fn(),
     ...overrides,
@@ -45,5 +46,16 @@ describe('PlaybackControls', () => {
     expect(screen.getByText('Forward 10')).toBeVisible();
     expect(onToggle).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers explicit playback speed choices', () => {
+    const current = transport({ playbackRate: 1 });
+    render(<PlaybackControls transport={current} onStop={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Narration speed' }), {
+      target: { value: '1.5' },
+    });
+
+    expect(current.setRate).toHaveBeenCalledWith(1.5);
   });
 });

@@ -58,3 +58,15 @@ export function preparationForActiveProfile(book) {
         error: null,
     };
 }
+
+export function preparedBookDetails(book) {
+    const profile = activePreparedProfile(book);
+    const pageCount = Math.max(0, Number(book?.pageCount) || 0);
+    const resumePage = Math.max(1, Math.min(pageCount || 1, Number(book?.progress?.page) || 1));
+    const bookmarks = [...new Set((book?.progress?.bookmarks || [])
+        .map(Number)
+        .filter((page) => Number.isInteger(page) && page > 0 && (!pageCount || page <= pageCount))
+    )].sort((a, b) => a - b);
+    const preparedPages = new Set((profile?.readyPages || []).map(Number).filter(Number.isInteger)).size;
+    return { pageCount, resumePage, bookmarks, preparedPages };
+}

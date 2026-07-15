@@ -21,7 +21,7 @@ export async function narrateText(
     pageIndex,
     voiceId = null,
     languageId = 'en',
-    { clipSuffix = null, priority = 'current' } = {}
+    { clipSuffix = null, priority = 'current', bookId = null } = {}
 ) {
     const requestBody = {
         text,
@@ -37,6 +37,7 @@ export async function narrateText(
     if (clipSuffix != null) {
         requestBody.clip_suffix = String(clipSuffix);
     }
+    if (bookId) requestBody.book_id = bookId;
 
     const response = await fetch(`${API_BASE_URL}/tts/narrate`, {
         method: 'POST',
@@ -193,7 +194,7 @@ export async function narrateTextStream(
     pageIndex,
     voiceId = null,
     languageId = 'en',
-    { clipSuffix = null, priority = 'current', onChunk = () => {} } = {},
+    { clipSuffix = null, priority = 'current', bookId = null, onChunk = () => {} } = {},
     signal
 ) {
     const requestBody = {
@@ -205,6 +206,7 @@ export async function narrateTextStream(
     };
     if (voiceId) requestBody.voice_id = voiceId;
     if (clipSuffix != null) requestBody.clip_suffix = String(clipSuffix);
+    if (bookId) requestBody.book_id = bookId;
 
     const response = await fetch(`${API_BASE_URL}/tts/narrate-stream`, {
         method: 'POST',

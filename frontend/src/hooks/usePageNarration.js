@@ -12,6 +12,7 @@ export function usePageNarration({
     langRef,
     cacheRef,
     buildTimings,
+    bookId = null,
 }) {
     const narratePage = useCallback(
         async (pageNum, text, opts = {}) => {
@@ -39,6 +40,7 @@ export function usePageNarration({
                     {
                         clipSuffix: partial ? String(start) : null,
                         priority: partial ? 'interactive' : priority,
+                        bookId: partial ? null : bookId,
                     }
                 );
             } catch (err) {
@@ -87,7 +89,7 @@ export function usePageNarration({
             }
             return entry;
         },
-        [activeVoiceRef, buildTimings, cacheRef, langRef, sessionId]
+        [activeVoiceRef, bookId, buildTimings, cacheRef, langRef, sessionId]
     );
 
     /**

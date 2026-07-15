@@ -457,7 +457,16 @@ def mark_page_audio(
     target = page_audio_path(book_id, profile, page)
     target.parent.mkdir(parents=True, exist_ok=True)
     if audio_source.resolve() != target.resolve():
-        shutil.copy2(audio_source, target)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{target.stem}-", suffix=".wav.tmp", dir=target.parent)
+        os.close(fd)
+        temp_path = Path(temp_name)
+        try:
+            shutil.copy2(audio_source, temp_path)
+            _validate_wav_file(temp_path)
+            os.replace(temp_path, target)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
     audio_sha256 = _sha256_file(target)
     page_meta["wordTimings"] = word_timings or []
     page_meta["audio"] = {
@@ -491,6 +500,33 @@ def mark_page_audio(
         manifest["updatedAt"] = int(time.time())
         _write_json(_manifest_path(book_id), manifest)
     return page_meta
+
+
+def cache_generated_page(
+    book_id: str,
+    page: int,
+    text: str,
+    audio_url: str,
+    word_timings: list,
+    duration: float,
+    voice_id: str | None,
+    language_id: str,
+) -> dict:
+    """Promote a finished interactive narration into the durable book cache."""
+    page_meta = get_page(book_id, page)
+    if str(page_meta.get("text") or "").strip() != str(text or "").strip():
+        raise ValueError("Generated narration text does not match the saved book page.")
+    prefix = "/sessions/"
+    if not str(audio_url).startswith(prefix):
+        raise ValueError("Generated narration audio path is invalid.")
+    sessions_root = (Path(os.environ.get("DATA_DIR", "data")) / "sessions").resolve()
+    source = (sessions_root / str(audio_url)[len(prefix):]).resolve()
+    if not source.is_relative_to(sessions_root) or not source.is_file():
+        raise ValueError("Generated narration audio path is invalid.")
+    profile = profile_id(voice_id, language_id)
+    return mark_page_audio(
+        book_id, profile, page, source, word_timings, duration, voice_id, language_id
+    )
 
 
 def update_progress(book_id: str, progress: dict) -> dict:
@@ -757,7 +793,7 @@ def start_preparation(book_id: str, voice_id: str | None, language_id: str) -> d
         "voiceId": voice_id,
         "languageId": validate_language_id(language_id),
         "status": "COMPLETED" if len(prepared_pages) == page_count else "QUEUED",
-        "completedPages": prepared_pages if len(prepared_pages) == page_count else [],
+        "completedPages": prepared_pages,
         "totalPages": page_count,
         "currentPage": None,
         "error": None,
@@ -788,7 +824,8 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                 break
             page_meta = get_page(job["bookId"], page)
             if is_page_prepared(job["bookId"], job["profileId"], page, page_meta):
-                job["completedPages"].append(page)
+                job["completedPages"] = sorted(set(job["completedPages"]) | {page})
+                _persist_job(job)
                 continue
             job["currentPage"] = page
             session = f"book-{job['bookId'][:12]}"
@@ -823,7 +860,7 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                 result.get("word_timings") or [], result.get("duration_s") or 0,
                 voice_id, language_id,
             )
-            job["completedPages"].append(page)
+            job["completedPages"] = sorted(set(job["completedPages"]) | {page})
             _persist_job(job)
         if job["status"] == "RUNNING":
             job["status"] = "COMPLETED"

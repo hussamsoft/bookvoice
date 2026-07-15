@@ -40,11 +40,12 @@ describe('App Component', () => {
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
-  it('provides a named reading-mode navigation with a clear local status', async () => {
+  it('provides named reading-mode navigation and keeps the sparkle mark', async () => {
     renderApp();
 
     expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
-    expect(screen.getByText('Local reader · Private by default')).toBeInTheDocument();
+    expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
+    expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'PDF reader' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

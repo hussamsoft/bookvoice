@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "app_version": "2.0.1",
+  "app_version": "2.1.0",
   "worker_python": "runtime/worker/python.exe",
   "startup_provisioning": "forbidden",
   "required_packages": [

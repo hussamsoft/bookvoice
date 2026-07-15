@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.0 - 2026-07-14
+
+### Added
+
+- Completed page narration is now saved automatically in the persistent prepared-book library, using per-page WAV files, word timings, checksums, and atomic replacement so interrupted work remains resumable.
+- The prepared library and in-book toolbar show resume position, generated-page count, bookmark details, and direct bookmark navigation.
+- A persistent dark theme, a named `BookVoice Natural` built-in voice, and selectable narration speeds from 0.75x through 2x.
+
+### Fixed
+
+- PDF interaction now uses true pointer-captured grab-and-drag panning. The mouse wheel scrolls normally; Ctrl+wheel zooms.
+- PDF word highlighting is rebound after final aligned narration timings arrive, restoring synchronized highlighting in both the PDF text layer and transcript.
+- Whole-book preparation preserves every completed page across cancellation or restart and never promotes partial or corrupt WAV files.
+- Narration waits for the completed canonical audio and final alignment map before playback, so the displayed generation state and highlighting cannot lag behind early chunk playback.
+
+### Changed
+
+- Missing page text is extracted with bounded concurrency before whole-book narration, reducing setup time without changing synthesis, alignment, or audio quality.
+- Removed the title-bar privacy slogan while retaining the sparkle icon.
+
 ## 2.0.1 - 2026-07-14
 
 ### Added

@@ -210,7 +210,7 @@ export default function VoiceSettings({
                     value={activeVoiceId || ''}
                     onChange={(e) => onVoiceChange(e.target.value || null)}
                 >
-                    <option value="">Default voice</option>
+                    <option value="">BookVoice Natural</option>
                     {voices.map((v) => (
                         <option key={v.id} value={v.id}>
                             {v.name}

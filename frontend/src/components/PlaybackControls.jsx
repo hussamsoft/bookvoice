@@ -70,15 +70,19 @@ export default function PlaybackControls({
             <span className="transport-time">
                 {formatTime(transport.currentTime)} / {formatTime(transport.duration)}
             </span>
-            <button
-                type="button"
-                className="btn secondary btn-compact transport-rate"
-                onClick={transport.cycleRate}
-                aria-label={`Playback speed ${transport.playbackRate} times`}
-                title="Playback speed"
-            >
-                {transport.playbackRate}x
-            </button>
+            <label className="transport-rate-control">
+                <span className="sr-only">Narration speed</span>
+                <select
+                    className="transport-rate"
+                    aria-label="Narration speed"
+                    value={transport.playbackRate}
+                    onChange={(event) => transport.setRate(Number(event.target.value))}
+                >
+                    {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                        <option key={rate} value={rate}>{rate}x</option>
+                    ))}
+                </select>
+            </label>
             {pageLabel ? <span className="transport-page">{pageLabel}</span> : null}
             {generating ? <span className="transport-status">Preparing audio…</span> : null}
             {transport.mediaError ? (

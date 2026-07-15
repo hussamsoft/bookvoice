@@ -6,7 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -381,6 +381,49 @@ class TtsLifecycleTests(unittest.TestCase):
 
 
 class TtsStreamRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pronounce_does_not_use_full_page_book_cache(self):
+        import routes.tts as tts_routes
+
+        request = tts_routes.PronounceRequest(
+            text="word", session_id="session1", language_id="en"
+        )
+        future = Future()
+        future.set_result({
+            "audio_url": "/sessions/session1/word.wav",
+            "segments": [],
+            "duration_s": 0.1,
+            "word_timings": [],
+        })
+
+        with patch.object(tts_routes, "submit_tts", return_value=future):
+            with patch.object(tts_routes, "_cache_completed_page") as cache_page:
+                response = await tts_routes.pronounce(request)
+
+        self.assertEqual(response.audio_url, "/sessions/session1/word.wav")
+        cache_page.assert_not_called()
+
+    async def test_full_page_narration_promotes_completed_audio(self):
+        import routes.tts as tts_routes
+
+        request = tts_routes.NarrateRequest(
+            text="Page text", session_id="session1", page_index=1,
+            language_id="en", book_id="a" * 64,
+        )
+        result = {
+            "audio_url": "/sessions/session1/page.wav",
+            "segments": [],
+            "duration_s": 0.2,
+            "word_timings": [],
+        }
+        future = Future()
+        future.set_result(result)
+
+        with patch.object(tts_routes, "submit_tts", return_value=future):
+            with patch.object(tts_routes, "_cache_completed_page") as cache_page:
+                await tts_routes.narrate(request)
+
+        cache_page.assert_called_once_with(request, "Page text", 1, result)
+
     async def test_progressive_narration_uses_priority_tts_worker(self):
         """Streaming synthesis must stay on the serialized priority worker."""
         import routes.tts as tts_routes

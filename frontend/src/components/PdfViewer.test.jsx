@@ -60,7 +60,7 @@ describe('PdfViewer Component', () => {
     expect(within(navigation).getByRole('checkbox', { name: 'Follow narration' })).toBeVisible();
   });
 
-  it('zooms the PDF at the pointer with the mouse wheel', async () => {
+  it('scrolls normally and zooms only with Ctrl+wheel', async () => {
     const { container } = render(<PdfViewer />);
     fireEvent.change(container.querySelector('#pdf-upload'), {
       target: { files: [new File(['pdf'], 'book.pdf', { type: 'application/pdf' })] },
@@ -73,6 +73,8 @@ describe('PdfViewer Component', () => {
     });
     fireEvent.wheel(scrollArea, { deltaY: -120, clientX: 120, clientY: 120 });
     const navigation = screen.getByRole('toolbar', { name: 'Reader navigation' });
+    expect(within(navigation).getByText('100%')).toBeVisible();
+    fireEvent.wheel(scrollArea, { deltaY: -120, clientX: 120, clientY: 120, ctrlKey: true });
     await waitFor(() => expect(within(navigation).getByText('115%')).toBeVisible());
   });
 });

@@ -3,6 +3,7 @@ import {
   activePreparedProfile,
   missingPreparedTextPages,
   preparationForActiveProfile,
+  preparedBookDetails,
 } from './preparedPages';
 
 describe('missingPreparedTextPages', () => {
@@ -22,6 +23,22 @@ describe('missingPreparedTextPages', () => {
       'one.json': 'bad',
       '2.json': 'hash-2',
     })).toEqual([1]);
+  });
+});
+
+describe('prepared book details', () => {
+  it('summarizes resume page, bookmarks, and durable generated pages', () => {
+    expect(preparedBookDetails({
+      pageCount: 10,
+      progress: { page: 4, bookmarks: [2, 7] },
+      activeProfileId: 'p1',
+      profiles: [{ id: 'p1', readyPages: [1, 2, 3] }],
+    })).toEqual({
+      pageCount: 10,
+      resumePage: 4,
+      bookmarks: [2, 7],
+      preparedPages: 3,
+    });
   });
 });
 

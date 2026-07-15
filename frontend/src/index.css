@@ -21,6 +21,26 @@
   --shadow: 0 10px 28px rgba(5, 25, 42, 0.12);
 }
 
+:root[data-theme="dark"] {
+  --bg: #111820;
+  --bg-color: #111820;
+  --surface: #18222c;
+  --surface-elevated: #202c37;
+  --primary: #8eb8d5;
+  --primary-dark: #b5d5e9;
+  --primary-glow: rgba(142, 184, 213, 0.2);
+  --accent: #8eb8d5;
+  --text: #edf2f5;
+  --text-muted: #aebbc5;
+  --border: #344452;
+  --error: #ff8d94;
+  --danger: #ff8d94;
+  --error-bg: rgba(255, 141, 148, 0.12);
+  --success: #7fd1b7;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -60,8 +80,28 @@ body {
 }
 
 .transport-rate {
-  min-width: 3.25rem;
+  min-width: 4.2rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: var(--text);
+  padding: 0 0.4rem;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.titlebar-sparkle { color: var(--primary); }
 
 .transport-error {
   color: var(--danger);
@@ -999,7 +1039,7 @@ textarea:focus-visible,
 .settings-dropdown,
 .toast,
 .resume-modal {
-  background: #fffdf7;
+  background: var(--surface-elevated);
 }
 
 @media (max-width: 760px) {
@@ -1072,7 +1112,7 @@ textarea:focus-visible,
 .pdf-upload-card {
   width: min(100%, 31rem);
   padding: clamp(1.75rem, 4vw, 2.75rem);
-  background: rgba(255, 253, 247, 0.94);
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   border: 1px solid var(--border);
   border-top: 3px solid var(--primary);
   border-radius: var(--radius-lg);
@@ -1129,8 +1169,9 @@ textarea:focus-visible,
 
 .prepared-book-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
   gap: 0.75rem;
   padding: 0.55rem 0.65rem;
   color: var(--text);
@@ -1147,7 +1188,16 @@ textarea:focus-visible,
 
 .prepared-book-row small {
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.bookmark-jump {
+  min-height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: var(--text);
+  padding: 0 0.45rem;
 }
 
 .preparation-progress {
@@ -1488,7 +1538,7 @@ textarea:focus-visible,
   bottom: 0;
   z-index: 40;
   padding: 0.65rem 0.75rem;
-  background: rgba(255, 253, 250, 0.98);
+  background: color-mix(in srgb, var(--surface-elevated) 98%, transparent);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 -8px 24px rgba(34, 38, 43, 0.08);

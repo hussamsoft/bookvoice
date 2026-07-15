@@ -41,6 +41,21 @@ describe('buildWordSpanMap', () => {
     expect(map.map((span) => span.textContent)).toEqual(['Once', 'upon', 'a', 'time']);
   });
 
+  it('recovers after decorative PDF text that is absent from narration', () => {
+    const words = ['Charles', 'was', 'a', 'writer'];
+    const spans = [
+      fakeSpan('CHAPTER 1'),
+      fakeSpan("Don't Try"),
+      fakeSpan('Charles was a writer'),
+    ];
+    const layer = { querySelectorAll: () => spans };
+
+    const map = buildWordSpanMap(words, layer);
+
+    expect(map.every(Boolean)).toBe(true);
+    expect(map[0]).toBe(spans[2]);
+  });
+
   it('highlights without scrolling the PDF or outer window', () => {
     const layer = document.createElement('div');
     const span = document.createElement('span');

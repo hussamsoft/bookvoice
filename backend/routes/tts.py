@@ -14,6 +14,7 @@ from services.path_utils import (
 )
 from services.config_service import config_value
 from services.alignment_service import alignment_mode
+from services import book_library_service
 from services.tts_service import (
     GenerationCancelled,
     TtsPriority,
@@ -38,6 +39,7 @@ class NarrateRequest(BaseModel):
     language_id: str = "en"
     clip_suffix: str | None = None
     priority: str = "current"  # interactive | current | prefetch
+    book_id: str | None = None
 
 
 class PronounceRequest(BaseModel):
@@ -100,6 +102,21 @@ def _build_response(result: dict) -> NarrateResponse:
             if isinstance(w, dict) and "word" in w
         ],
         alignment_mode=alignment_mode(),
+    )
+
+
+def _cache_completed_page(request: NarrateRequest, text: str, page_index: int, result: dict) -> None:
+    if not request.book_id or request.clip_suffix is not None:
+        return
+    book_library_service.cache_generated_page(
+        request.book_id,
+        page_index,
+        text,
+        result["audio_url"],
+        result.get("word_timings") or [],
+        result.get("duration_s") or 0,
+        request.voice_id,
+        request.language_id,
     )
 
 
@@ -174,6 +191,7 @@ async def narrate(request: NarrateRequest):
         result = await loop.run_in_executor(None, future.result)
         if isinstance(result, str):
             return NarrateResponse(audio_url=result)
+        _cache_completed_page(request, text, page_index, result)
         return _build_response(result)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -258,6 +276,7 @@ async def narrate_stream(request: NarrateRequest):
                 return
             line = dict(item)
             if item.get("type") == "done":
+                _cache_completed_page(request, text, page_index, item)
                 line["alignment_mode"] = alignment_mode()
             yield json.dumps(line) + "\n"
             if item.get("type") == "done":

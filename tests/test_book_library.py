@@ -149,6 +149,48 @@ class BookLibraryTests(unittest.TestCase):
         target_hashes = [call for call in sha256_file.call_args_list if call.args[0] == target]
         self.assertEqual(len(target_hashes), 1)
 
+    def test_mark_page_audio_replaces_the_cached_wav_atomically(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = library.profile_id(None, "en")
+        source = library.book_dir(book["id"]) / "scratch" / "page-1.wav"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(valid_wav_bytes())
+
+        with patch.object(library.os, "replace", wraps=os.replace) as replace:
+            library.mark_page_audio(book["id"], profile, 1, source, [], 0.1, None, "en")
+
+        self.assertTrue(any(call.args[1] == library.page_audio_path(book["id"], profile, 1) for call in replace.call_args_list))
+
+    def test_cache_generated_page_reuses_completed_interactive_narration(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        session_audio = Path(self.temp.name) / "sessions" / "reader-session" / "page.wav"
+        session_audio.parent.mkdir(parents=True)
+        session_audio.write_bytes(valid_wav_bytes())
+
+        cached = library.cache_generated_page(
+            book["id"], 1, "Page one", "/sessions/reader-session/page.wav",
+            [{"word": "Page", "start_s": 0.0, "end_s": 0.05}], 0.1, None, "en",
+        )
+
+        profile = library.profile_id(None, "en")
+        self.assertEqual(cached["audio"]["profileId"], profile)
+        self.assertTrue(library.is_page_prepared(book["id"], profile, 1))
+
+    def test_cache_generated_page_rejects_stale_text(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Current text", 1)
+        session_audio = Path(self.temp.name) / "sessions" / "reader-session" / "page.wav"
+        session_audio.parent.mkdir(parents=True)
+        session_audio.write_bytes(valid_wav_bytes())
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            library.cache_generated_page(
+                book["id"], 1, "Old text", "/sessions/reader-session/page.wav",
+                [], 0.1, None, "en",
+            )
+
     def test_page_audio_readiness_does_not_load_the_entire_wav_into_memory(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         library.save_page(book["id"], 1, "Page one", 1)
@@ -317,6 +359,22 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["completedPages"], [1])
         thread.assert_not_called()
+
+    def test_preparation_reports_pages_completed_before_resume(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 2)
+        library.save_page(book["id"], 2, "Page two", 2)
+        profile = library.profile_id(None, "en")
+        audio = library.book_dir(book["id"]) / "scratch" / "page-1.wav"
+        audio.parent.mkdir(parents=True)
+        audio.write_bytes(valid_wav_bytes())
+        library.mark_page_audio(book["id"], profile, 1, audio, [], 0.1, None, "en")
+
+        with patch.object(library.threading, "Thread"):
+            job = library.start_preparation(book["id"], None, "en")
+
+        self.assertEqual(job["status"], "QUEUED")
+        self.assertEqual(job["completedPages"], [1])
 
     def test_running_preparation_cancels_immediately_and_interrupts_generation(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
