@@ -51,7 +51,7 @@ PRODUCTS = {
         msi_name="BookVoice.msi",
         install_scope="perMachine",
         upgrade_code=MACHINE_UPGRADE_CODE,
-        parent_dir_id="ProgramFilesFolder",
+        parent_dir_id="ProgramFiles64Folder",
         parent_dir_name=None,
         install_dir_name="BookVoice",
         desktop_shortcut=False,
@@ -121,6 +121,7 @@ def build_wxs(files, product: MsiProduct):
     })
     ET.SubElement(wxs_product, "Package", {
         "InstallerVersion": "500",
+        "Platform": "x64",
         "Compressed": "yes",
         "InstallScope": product.install_scope,
         "Description": "BookVoice installer",
@@ -154,7 +155,7 @@ def build_wxs(files, product: MsiProduct):
 
     pm = ET.SubElement(target, "Directory", {"Id": "ProgramMenuFolder"})
     appmenu = ET.SubElement(pm, "Directory", {"Id": "AppMenuDir", "Name": "BookVoice"})
-    menu_comp = ET.SubElement(appmenu, "Component", {"Id": "StartMenuShortcut", "Guid": "*"})
+    menu_comp = ET.SubElement(appmenu, "Component", {"Id": "StartMenuShortcut", "Guid": "*", "Win64": "yes"})
     ET.SubElement(menu_comp, "Shortcut", {
         "Id": "StartMenuShortcut",
         "Name": "BookVoice",
@@ -184,7 +185,7 @@ def build_wxs(files, product: MsiProduct):
     ET.SubElement(feature, "ComponentRef", {"Id": "StartMenuShortcut"})
 
     association_root = "HKCU" if product.install_scope == "perUser" else "HKLM"
-    association = ET.SubElement(instdir, "Component", {"Id": "PreparedBookAssociation", "Guid": "*"})
+    association = ET.SubElement(instdir, "Component", {"Id": "PreparedBookAssociation", "Guid": "*", "Win64": "yes"})
     ET.SubElement(association, "RegistryValue", {
         "Root": association_root,
         "Key": "Software\\Classes\\.bookvoice",
@@ -213,7 +214,7 @@ def build_wxs(files, product: MsiProduct):
     ET.SubElement(feature, "ComponentRef", {"Id": "PreparedBookAssociation"})
 
     if product.install_scope == "perUser":
-        install_cleanup = ET.SubElement(instdir, "Component", {"Id": "InstallDirCleanup", "Guid": "*"})
+        install_cleanup = ET.SubElement(instdir, "Component", {"Id": "InstallDirCleanup", "Guid": "*", "Win64": "yes"})
         ET.SubElement(install_cleanup, "RemoveFolder", {"Id": "RemoveInstallDir", "On": "uninstall"})
         ET.SubElement(install_cleanup, "RegistryValue", {
             "Root": "HKCU",
@@ -225,7 +226,7 @@ def build_wxs(files, product: MsiProduct):
         })
         ET.SubElement(feature, "ComponentRef", {"Id": "InstallDirCleanup"})
         if product.parent_dir_name:
-            parent_cleanup = ET.SubElement(parent, "Component", {"Id": "AppParentCleanup", "Guid": "*"})
+            parent_cleanup = ET.SubElement(parent, "Component", {"Id": "AppParentCleanup", "Guid": "*", "Win64": "yes"})
             ET.SubElement(parent_cleanup, "RemoveFolder", {"Id": "RemoveAppParentDir", "On": "uninstall"})
             ET.SubElement(parent_cleanup, "RegistryValue", {
                 "Root": "HKCU",
@@ -239,7 +240,7 @@ def build_wxs(files, product: MsiProduct):
 
     if product.desktop_shortcut:
         desktop = ET.SubElement(target, "Directory", {"Id": "DesktopFolder"})
-        desktop_comp = ET.SubElement(desktop, "Component", {"Id": "DesktopShortcut", "Guid": "*"})
+        desktop_comp = ET.SubElement(desktop, "Component", {"Id": "DesktopShortcut", "Guid": "*", "Win64": "yes"})
         ET.SubElement(desktop_comp, "Shortcut", {
             "Id": "DesktopShortcut",
             "Name": "BookVoice",
@@ -274,7 +275,7 @@ def build_wxs(files, product: MsiProduct):
     for idx, (rel, f) in enumerate(files):
         rel_dir = os.path.dirname(rel)
         d = get_dir(rel_dir) if rel_dir else instdir
-        comp = ET.SubElement(d, "Component", {"Id": component_id(rel, idx), "Guid": "*"})
+        comp = ET.SubElement(d, "Component", {"Id": component_id(rel, idx), "Guid": "*", "Win64": "yes"})
         ET.SubElement(comp, "File", {"Id": file_id(rel), "Source": str(f), "KeyPath": "yes"})
         ET.SubElement(feature, "ComponentRef", {"Id": component_id(rel, idx)})
 
@@ -292,6 +293,8 @@ def compile_msi(wxs_path: Path, msi_path: Path, *, per_user: bool = False) -> No
             "WixUIExtension",
             "-ext",
             "WixUtilExtension",
+            "-arch",
+            "x64",
             str(wxs_path),
             "-out",
             str(obj),

@@ -13,6 +13,11 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = "hussamsoft/bookvoice"
+RELEASE_VERSION = "2.1.1"
+DEFAULT_MANIFEST_URL = (
+    f"https://github.com/{REPOSITORY}/releases/download/"
+    f"v{RELEASE_VERSION}/release-assets.json"
+)
 
 
 def sha256(path: Path) -> str:
@@ -44,16 +49,24 @@ def main() -> int:
     parser.add_argument("--machine", action="store_true", help="Install for all users (admin required)")
     parser.add_argument("--manifest-url")
     parser.add_argument("--download-only", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="Run Windows Installer without interactive UI")
     args = parser.parse_args()
     product = "machine" if args.machine else "user"
-    manifest_url = args.manifest_url or f"https://github.com/{REPOSITORY}/releases/latest/download/release-assets.json"
+    manifest_url = args.manifest_url or DEFAULT_MANIFEST_URL
     with urllib.request.urlopen(manifest_url, timeout=30) as response:
         manifest = json.load(response)
-    if manifest.get("repository") != REPOSITORY or manifest.get("schemaVersion") != 1:
+    if (
+        manifest.get("repository") != REPOSITORY
+        or manifest.get("schemaVersion") != 1
+        or manifest.get("version") != RELEASE_VERSION
+        or manifest.get("tag") != f"v{RELEASE_VERSION}"
+    ):
         raise RuntimeError("The BookVoice release manifest is not trusted.")
     base = manifest_url.rsplit("/", 1)[0]
     selected = manifest["products"][product]
     names = [selected["msi"], *selected["cabinets"]]
+    if any(not name or Path(name).name != name for name in names):
+        raise RuntimeError("The BookVoice release manifest contains an unsafe asset name.")
     required = sum(int(manifest["assets"][name]["size"]) for name in names)
     target = Path(tempfile.gettempdir()) / "BookVoice" / manifest["version"] / product
     target.mkdir(parents=True, exist_ok=True)
@@ -67,7 +80,10 @@ def main() -> int:
         print(f"Downloading {index}/{len(names)}: {name}", flush=True)
         download(f"{base}/{name}", path, expected)
     if not args.download_only:
-        return subprocess.run(["msiexec.exe", "/i", str(target / selected["msi"])], check=False).returncode
+        command = ["msiexec.exe", "/i", str(target / selected["msi"])]
+        if args.quiet:
+            command.extend(["/qn", "/norestart"])
+        return subprocess.run(command, check=False).returncode
     print(target)
     return 0
 

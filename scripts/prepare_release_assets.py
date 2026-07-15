@@ -23,11 +23,11 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def build_manifest() -> dict:
-    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+def build_manifest(*, root: Path = ROOT, installer: Path = INSTALLER) -> dict:
+    version = (root / "VERSION").read_text(encoding="utf-8").strip()
     products = {"user": "BookVoice-User.msi", "machine": "BookVoice.msi"}
-    cabinets = sorted(INSTALLER.glob("cab[0-9]*.cab"), key=lambda p: int(p.stem[3:]))
-    required = [INSTALLER / name for name in products.values()] + cabinets
+    cabinets = sorted(installer.glob("cab[0-9]*.cab"), key=lambda p: int(p.stem[3:]))
+    required = [installer / name for name in products.values()] + cabinets
     missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
     if missing or not cabinets:
         raise SystemExit("Release assets are incomplete: " + ", ".join(missing or ["no cabinets"]))

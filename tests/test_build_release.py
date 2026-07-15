@@ -132,13 +132,33 @@ class MsiConfigTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(module)
-        manifest = module.build_manifest()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            release_root = Path(temp_dir)
+            installer = release_root / "installer"
+            installer.mkdir()
+            (release_root / "VERSION").write_text("2.1.1\n", encoding="utf-8")
+            (installer / "BookVoice-User.msi").write_bytes(b"user-msi")
+            (installer / "BookVoice.msi").write_bytes(b"machine-msi")
+            (installer / "cab1.cab").write_bytes(b"cabinet-one")
+            manifest = module.build_manifest(root=release_root, installer=installer)
 
-        self.assertEqual(manifest["version"], (ROOT / "VERSION").read_text().strip())
+        self.assertEqual(manifest["version"], "2.1.1")
         self.assertEqual(manifest["products"]["user"]["msi"], "BookVoice-User.msi")
         self.assertEqual(manifest["products"]["machine"]["msi"], "BookVoice.msi")
         self.assertGreater(len(manifest["products"]["user"]["cabinets"]), 0)
         self.assertTrue(all(asset["size"] < module.MAX_RELEASE_ASSET for asset in manifest["assets"].values()))
+
+    def test_bootstrapper_is_pinned_to_the_release_version(self):
+        spec = importlib.util.spec_from_file_location(
+            "setup_bootstrapper", ROOT / "scripts" / "setup_bootstrapper.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertEqual(module.RELEASE_VERSION, version)
+        self.assertIn(f"/download/v{version}/", module.DEFAULT_MANIFEST_URL)
 
     def test_user_product_targets_local_app_data(self):
         product = build_msi.PRODUCTS["user"]
@@ -150,7 +170,7 @@ class MsiConfigTests(unittest.TestCase):
     def test_machine_product_targets_program_files(self):
         product = build_msi.PRODUCTS["machine"]
         self.assertEqual(product.install_scope, "perMachine")
-        self.assertEqual(product.parent_dir_id, "ProgramFilesFolder")
+        self.assertEqual(product.parent_dir_id, "ProgramFiles64Folder")
 
     def test_build_wxs_user_includes_local_app_data_folder(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -167,10 +187,33 @@ class MsiConfigTests(unittest.TestCase):
                 build_msi.DIST = original_dist
         self.assertIn("LocalAppDataFolder", xml)
         self.assertIn('InstallScope="perUser"', xml)
+        self.assertIn('Platform="x64"', xml)
+        self.assertTrue(all(component.get("Win64") == "yes" for component in wxs.iter("Component")))
         self.assertIn("DesktopShortcut", xml)
         self.assertIn("Software\\Classes\\.bookvoice", xml)
         self.assertIn("BookVoice.PreparedBook", xml)
         self.assertIn('&quot;[INSTALLDIR]Launcher.exe&quot; &quot;%1&quot;', xml)
+
+    def test_build_wxs_machine_targets_64_bit_program_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir) / "dist"
+            dist.mkdir()
+            (dist / "main.py").write_text("print('ok')", encoding="utf-8")
+            (dist / "bookvoice.ico").write_bytes(b"ico")
+            original_dist = build_msi.DIST
+            build_msi.DIST = dist
+            try:
+                wxs = build_msi.build_wxs(
+                    [("main.py", dist / "main.py")], build_msi.PRODUCTS["machine"]
+                )
+                xml = ET.tostring(wxs, encoding="unicode")
+            finally:
+                build_msi.DIST = original_dist
+
+        self.assertIn("ProgramFiles64Folder", xml)
+        self.assertIn('InstallScope="perMachine"', xml)
+        self.assertIn('Platform="x64"', xml)
+        self.assertTrue(all(component.get("Win64") == "yes" for component in wxs.iter("Component")))
 
 
 class EmbedPythonTests(unittest.TestCase):
