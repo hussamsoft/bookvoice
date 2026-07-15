@@ -2004,7 +2004,7 @@ body {
   display: flex;
   align-items: stretch;
   height: 2.75rem;
-  background: linear-gradient(#eeeae1, #e4dfd3);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   user-select: none;
   -webkit-user-select: none;

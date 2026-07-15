@@ -57,7 +57,7 @@ import {
     pronounceWithSystemVoice,
     stopSystemPronunciation,
 } from '../utils/wordPronunciation';
-import { resolvePageContent } from '../utils/pageContentResolver';
+import { preparedPageAudioEntry, resolvePageContent } from '../utils/pageContentResolver';
 import {
     activePreparedProfile,
     missingPreparedTextPages,
@@ -1059,26 +1059,14 @@ export default function PdfViewer({ onDirty }) {
                     await savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum);
                 }
 
-                if (prepared?.audioUrl) {
-                    const times = (prepared.wordTimings || []).map((item) => Number(item.start_s) || 0);
-                    const words = (prepared.wordTimings || []).map((item) => item.word);
-                    const ends = (prepared.wordTimings || []).map((item) => Number(item.end_s) || 0);
-                    const entry = {
-                        status: 'ready',
-                        page: pageNum,
-                        voiceId: activeVoiceRef.current,
-                        languageId: langRef.current,
-                        text,
-                        audioUrl: prepared.audioUrl,
-                        segments: [],
-                        duration_s: prepared.audio?.duration || 0,
-                        words: words.length ? words : text.split(/\s+/).filter(Boolean),
-                        times,
-                        ends: times.length ? ends : [],
-                        timingMode: times.length ? 'aligned' : 'estimate',
-                        fromWord: 0,
-                        partial: false,
-                    };
+                const entry = preparedPageAudioEntry({
+                    prepared,
+                    text,
+                    page: pageNum,
+                    voiceId: activeVoiceRef.current,
+                    languageId: langRef.current,
+                });
+                if (entry) {
                     cacheRef.current.set(cacheKey(pageNum, activeVoiceRef.current, langRef.current), entry);
                     await applyReadyAudio(entry, { autoplay, resumeWordIndex: 0 });
                     return;
@@ -1349,15 +1337,32 @@ export default function PdfViewer({ onDirty }) {
             return;
         }
 
-        if (!modelReady) {
-            toast.error(modelError || 'AI voice model is still loading.');
-            return;
-        }
-
         try {
-            const text = await preparePageText(pageNumber, { setIsOcring });
+            const { text, prepared } = await resolvePageContent({
+                bookId: libraryBookId,
+                profileId: activeProfileId,
+                page: pageNumber,
+                getPreparedPage,
+                preparePageText: (page) => preparePageText(page, { setIsOcring }),
+            });
             setPageText(text);
             pageTextRef.current = text;
+            const entry = preparedPageAudioEntry({
+                prepared,
+                text,
+                page: pageNumber,
+                voiceId: activeVoiceRef.current,
+                languageId: langRef.current,
+            });
+            if (entry) {
+                cacheRef.current.set(cacheKey(pageNumber, activeVoiceRef.current, langRef.current), entry);
+                await applyReadyAudio(entry, { autoplay: true, resumeWordIndex: 0 });
+                return;
+            }
+            if (!modelReady) {
+                toast.error(modelError || 'AI voice model is still loading.');
+                return;
+            }
             await generateAndPlay(pageNumber, text, {
                 autoplay: true,
                 resumeWordIndex: Math.max(0, currentWordRef.current),
@@ -1828,10 +1833,13 @@ export default function PdfViewer({ onDirty }) {
     }, [zoom, file]);
 
     const getPlayButtonState = () => {
+        const hasPreparedAudio = Boolean(
+            activeProfileId && preparation?.completedPages?.some((page) => Number(page) === pageNumber)
+        );
         if (isPlaying)
             return { text: ' Pause', disabled: false, icon: <Pause size={16} /> };
-        if (modelError) return { text: 'AI model error', disabled: true, icon: null };
-        if (!modelReady)
+        if (modelError && !hasPreparedAudio) return { text: 'AI model error', disabled: true, icon: null };
+        if (!modelReady && !hasPreparedAudio)
             return {
                 text: 'Warming up…',
                 disabled: true,
@@ -1849,6 +1857,7 @@ export default function PdfViewer({ onDirty }) {
             modelReady,
             isOcring,
             isGenerating,
+            hasPreparedAudio,
         }))
             return {
                 text: statusHint ? ` ${statusHint}` : ' Generating…',

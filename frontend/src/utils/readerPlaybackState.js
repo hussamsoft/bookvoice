@@ -4,8 +4,9 @@ export function shouldDisableNarrationStart({
     modelReady,
     isOcring,
     isGenerating,
+    hasPreparedAudio = false,
 }) {
     return Boolean(
-        !isPlaying && (modelError || !modelReady || isOcring || isGenerating)
+        !isPlaying && (isOcring || isGenerating || (!hasPreparedAudio && (modelError || !modelReady)))
     );
 }

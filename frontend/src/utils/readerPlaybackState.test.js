@@ -17,4 +17,13 @@ describe('shouldDisableNarrationStart', () => {
     it('keeps pause available for narration that is already playing', () => {
         expect(shouldDisableNarrationStart({ ...ready, isGenerating: true, isPlaying: true })).toBe(false);
     });
+
+    it('keeps Play available for a prepared page even while the generator is unavailable', () => {
+        expect(shouldDisableNarrationStart({
+            ...ready,
+            modelReady: false,
+            modelError: 'Model is still loading',
+            hasPreparedAudio: true,
+        })).toBe(false);
+    });
 });

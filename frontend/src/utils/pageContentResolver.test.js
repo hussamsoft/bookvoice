@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolvePageContent } from './pageContentResolver';
+import { preparedPageAudioEntry, resolvePageContent } from './pageContentResolver';
 
 describe('resolvePageContent', () => {
   it('uses prepared page text before attempting PDF extraction', async () => {
@@ -64,5 +64,46 @@ describe('resolvePageContent', () => {
 
     expect(result.source).toBe('pdf');
     expect(result.text).toBe('Extracted PDF text');
+  });
+});
+
+describe('preparedPageAudioEntry', () => {
+  it('converts persisted prepared audio into a ready reader entry', () => {
+    expect(preparedPageAudioEntry({
+      prepared: {
+        audioUrl: '/api/books/book/profiles/profile/pages/2/audio',
+        audio: { duration: 12.5 },
+        wordTimings: [
+          { word: 'Already', start_s: 0, end_s: 0.7 },
+          { word: 'prepared', start_s: 0.71, end_s: 1.4 },
+        ],
+      },
+      text: 'Already prepared',
+      page: 2,
+      voiceId: 'aria',
+      languageId: 'en',
+    })).toMatchObject({
+      status: 'ready',
+      page: 2,
+      voiceId: 'aria',
+      languageId: 'en',
+      audioUrl: '/api/books/book/profiles/profile/pages/2/audio',
+      duration_s: 12.5,
+      words: ['Already', 'prepared'],
+      times: [0, 0.71],
+      ends: [0.7, 1.4],
+      timingMode: 'aligned',
+      partial: false,
+    });
+  });
+
+  it('returns null when the prepared page has no durable narration', () => {
+    expect(preparedPageAudioEntry({
+      prepared: { text: 'Only text was saved' },
+      text: 'Only text was saved',
+      page: 1,
+      voiceId: null,
+      languageId: 'en',
+    })).toBeNull();
   });
 });
