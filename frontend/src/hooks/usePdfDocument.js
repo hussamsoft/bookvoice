@@ -124,8 +124,12 @@ export function usePdfDocument({ file, fileRef, toast }) {
     }, []);
 
     const resetDocument = useCallback(() => {
+        const previous = pdfDocRef.current;
         pdfDocRef.current = null;
         textCacheRef.current.clear();
+        if (previous?.destroy) {
+            Promise.resolve(previous.destroy()).catch(() => {});
+        }
     }, []);
 
     return {

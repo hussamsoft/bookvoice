@@ -1,22 +1,24 @@
 import asyncio
 import json
+import threading
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from services.path_utils import (
-    MAX_TEXT_CHARS,
+    MAX_NARRATION_TEXT_CHARS,
     validate_language_id,
     validate_page_index,
     validate_session_id,
-    validate_text_length,
+    validate_narration_text_length,
 )
 from services.config_service import config_value
 from services.alignment_service import alignment_mode
 from services import book_library_service
 from services.tts_service import (
     GenerationCancelled,
+    GenerationCancellation,
     TtsPriority,
     bump_generation,
     export_cached_pages,
@@ -29,10 +31,12 @@ from services.tts_service import (
 )
 
 router = APIRouter()
+_request_cancellations: dict[str, GenerationCancellation] = {}
+_request_cancellations_lock = threading.Lock()
 
 
 class NarrateRequest(BaseModel):
-    text: str = Field(..., max_length=MAX_TEXT_CHARS + 500)
+    text: str = Field(..., max_length=MAX_NARRATION_TEXT_CHARS)
     session_id: str
     page_index: int
     voice_id: str | None = None
@@ -40,6 +44,11 @@ class NarrateRequest(BaseModel):
     clip_suffix: str | None = None
     priority: str = "current"  # interactive | current | prefetch
     book_id: str | None = None
+    request_id: str | None = Field(None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class CancelRequest(BaseModel):
+    request_id: str | None = Field(None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class PronounceRequest(BaseModel):
@@ -120,6 +129,24 @@ def _cache_completed_page(request: NarrateRequest, text: str, page_index: int, r
     )
 
 
+def _register_cancellation(request_id: str | None) -> GenerationCancellation:
+    token = GenerationCancellation()
+    if request_id:
+        with _request_cancellations_lock:
+            previous = _request_cancellations.get(request_id)
+            if previous:
+                previous.cancel()
+            _request_cancellations[request_id] = token
+    return token
+
+
+def _release_cancellation(request_id: str | None, token: GenerationCancellation) -> None:
+    if request_id:
+        with _request_cancellations_lock:
+            if _request_cancellations.get(request_id) is token:
+                _request_cancellations.pop(request_id, None)
+
+
 @router.get("/status")
 async def tts_status():
     return state_snapshot()
@@ -139,7 +166,7 @@ async def tts_reload():
 @router.post("/pronounce", response_model=NarrateResponse)
 async def pronounce(request: PronounceRequest):
     try:
-        text = validate_text_length(request.text)
+        text = validate_narration_text_length(request.text)
         session_id = validate_session_id(request.session_id)
         language_id = validate_language_id(request.language_id)
     except ValueError as e:
@@ -168,7 +195,7 @@ async def pronounce(request: PronounceRequest):
 @router.post("/narrate", response_model=NarrateResponse)
 async def narrate(request: NarrateRequest):
     try:
-        text = validate_text_length(request.text)
+        text = validate_narration_text_length(request.text)
         session_id = validate_session_id(request.session_id)
         page_index = validate_page_index(request.page_index)
         language_id = validate_language_id(request.language_id)
@@ -177,6 +204,7 @@ async def narrate(request: NarrateRequest):
 
     priority = _priority_from_str(request.priority)
     loop = asyncio.get_running_loop()
+    cancellation = _register_cancellation(request.request_id)
     try:
         future = submit_tts(
             priority,
@@ -187,6 +215,7 @@ async def narrate(request: NarrateRequest):
             request.voice_id,
             language_id,
             request.clip_suffix,
+            cancellation,
         )
         result = await loop.run_in_executor(None, future.result)
         if isinstance(result, str):
@@ -200,11 +229,19 @@ async def narrate(request: NarrateRequest):
         raise HTTPException(status_code=499, detail="superseded") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        _release_cancellation(request.request_id, cancellation)
 
 
 @router.post("/cancel-generation")
-async def cancel_generation():
+async def cancel_generation(request: CancelRequest | None = None):
     """Invalidate in-flight TTS work (page change / voice switch / document close)."""
+    if request and request.request_id:
+        with _request_cancellations_lock:
+            cancellation = _request_cancellations.get(request.request_id)
+        if cancellation:
+            cancellation.cancel()
+        return {"cancelled_request_id": request.request_id, "found": cancellation is not None}
     token = bump_generation()
     return {"cancelled_token": token}
 
@@ -240,7 +277,7 @@ async def narrate_stream(request: NarrateRequest):
     as soon as chunk 0 is synthesized, before the rest of the page.
     """
     try:
-        text = validate_text_length(request.text)
+        text = validate_narration_text_length(request.text)
         session_id = validate_session_id(request.session_id)
         page_index = validate_page_index(request.page_index)
         language_id = validate_language_id(request.language_id)
@@ -251,14 +288,20 @@ async def narrate_stream(request: NarrateRequest):
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
+        cancellation = _register_cancellation(request.request_id)
+
+        def deliver(item):
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+
         def run_sync():
             try:
                 for event in narrate_text_streaming(
-                    text, session_id, page_index, request.voice_id, language_id
+                    text, session_id, page_index, request.voice_id, language_id,
+                    request.clip_suffix, cancellation,
                 ):
-                    asyncio.run_coroutine_threadsafe(queue.put(event), loop).result()
+                    deliver(event)
             except Exception as exc:  # noqa: BLE001 - surface to the client
-                asyncio.run_coroutine_threadsafe(queue.put(exc), loop).result()
+                deliver(exc)
 
         # All model access must run on the dedicated priority worker. Running
         # progressive synthesis on asyncio's generic executor allowed it to
@@ -266,25 +309,25 @@ async def narrate_stream(request: NarrateRequest):
         # unexpected thread.
         producer_future = submit_tts(_priority_from_str(request.priority), run_sync)
 
-        while True:
-            item = await queue.get()
-            if isinstance(item, GenerationCancelled):
-                yield json.dumps({"type": "cancelled"}) + "\n"
-                return
-            if isinstance(item, Exception):
-                yield json.dumps({"type": "error", "detail": str(item)}) + "\n"
-                return
-            line = dict(item)
-            if item.get("type") == "done":
-                _cache_completed_page(request, text, page_index, item)
-                line["alignment_mode"] = alignment_mode()
-            yield json.dumps(line) + "\n"
-            if item.get("type") == "done":
-                # Observe the producer result so an executor failure cannot be
-                # left as an unhandled Future exception. Never block the event
-                # loop with Future.result(): the producer uses this same loop
-                # to deliver queue items.
-                await asyncio.wrap_future(producer_future)
-                return
+        try:
+            while True:
+                item = await queue.get()
+                if isinstance(item, GenerationCancelled):
+                    yield json.dumps({"type": "cancelled"}) + "\n"
+                    return
+                if isinstance(item, Exception):
+                    yield json.dumps({"type": "error", "detail": str(item)}) + "\n"
+                    return
+                line = dict(item)
+                if item.get("type") == "done":
+                    _cache_completed_page(request, text, page_index, item)
+                    line["alignment_mode"] = alignment_mode()
+                yield json.dumps(line) + "\n"
+                if item.get("type") == "done":
+                    await asyncio.wrap_future(producer_future)
+                    return
+        finally:
+            cancellation.cancel()
+            _release_cancellation(request.request_id, cancellation)
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

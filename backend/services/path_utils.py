@@ -8,6 +8,7 @@ SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 VOICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 SUPPORTED_LANGUAGES = {"en", "ar"}
 MAX_TEXT_CHARS = 12_000
+MAX_NARRATION_TEXT_CHARS = 200_000
 MAX_PAGE_INDEX = 9_999
 MAX_VOICE_BYTES = 15 * 1024 * 1024  # 15 MB
 MAX_OCR_IMAGE_BYTES = 12 * 1024 * 1024  # 12 MB decoded
@@ -49,6 +50,17 @@ def validate_text_length(text: str) -> str:
     if len(stripped) > MAX_TEXT_CHARS:
         raise ValueError(
             f"Text is too long ({len(stripped)} chars). Maximum is {MAX_TEXT_CHARS} characters."
+        )
+    return stripped
+
+
+def validate_narration_text_length(text: str) -> str:
+    stripped = str(text or "").strip()
+    if not stripped:
+        raise ValueError("Text cannot be empty.")
+    if len(stripped) > MAX_NARRATION_TEXT_CHARS:
+        raise ValueError(
+            f"Text is too long ({len(stripped)} chars). Maximum is {MAX_NARRATION_TEXT_CHARS} characters."
         )
     return stripped
 

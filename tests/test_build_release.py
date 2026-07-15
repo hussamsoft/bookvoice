@@ -125,6 +125,21 @@ class BundleBaselineTests(unittest.TestCase):
 
 
 class MsiConfigTests(unittest.TestCase):
+    def test_release_asset_manifest_covers_both_msis_and_external_cabinets(self):
+        spec = importlib.util.spec_from_file_location(
+            "prepare_release_assets", ROOT / "scripts" / "prepare_release_assets.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        manifest = module.build_manifest()
+
+        self.assertEqual(manifest["version"], (ROOT / "VERSION").read_text().strip())
+        self.assertEqual(manifest["products"]["user"]["msi"], "BookVoice-User.msi")
+        self.assertEqual(manifest["products"]["machine"]["msi"], "BookVoice.msi")
+        self.assertGreater(len(manifest["products"]["user"]["cabinets"]), 0)
+        self.assertTrue(all(asset["size"] < module.MAX_RELEASE_ASSET for asset in manifest["assets"].values()))
+
     def test_user_product_targets_local_app_data(self):
         product = build_msi.PRODUCTS["user"]
         self.assertEqual(product.install_scope, "perUser")

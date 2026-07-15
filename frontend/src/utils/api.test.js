@@ -44,6 +44,16 @@ describe('narrateTextStream', () => {
       .rejects.toThrow('model failed');
     expect(onChunk).toHaveBeenCalledTimes(2);
   });
+
+  it('sends a request id for targeted cancellation', async () => {
+    const body = new ReadableStream({ start(controller) { controller.close(); } });
+    const fetchMock = vi.fn(async () => ({ ok: true, body }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await narrateTextStream('text', 'session-1', 1, null, 'en', { requestId: 'request_1' });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).request_id).toBe('request_1');
+  });
 });
 
 describe('exportCachedAudio', () => {

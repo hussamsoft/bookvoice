@@ -71,7 +71,7 @@ export function usePrefetch({
                         storeFullCache: false,
                         priority: 'prefetch',
                     });
-                    if (generation === generationRef.current) {
+                    if (entry && generation === generationRef.current) {
                         cacheRef.current.set(key, entry);
                     }
                 } catch {

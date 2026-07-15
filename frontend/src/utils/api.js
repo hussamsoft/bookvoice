@@ -21,7 +21,7 @@ export async function narrateText(
     pageIndex,
     voiceId = null,
     languageId = 'en',
-    { clipSuffix = null, priority = 'current', bookId = null } = {}
+    { clipSuffix = null, priority = 'current', bookId = null, requestId = null } = {}
 ) {
     const requestBody = {
         text,
@@ -38,6 +38,7 @@ export async function narrateText(
         requestBody.clip_suffix = String(clipSuffix);
     }
     if (bookId) requestBody.book_id = bookId;
+    if (requestId) requestBody.request_id = requestId;
 
     const response = await fetch(`${API_BASE_URL}/tts/narrate`, {
         method: 'POST',
@@ -194,7 +195,7 @@ export async function narrateTextStream(
     pageIndex,
     voiceId = null,
     languageId = 'en',
-    { clipSuffix = null, priority = 'current', bookId = null, onChunk = () => {} } = {},
+    { clipSuffix = null, priority = 'current', bookId = null, requestId = null, onChunk = () => {} } = {},
     signal
 ) {
     const requestBody = {
@@ -207,6 +208,7 @@ export async function narrateTextStream(
     if (voiceId) requestBody.voice_id = voiceId;
     if (clipSuffix != null) requestBody.clip_suffix = String(clipSuffix);
     if (bookId) requestBody.book_id = bookId;
+    if (requestId) requestBody.request_id = requestId;
 
     const response = await fetch(`${API_BASE_URL}/tts/narrate-stream`, {
         method: 'POST',
@@ -260,9 +262,13 @@ export async function getTtsStatus() {
  * Invalidate in-flight TTS work on the server (page change / voice switch /
  * document close). Best-effort: never rejects so callers can fire-and-forget.
  */
-export async function cancelGeneration() {
+export async function cancelGeneration(requestId = null) {
     try {
-        await fetch(`${API_BASE_URL}/tts/cancel-generation`, { method: 'POST' });
+        await fetch(`${API_BASE_URL}/tts/cancel-generation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestId ? { request_id: requestId } : {}),
+        });
     } catch {
         /* best-effort: the generation token will still age out */
     }

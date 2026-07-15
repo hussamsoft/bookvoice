@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 import wave
 from io import BytesIO
 
@@ -49,8 +50,15 @@ def seed_default_voices():
             d = os.path.join(dst, f)
             if not os.path.exists(d):
                 try:
-                    shutil.copy2(s, d)
+                    fd, temp_name = tempfile.mkstemp(prefix=f".{f}-", suffix=".tmp", dir=dst)
+                    os.close(fd)
+                    shutil.copy2(s, temp_name)
+                    os.replace(temp_name, d)
                 except OSError:
+                    try:
+                        os.unlink(temp_name)
+                    except (OSError, UnboundLocalError):
+                        pass
                     pass
 
 
@@ -157,10 +165,20 @@ async def upload_voice(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     file_path = os.path.join(_voices_dir(), f"{voice_id}.wav")
+    temp_path = None
     try:
-        with open(file_path, "wb") as buffer:
+        fd, temp_path = tempfile.mkstemp(prefix=f".{voice_id}-", suffix=".wav.tmp", dir=_voices_dir())
+        with os.fdopen(fd, "wb") as buffer:
             buffer.write(wav_bytes)
+            buffer.flush()
+            os.fsync(buffer.fileno())
+        os.replace(temp_path, file_path)
     except OSError as e:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
 
     return {"id": voice_id, "name": safe_name, "message": "Voice profile created."}

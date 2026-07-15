@@ -449,19 +449,14 @@ def build_launcher(launcher_backup: Path | None):
     try:
         subprocess.run(cmd, cwd=str(ROOT), check=True)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"[build] WARNING: Launcher rebuild failed: {e}")
-        if launcher_backup and launcher_backup.exists():
-            shutil.copy2(launcher_backup, DIST / "Launcher.exe")
-            print("[build] Restored previous Launcher.exe")
-        return
+        raise SystemExit(f"Launcher rebuild failed; refusing a stale release: {e}") from e
 
     built = dist_dir / "Launcher.exe"
     if built.is_file():
         shutil.copy2(built, DIST / "Launcher.exe")
         print(f"[build] Launcher.exe → dist/ ({built.stat().st_size // 1024} KB)")
-    elif launcher_backup and launcher_backup.exists():
-        shutil.copy2(launcher_backup, DIST / "Launcher.exe")
-        print("[build] Restored previous Launcher.exe (new build missing)")
+    else:
+        raise SystemExit("Launcher rebuild produced no executable; refusing a stale release.")
 
 
 def validate():
@@ -552,9 +547,8 @@ def validate():
             budget = payload["budget_kib"]
             print(f"[build] initial bundle entry: {initial:.2f} KiB (budget {budget:.0f} KiB)")
             if initial > budget:
-                print(
-                    f"[build] WARNING: initial bundle entry {initial:.2f} KiB exceeds "
-                    f"the {budget:.0f} KiB budget"
+                errors.append(
+                    f"initial bundle entry {initial:.2f} KiB exceeds the {budget:.0f} KiB budget"
                 )
 
     # No stale hashed assets left only if index points at them — already checked
@@ -614,6 +608,7 @@ def main():
 
     if args.msi:
         build_msi(per_user=args.per_user)
+        run([sys.executable, str(ROOT / "scripts" / "prepare_release_assets.py"), "--build-bootstrapper"], ROOT)
         print("[build] MSI ready: installer/BookVoice.msi (+ cab*.cab)")
         if args.per_user:
             print("[build] Per-user MSI ready: installer/BookVoice-User.msi")

@@ -495,7 +495,7 @@ class BookLibraryTests(unittest.TestCase):
         self.assertNotIn("_future", resumed)
         json.dumps(resumed)
 
-    def test_running_preparation_cancels_immediately_and_interrupts_generation(self):
+    def test_running_preparation_cancels_only_its_generation(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         library.save_page(book["id"], 1, "Page one", 1)
         job_id = "cancel-running-job"
@@ -513,11 +513,14 @@ class BookLibraryTests(unittest.TestCase):
             "cancelRequested": False,
         }
 
+        cancellation = Mock()
+        library._jobs[job_id]["_cancel"] = cancellation
         with patch("services.tts_service.bump_generation") as bump_generation:
             cancelled = library.cancel_preparation(job_id)
 
         self.assertEqual(cancelled["status"], "CANCELLED")
-        bump_generation.assert_called_once()
+        cancellation.cancel.assert_called_once()
+        bump_generation.assert_not_called()
         persisted = library.get_book(book["id"])["preparation"]
         self.assertEqual(persisted["status"], "CANCELLED")
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.1 - 2026-07-15
+
+### Fixed
+
+- Reopening a book after closing BookVoice during whole-book preparation no longer exposes worker state or fails with “cannot load this book”; completed pages resume safely.
+- Page edits made during generation can no longer receive narration for stale text, and duplicate or destructive preparation operations are synchronized.
+- Re-importing a `.bookvoice` file atomically replaces stale prepared content while preserving newer reading progress.
+- Narration cancellation is request-scoped, so stopping one page or closing a stream does not cancel unrelated book preparation.
+- Dense PDF pages up to the prepared-page limit can use the existing bounded narration chunker.
+- Voice uploads, prepared-book exports, and OCR image decoding are hardened against interrupted writes and oversized decompressed images.
+- Release builds now reject stale launchers and publish checksum metadata for every required external MSI cabinet.
+
+### Changed
+
+- The Windows release includes a small setup bootstrapper that downloads and verifies the offline runtime cabinets before launching the selected per-user or machine-wide MSI.
+
 ## 2.1.0 - 2026-07-14
 
 ### Added

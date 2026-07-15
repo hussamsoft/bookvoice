@@ -1,5 +1,6 @@
 import base64
 import os
+import warnings
 from io import BytesIO
 
 import numpy as np
@@ -10,6 +11,7 @@ from services.path_utils import MAX_OCR_IMAGE_BYTES
 
 _reader = None
 _reader_langs = None
+MAX_OCR_PIXELS = 25_000_000
 
 
 def get_reader(languages=None):
@@ -55,7 +57,14 @@ def _decode_image(image_data: str) -> np.ndarray:
         )
 
     try:
-        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            image = Image.open(BytesIO(image_bytes))
+            w, h = image.size
+            if w < 1 or h < 1 or w * h > MAX_OCR_PIXELS:
+                raise ValueError(f"Image resolution is too large ({w}x{h}).")
+            image.load()
+        image = image.convert("RGB")
         # Cap extreme resolutions to protect memory.
         max_side = 4000
         w, h = image.size

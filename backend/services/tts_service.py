@@ -19,6 +19,7 @@ from services.path_utils import (
     validate_language_id,
     validate_page_index,
     validate_session_id,
+    validate_narration_text_length,
     validate_text_length,
     validate_voice_id,
 )
@@ -103,6 +104,19 @@ class GenerationCancelled(RuntimeError):
     """Raised when a synthesis is superseded by a newer generation."""
 
 
+class GenerationCancellation:
+    """Request-scoped cooperative cancellation checked between TTS chunks."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+
 def bump_generation() -> int:
     """Invalidate all in-flight generations; returns the new token value."""
     global _generation_token
@@ -114,6 +128,11 @@ def bump_generation() -> int:
 def _current_generation() -> int:
     with _generation_lock:
         return _generation_token
+
+
+def _raise_if_cancelled(cancel_event: GenerationCancellation | None, started_token: int) -> None:
+    if (cancel_event is not None and cancel_event.cancelled()) or _current_generation() != started_token:
+        raise GenerationCancelled("generation was cancelled")
 
 # Chunk sizes — GPU can handle larger pieces (fewer slow generate() calls).
 _CHUNK_TARGET_CHARS_GPU = 480
@@ -692,9 +711,10 @@ def _synthesize_audio(
     filename: str,
     voice_id=None,
     language_id: str = "en",
+    cancel_event: GenerationCancellation | None = None,
 ) -> dict:
     """Core TTS synthesis; writes WAV to session dir with the given filename."""
-    text = validate_text_length(text)
+    text = validate_narration_text_length(text)
     session_id = validate_session_id(session_id)
     language_id = validate_language_id(language_id)
 
@@ -736,10 +756,7 @@ def _synthesize_audio(
             for i, chunk in enumerate(chunks):
                 # Cooperative cancellation: a newer generation (page change,
                 # voice switch, document close) supersedes this synthesis.
-                if _current_generation() != started_token:
-                    raise GenerationCancelled(
-                        f"generation {started_token} superseded by {_current_generation()}"
-                    )
+                _raise_if_cancelled(cancel_event, started_token)
                 _model_state["detail"] = (
                     f"Generating audio {i + 1}/{total} on {str(device).upper()}"
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
@@ -821,6 +838,7 @@ def narrate_text(
     voice_id=None,
     language_id="en",
     clip_suffix: str | None = None,
+    cancel_event: GenerationCancellation | None = None,
 ):
     session_id = validate_session_id(session_id)
     page_index = validate_page_index(page_index)
@@ -833,7 +851,7 @@ def narrate_text(
         clip_suffix,
     )
 
-    return _synthesize_audio(text, session_id, filename, voice_id, language_id)
+    return _synthesize_audio(text, session_id, filename, voice_id, language_id, cancel_event)
 
 
 def _audio_filename(
@@ -909,6 +927,8 @@ def narrate_text_streaming(
     page_index,
     voice_id=None,
     language_id="en",
+    clip_suffix: str | None = None,
+    cancel_event: GenerationCancellation | None = None,
 ):
     """Generator yielding progressive chunk events for first-audio-early playback.
 
@@ -921,7 +941,7 @@ def narrate_text_streaming(
     is also saved at the end so the existing cache-hit path and alignment still
     work unchanged.
     """
-    text = validate_text_length(text)
+    text = validate_narration_text_length(text)
     session_id = validate_session_id(session_id)
     page_index = validate_page_index(page_index)
     language_id = validate_language_id(language_id)
@@ -949,7 +969,7 @@ def narrate_text_streaming(
     sr = float(getattr(model, "sr", 24000) or 24000)
 
     page_hash = hashlib.sha256(
-        "\0".join((str(page_index), text, voice_id or "default", language_id)).encode("utf-8")
+        "\0".join((str(page_index), text, voice_id or "default", language_id, clip_suffix or "")).encode("utf-8")
     ).hexdigest()[:16]
 
     output_dir = safe_join(sessions_dir, session_id)
@@ -970,10 +990,7 @@ def narrate_text_streaming(
         try:
             cursor_s = 0.0
             for i, chunk in enumerate(chunks):
-                if _current_generation() != started_token:
-                    raise GenerationCancelled(
-                        f"generation {started_token} superseded by {_current_generation()}"
-                    )
+                _raise_if_cancelled(cancel_event, started_token)
                 _model_state["detail"] = (
                     f"Generating audio {i + 1}/{total} on {str(device).upper()}"
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")

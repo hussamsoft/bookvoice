@@ -29,6 +29,19 @@ LEGACY_WAV_VALIDATION_ERROR = "Prepared narration is not a valid WAV file."
 _lock = threading.RLock()
 _jobs: dict[str, dict] = {}
 _archives: dict[str, dict] = {}
+RUNTIME_RECORD_TTL_SECONDS = 24 * 3600
+
+
+def _prune_runtime_records() -> None:
+    cutoff = time.time() - RUNTIME_RECORD_TTL_SECONDS
+    with _lock:
+        for job_id, job in list(_jobs.items()):
+            if job.get("status") in {"COMPLETED", "FAILED", "CANCELLED"} and float(job.get("_finishedAt") or 0) < cutoff:
+                _jobs.pop(job_id, None)
+        for archive_id, record in list(_archives.items()):
+            if float(record.get("createdAt") or 0) < cutoff:
+                Path(record.get("path") or "").unlink(missing_ok=True)
+                _archives.pop(archive_id, None)
 
 
 def library_root() -> Path:
@@ -385,11 +398,10 @@ def _stop_book_jobs(book_id: str, timeout: float = 10.0) -> None:
             future = job.get("_future")
             if future is not None:
                 future.cancel()
+            cancellation = job.get("_cancel")
+            if cancellation is not None:
+                cancellation.cancel()
         threads = [job.get("_thread") for job in jobs if job.get("_thread") is not None]
-    if jobs and any(job.get("_future") is not None for job in jobs):
-        from services.tts_service import bump_generation
-
-        bump_generation()
     deadline = time.monotonic() + timeout
     for worker in threads:
         if worker is threading.current_thread():
@@ -606,6 +618,7 @@ def _safe_archive_members(bundle: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
 
 
 def create_archive(book_id: str, profile: str) -> dict:
+    _prune_runtime_records()
     manifest = get_book(book_id)
     if profile not in (manifest.get("profiles") or {}):
         raise FileNotFoundError("Prepared narration profile was not found.")
@@ -613,6 +626,9 @@ def create_archive(book_id: str, profile: str) -> dict:
     output_dir = Path(os.environ.get("DATA_DIR", "data")) / "book-archives"
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"{book_id[:12]}-{profile}.bookvoice"
+    fd, temp_name = tempfile.mkstemp(prefix=f".{book_id[:12]}-", suffix=".bookvoice.tmp", dir=output_dir)
+    os.close(fd)
+    temp_output = Path(temp_name)
     export_manifest = dict(manifest)
     export_manifest["profiles"] = {profile: manifest["profiles"][profile]}
     export_manifest["activeProfileId"] = profile
@@ -626,14 +642,19 @@ def create_archive(book_id: str, profile: str) -> dict:
         f"audio/{profile}/{audio_path.name}": _sha256_file(audio_path)
         for audio_path in audio_paths
     }
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as bundle:
-        bundle.writestr("manifest.json", json.dumps(export_manifest, indent=2, ensure_ascii=False))
-        bundle.write(book_dir(book_id) / "source.pdf", "document/source.pdf")
-        for page_path in page_paths:
-            bundle.write(page_path, f"pages/{page_path.name}")
-        for audio_path in audio_paths:
-            bundle.write(audio_path, f"audio/{profile}/{audio_path.name}")
-    record = {"id": archive_id, "bookId": book_id, "profileId": profile, "status": "COMPLETED", "path": str(output)}
+    try:
+        with zipfile.ZipFile(temp_output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as bundle:
+            bundle.writestr("manifest.json", json.dumps(export_manifest, indent=2, ensure_ascii=False))
+            bundle.write(book_dir(book_id) / "source.pdf", "document/source.pdf")
+            for page_path in page_paths:
+                bundle.write(page_path, f"pages/{page_path.name}")
+            for audio_path in audio_paths:
+                bundle.write(audio_path, f"audio/{profile}/{audio_path.name}")
+        os.replace(temp_output, output)
+    except Exception:
+        temp_output.unlink(missing_ok=True)
+        raise
+    record = {"id": archive_id, "bookId": book_id, "profileId": profile, "status": "COMPLETED", "path": str(output), "createdAt": time.time()}
     _archives[archive_id] = record
     return record
 
@@ -764,6 +785,20 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
                 if len(PurePosixPath(name).parts) != 2 or not filename_part.removesuffix(".json").isdigit():
                     raise ValueError("Prepared-book archive contains an invalid page entry.")
                 expected = page_hashes.get(filename_part)
+                try:
+                    with bundle.open(info_by_name[name], "r") as page_source:
+                        page_payload = json.loads(page_source.read(MAX_ARCHIVE_METADATA_BYTES + 1).decode("utf-8"))
+                    page_number = int(filename_part.removesuffix(".json"))
+                    page_text = str(page_payload.get("text") or "").strip()
+                    if (
+                        not isinstance(page_payload, dict)
+                        or page_payload.get("page") != page_number
+                        or not page_text
+                        or page_payload.get("textSha256") != _sha256_bytes(page_text.encode("utf-8"))
+                    ):
+                        raise ValueError
+                except (AttributeError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                    raise ValueError(f"Prepared-book page metadata is invalid: {filename_part}") from exc
             elif name.startswith("audio/"):
                 audio_names.add(name)
                 parts = PurePosixPath(name).parts
@@ -813,6 +848,7 @@ def start_preparation(book_id: str, voice_id: str | None, language_id: str) -> d
 
 
 def _start_preparation_locked(book_id: str, voice_id: str | None, language_id: str) -> dict:
+    _prune_runtime_records()
     manifest = get_book(book_id)
     profile = profile_id(voice_id, language_id)
     previous_preparation = manifest.get("preparation") or {}
@@ -877,9 +913,16 @@ def _start_preparation_locked(book_id: str, voice_id: str | None, language_id: s
 
 
 def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> None:
-    from services.tts_service import GenerationCancelled, TtsPriority, narrate_text, submit_tts
+    from services.tts_service import (
+        GenerationCancellation,
+        GenerationCancelled,
+        TtsPriority,
+        narrate_text,
+        submit_tts,
+    )
 
     job = _jobs[job_id]
+    cancellation = job.setdefault("_cancel", GenerationCancellation())
     job["status"] = "RUNNING"
     try:
         for page in range(1, job["totalPages"] + 1):
@@ -897,7 +940,12 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                 if job["cancelRequested"]:
                     job["status"] = "CANCELLED"
                     break
-                future = submit_tts(TtsPriority.PREPARE, narrate_text, page_meta["text"], session, page, voice_id, language_id)
+                future = submit_tts(
+                    TtsPriority.PREPARE,
+                    narrate_text,
+                    page_meta["text"], session, page, voice_id, language_id,
+                    cancel_event=cancellation,
+                )
                 job["_future"] = future
                 try:
                     result = future.result()
@@ -939,6 +987,7 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
         job["error"] = str(exc)
     finally:
         job["currentPage"] = None
+        job["_finishedAt"] = time.time()
         _persist_job(job)
 
 
@@ -978,11 +1027,9 @@ def cancel_preparation(job_id: str) -> dict:
         future = job.get("_future")
         if future is not None:
             future.cancel()
-        was_running = job["status"] == "RUNNING"
+        cancellation = job.get("_cancel")
+        if cancellation is not None:
+            cancellation.cancel()
         job["status"] = "CANCELLED"
-    if was_running:
-        from services.tts_service import bump_generation
-
-        bump_generation()
     _persist_job(job)
     return get_preparation(job_id)

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { cancelGeneration, narrateText } from '../utils/api';
 import { stitchPartialTimings } from '../utils/timings';
 import { cacheKey } from '../utils/pageAudioCache';
@@ -14,6 +14,7 @@ export function usePageNarration({
     buildTimings,
     bookId = null,
 }) {
+    const requestIdRef = useRef(null);
     const narratePage = useCallback(
         async (pageNum, text, opts = {}) => {
             const {
@@ -31,6 +32,8 @@ export function usePageNarration({
 
             let result;
             try {
+                const requestId = `${sessionId}-${crypto.randomUUID()}`;
+                requestIdRef.current = requestId;
                 result = await narrateText(
                     narrateBody,
                     sessionId,
@@ -41,6 +44,7 @@ export function usePageNarration({
                         clipSuffix: partial ? String(start) : null,
                         priority: partial ? 'interactive' : priority,
                         bookId: partial ? null : bookId,
+                        requestId,
                     }
                 );
             } catch (err) {
@@ -97,7 +101,8 @@ export function usePageNarration({
      * document close). Fire-and-forget; prefetch already bumps its own generation.
      */
     const cancelGenerationOnServer = useCallback(() => {
-        cancelGeneration();
+        const requestId = requestIdRef.current;
+        if (requestId) cancelGeneration(requestId);
     }, []);
 
     return { narratePage, cancelGeneration: cancelGenerationOnServer };

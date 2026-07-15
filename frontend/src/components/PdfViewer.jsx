@@ -106,7 +106,13 @@ export default function PdfViewer({ onDirty }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [transportState, setTransportState] = useState('idle');
     const [followNarration, setFollowNarration] = useState(
-        () => localStorage.getItem('bookvoice:follow-narration') === 'true'
+        () => {
+            try {
+                return localStorage.getItem('bookvoice:follow-narration') === 'true';
+            } catch {
+                return false;
+            }
+        }
     );
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
@@ -200,7 +206,11 @@ export default function PdfViewer({ onDirty }) {
     isGeneratingRef.current = isGenerating;
 
     useEffect(() => {
-        localStorage.setItem('bookvoice:follow-narration', String(followNarration));
+        try {
+            localStorage.setItem('bookvoice:follow-narration', String(followNarration));
+        } catch {
+            /* Reading still works when browser storage is unavailable. */
+        }
     }, [followNarration]);
 
     useEffect(() => {
@@ -212,8 +222,10 @@ export default function PdfViewer({ onDirty }) {
                 startupBookOpenedRef.current = true;
                 openLibraryBookRef.current(startupBook);
             }
-        }).catch(() => {});
-    }, []);
+        }).catch((error) => {
+            toast.error(error.message || 'Could not load the prepared-book library.');
+        });
+    }, [toast]);
 
     useEffect(() => {
         if (!preparation?.id || !['QUEUED', 'RUNNING'].includes(preparation.status)) return;
@@ -766,6 +778,7 @@ export default function PdfViewer({ onDirty }) {
             if (streamAbortRef.current) streamAbortRef.current.abort();
             streamAbortRef.current = new AbortController();
             const signal = streamAbortRef.current.signal;
+            const requestId = `${sessionId}-${crypto.randomUUID()}`;
             playlistRef.current = [];
             playlistIndexRef.current = 0;
             playlistExpectedTotalRef.current = 0;
@@ -822,6 +835,7 @@ export default function PdfViewer({ onDirty }) {
                 langRef.current,
                 {
                     bookId: libraryBookId,
+                    requestId,
                     onChunk: async (event) => {
                         if (event.type === 'chunk') {
                             collectedChunks.push(event);
