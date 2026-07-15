@@ -13,7 +13,7 @@ import wave
 import zipfile
 from concurrent.futures import Future
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
@@ -118,6 +118,26 @@ class BookLibraryTests(unittest.TestCase):
 
         self.assertEqual(imported["id"], book["id"])
 
+    def test_archive_import_replaces_stale_pages_and_audio_for_the_same_book(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = library.profile_id("Aria", "en")
+        source = library.book_dir(book["id"]) / "scratch" / "page-1.wav"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(valid_wav_bytes())
+        library.mark_page_audio(book["id"], profile, 1, source, [], 0.1, "Aria", "en")
+        archive = library.create_archive(book["id"], profile)
+
+        library.save_page(book["id"], 2, "Stale local page", 2)
+        stale_audio = library.book_dir(book["id"]) / "audio" / profile / "page-2.wav"
+        stale_audio.write_bytes(valid_wav_bytes())
+
+        library.import_bookvoice_path(Path(archive["path"]), "copy.bookvoice")
+
+        self.assertFalse((library.book_dir(book["id"]) / "pages" / "2.json").exists())
+        self.assertFalse(stale_audio.exists())
+        self.assertEqual(library.get_book(book["id"])["pageCount"], 1)
+
     def test_prepared_pages_accept_torchaudio_float_wav_output(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         library.save_page(book["id"], 1, "Page one", 1)
@@ -161,6 +181,23 @@ class BookLibraryTests(unittest.TestCase):
             library.mark_page_audio(book["id"], profile, 1, source, [], 0.1, None, "en")
 
         self.assertTrue(any(call.args[1] == library.page_audio_path(book["id"], profile, 1) for call in replace.call_args_list))
+
+    def test_mark_page_audio_rejects_generation_for_stale_page_text(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        original = library.save_page(book["id"], 1, "Original page", 1)
+        profile = library.profile_id(None, "en")
+        source = library.book_dir(book["id"]) / "scratch" / "page-1.wav"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(valid_wav_bytes())
+        library.save_page(book["id"], 1, "Edited page", 1)
+
+        with self.assertRaisesRegex(ValueError, "changed while narration was generating"):
+            library.mark_page_audio(
+                book["id"], profile, 1, source, [], 0.1, None, "en",
+                expected_text_sha256=original["textSha256"],
+            )
+
+        self.assertFalse(library.page_audio_path(book["id"], profile, 1).exists())
 
     def test_cache_generated_page_reuses_completed_interactive_narration(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
@@ -292,6 +329,63 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(page["audio"]["profileId"], profile)
         self.assertEqual(library._jobs[job_id]["status"], "COMPLETED")
 
+    def test_preparation_retries_when_page_text_changes_during_generation(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Original page", 1)
+        profile = library.profile_id(None, "en")
+        session = f"book-{book['id'][:12]}"
+        generated = Path(self.temp.name) / "sessions" / session
+        generated.mkdir(parents=True)
+        (generated / "old.wav").write_bytes(valid_wav_bytes())
+        (generated / "new.wav").write_bytes(valid_wav_bytes())
+        results = iter(("old.wav", "new.wav"))
+
+        def submit(*_args, **_kwargs):
+            name = next(results)
+            if name == "old.wav":
+                library.save_page(book["id"], 1, "Edited page", 1)
+            future = Future()
+            future.set_result({
+                "audio_url": f"/sessions/{session}/{name}",
+                "word_timings": [],
+                "duration_s": 0.1,
+            })
+            return future
+
+        job_id = "edited-page-job"
+        library._jobs[job_id] = {
+            "id": job_id, "bookId": book["id"], "profileId": profile,
+            "voiceId": None, "languageId": "en", "status": "QUEUED",
+            "completedPages": [], "totalPages": 1, "currentPage": None,
+            "error": None, "cancelRequested": False,
+        }
+
+        with patch("services.tts_service.submit_tts", side_effect=submit) as submit_tts:
+            library._run_preparation(job_id, None, "en")
+
+        self.assertEqual(submit_tts.call_count, 2)
+        self.assertEqual(library.get_page(book["id"], 1)["text"], "Edited page")
+        self.assertEqual(library._jobs[job_id]["status"], "COMPLETED")
+
+    def test_deleting_book_stops_and_removes_its_runtime_job(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        future = Future()
+        worker = Mock()
+        worker.is_alive.return_value = False
+        library._jobs["delete-job"] = {
+            "id": "delete-job", "bookId": book["id"], "profileId": library.profile_id(None, "en"),
+            "voiceId": None, "languageId": "en", "status": "RUNNING",
+            "completedPages": [], "totalPages": 1, "currentPage": 1,
+            "error": None, "cancelRequested": False, "_future": future, "_thread": worker,
+        }
+
+        library.delete_book(book["id"])
+
+        self.assertTrue(future.cancelled())
+        worker.join.assert_called_once()
+        self.assertNotIn("delete-job", library._jobs)
+        self.assertFalse(library.book_dir(book["id"]).exists())
+
     def test_book_summary_identifies_the_active_prepared_profile(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
         library.save_page(book["id"], 1, "Page one", 1)
@@ -375,6 +469,31 @@ class BookLibraryTests(unittest.TestCase):
 
         self.assertEqual(job["status"], "QUEUED")
         self.assertEqual(job["completedPages"], [1])
+
+    def test_reopening_interrupted_preparation_returns_only_serializable_state(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = library.profile_id(None, "en")
+        future = Future()
+        library._jobs["resumed-job"] = {
+            "id": "resumed-job",
+            "bookId": book["id"],
+            "profileId": profile,
+            "voiceId": None,
+            "languageId": "en",
+            "status": "RUNNING",
+            "completedPages": [],
+            "totalPages": 1,
+            "currentPage": 1,
+            "error": None,
+            "cancelRequested": False,
+            "_future": future,
+        }
+
+        resumed = library.start_preparation(book["id"], None, "en")
+
+        self.assertNotIn("_future", resumed)
+        json.dumps(resumed)
 
     def test_running_preparation_cancels_immediately_and_interrupts_generation(self):
         book = library.import_pdf(b"%PDF fixture", "A Book.pdf")

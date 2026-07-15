@@ -368,9 +368,38 @@ def get_book(book_id: str) -> dict:
 
 
 def delete_book(book_id: str) -> None:
+    _stop_book_jobs(book_id)
     target = book_dir(book_id)
-    if target.exists():
-        shutil.rmtree(target)
+    with _lock:
+        if target.exists():
+            shutil.rmtree(target)
+
+
+def _stop_book_jobs(book_id: str, timeout: float = 10.0) -> None:
+    """Cancel and join preparation workers before destructive book operations."""
+    with _lock:
+        jobs = [job for job in _jobs.values() if job.get("bookId") == book_id]
+        for job in jobs:
+            job["cancelRequested"] = True
+            job["status"] = "CANCELLED"
+            future = job.get("_future")
+            if future is not None:
+                future.cancel()
+        threads = [job.get("_thread") for job in jobs if job.get("_thread") is not None]
+    if jobs and any(job.get("_future") is not None for job in jobs):
+        from services.tts_service import bump_generation
+
+        bump_generation()
+    deadline = time.monotonic() + timeout
+    for worker in threads:
+        if worker is threading.current_thread():
+            continue
+        worker.join(timeout=max(0.0, deadline - time.monotonic()))
+        if worker.is_alive():
+            raise RuntimeError("Book preparation is still stopping; try again shortly.")
+    with _lock:
+        for job in jobs:
+            _jobs.pop(job["id"], None)
 
 
 def save_page(book_id: str, page: int, text: str, page_count: int | None = None) -> dict:
@@ -380,21 +409,21 @@ def save_page(book_id: str, page: int, text: str, page_count: int | None = None)
     clean = str(text or "").strip()
     if not clean:
         raise ValueError("Page text cannot be empty.")
-    target = book_dir(book_id) / "pages" / f"{page}.json"
-    existing = _read_json(target) if target.exists() else {}
-    text_hash = _sha256_bytes(clean.encode("utf-8"))
-    unchanged = existing.get("textSha256") == text_hash
-    payload = {
-        "page": page,
-        "text": clean,
-        "textSha256": text_hash,
-        "wordTimings": (existing.get("wordTimings") or []) if unchanged else [],
-        "updatedAt": int(time.time()),
-    }
-    if unchanged and existing.get("audio"):
-        payload["audio"] = existing["audio"]
-    _write_json(target, payload)
     with _lock:
+        target = book_dir(book_id) / "pages" / f"{page}.json"
+        existing = _read_json(target) if target.exists() else {}
+        text_hash = _sha256_bytes(clean.encode("utf-8"))
+        unchanged = existing.get("textSha256") == text_hash
+        payload = {
+            "page": page,
+            "text": clean,
+            "textSha256": text_hash,
+            "wordTimings": (existing.get("wordTimings") or []) if unchanged else [],
+            "updatedAt": int(time.time()),
+        }
+        if unchanged and existing.get("audio"):
+            payload["audio"] = existing["audio"]
+        _write_json(target, payload)
         manifest = get_book(book_id)
         if not unchanged:
             for audio_path in (book_dir(book_id) / "audio").glob(f"*/page-{page}.wav"):
@@ -451,32 +480,35 @@ def mark_page_audio(
     duration: float,
     voice_id: str | None,
     language_id: str,
+    expected_text_sha256: str | None = None,
 ) -> dict:
     _validate_wav_file(audio_source)
-    page_meta = get_page(book_id, page)
-    target = page_audio_path(book_id, profile, page)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if audio_source.resolve() != target.resolve():
-        fd, temp_name = tempfile.mkstemp(prefix=f".{target.stem}-", suffix=".wav.tmp", dir=target.parent)
-        os.close(fd)
-        temp_path = Path(temp_name)
-        try:
-            shutil.copy2(audio_source, temp_path)
-            _validate_wav_file(temp_path)
-            os.replace(temp_path, target)
-        except Exception:
-            temp_path.unlink(missing_ok=True)
-            raise
-    audio_sha256 = _sha256_file(target)
-    page_meta["wordTimings"] = word_timings or []
-    page_meta["audio"] = {
-        "profileId": profile,
-        "path": f"audio/{profile}/page-{page}.wav",
-        "sha256": audio_sha256,
-        "duration": float(duration or 0),
-    }
-    _write_json(book_dir(book_id) / "pages" / f"{page}.json", page_meta)
     with _lock:
+        page_meta = get_page(book_id, page)
+        if expected_text_sha256 and page_meta.get("textSha256") != expected_text_sha256:
+            raise ValueError("Page text changed while narration was generating.")
+        target = page_audio_path(book_id, profile, page)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if audio_source.resolve() != target.resolve():
+            fd, temp_name = tempfile.mkstemp(prefix=f".{target.stem}-", suffix=".wav.tmp", dir=target.parent)
+            os.close(fd)
+            temp_path = Path(temp_name)
+            try:
+                shutil.copy2(audio_source, temp_path)
+                _validate_wav_file(temp_path)
+                os.replace(temp_path, target)
+            except Exception:
+                temp_path.unlink(missing_ok=True)
+                raise
+        audio_sha256 = _sha256_file(target)
+        page_meta["wordTimings"] = word_timings or []
+        page_meta["audio"] = {
+            "profileId": profile,
+            "path": f"audio/{profile}/page-{page}.wav",
+            "sha256": audio_sha256,
+            "duration": float(duration or 0),
+        }
+        _write_json(book_dir(book_id) / "pages" / f"{page}.json", page_meta)
         manifest = get_book(book_id)
         profiles = manifest.setdefault("profiles", {})
         record = profiles.setdefault(
@@ -653,6 +685,30 @@ def _copy_file_atomic(source: Path, destination: Path) -> None:
         raise
 
 
+def _replace_book_from_staging(staging: Path, target: Path, manifest: dict) -> None:
+    """Replace one book directory atomically, rolling back if the swap fails."""
+    root = library_root()
+    incoming = root / f".{target.name}-import-{uuid.uuid4().hex}"
+    backup = root / f".{target.name}-backup-{uuid.uuid4().hex}"
+    shutil.copytree(staging, incoming)
+    _write_json(incoming / "manifest.json", manifest)
+    moved_existing = False
+    try:
+        if target.exists():
+            os.replace(target, backup)
+            moved_existing = True
+        os.replace(incoming, target)
+    except Exception:
+        if moved_existing and backup.exists() and not target.exists():
+            os.replace(backup, target)
+        raise
+    finally:
+        if incoming.exists():
+            shutil.rmtree(incoming, ignore_errors=True)
+        if backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+
+
 def import_bookvoice_path(path: Path, filename: str) -> dict:
     del filename
     try:
@@ -743,19 +799,20 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
         existing_progress = None
         if (target / "manifest.json").exists():
             existing_progress = get_book(book_id).get("progress")
-        target.mkdir(parents=True, exist_ok=True)
-        _copy_file_atomic(staging / "source.pdf", target / "source.pdf")
-        for source_path in staging.rglob("*"):
-            if not source_path.is_file() or source_path == staging / "source.pdf":
-                continue
-            _copy_file_atomic(source_path, target / source_path.relative_to(staging))
+        _stop_book_jobs(book_id)
         if existing_progress and int(existing_progress.get("updatedAt") or 0) > int((manifest.get("progress") or {}).get("updatedAt") or 0):
             manifest["progress"] = existing_progress
-        _write_json(target / "manifest.json", manifest)
+        with _lock:
+            _replace_book_from_staging(staging, target, manifest)
     return _summary(manifest)
 
 
 def start_preparation(book_id: str, voice_id: str | None, language_id: str) -> dict:
+    with _lock:
+        return _start_preparation_locked(book_id, voice_id, language_id)
+
+
+def _start_preparation_locked(book_id: str, voice_id: str | None, language_id: str) -> dict:
     manifest = get_book(book_id)
     profile = profile_id(voice_id, language_id)
     previous_preparation = manifest.get("preparation") or {}
@@ -766,7 +823,7 @@ def start_preparation(book_id: str, voice_id: str | None, language_id: str) -> d
             and existing["status"] in {"QUEUED", "RUNNING", "PAUSED"}
             and not existing["cancelRequested"]
         ):
-            return {key: value for key, value in existing.items() if key != "cancelRequested"}
+            return _public_job(existing)
     page_count = int(manifest.get("pageCount") or 0)
     if page_count < 1:
         raise ValueError("No prepared page text is available for this book.")
@@ -805,11 +862,18 @@ def start_preparation(book_id: str, voice_id: str | None, language_id: str) -> d
     ):
         job["legacyWavRecoveryAttempted"] = True
     _jobs[job_id] = job
-    manifest["preparation"] = {key: value for key, value in job.items() if key != "cancelRequested"}
+    manifest["preparation"] = _public_job(job)
     _write_json(_manifest_path(book_id), manifest)
     if job["status"] != "COMPLETED":
-        threading.Thread(target=_run_preparation, args=(job_id, voice_id, language_id), daemon=True).start()
-    return {key: value for key, value in job.items() if key != "cancelRequested"}
+        worker = threading.Thread(
+            target=_run_preparation,
+            args=(job_id, voice_id, language_id),
+            daemon=True,
+            name=f"bookvoice-preparation-{job_id[:8]}",
+        )
+        job["_thread"] = worker
+        worker.start()
+    return _public_job(job)
 
 
 def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> None:
@@ -822,14 +886,14 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
             if job["cancelRequested"]:
                 job["status"] = "CANCELLED"
                 break
-            page_meta = get_page(job["bookId"], page)
-            if is_page_prepared(job["bookId"], job["profileId"], page, page_meta):
-                job["completedPages"] = sorted(set(job["completedPages"]) | {page})
-                _persist_job(job)
-                continue
-            job["currentPage"] = page
-            session = f"book-{job['bookId'][:12]}"
             while True:
+                page_meta = get_page(job["bookId"], page)
+                if is_page_prepared(job["bookId"], job["profileId"], page, page_meta):
+                    job["completedPages"] = sorted(set(job["completedPages"]) | {page})
+                    _persist_job(job)
+                    break
+                job["currentPage"] = page
+                session = f"book-{job['bookId'][:12]}"
                 if job["cancelRequested"]:
                     job["status"] = "CANCELLED"
                     break
@@ -837,7 +901,6 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                 job["_future"] = future
                 try:
                     result = future.result()
-                    break
                 except (GenerationCancelled, CancelledError):
                     if job["cancelRequested"]:
                         job["status"] = "CANCELLED"
@@ -846,22 +909,29 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                     _persist_job(job)
                     time.sleep(0.25)
                     job["status"] = "RUNNING"
+                    continue
                 finally:
                     job.pop("_future", None)
+                if job["status"] == "CANCELLED":
+                    break
+                relative = str(result["audio_url"]).removeprefix("/sessions/")
+                source = Path(os.environ.get("DATA_DIR", "data")) / "sessions" / relative
+                try:
+                    mark_page_audio(
+                        job["bookId"], job["profileId"], page, source,
+                        result.get("word_timings") or [], result.get("duration_s") or 0,
+                        voice_id, language_id,
+                        expected_text_sha256=page_meta.get("textSha256"),
+                    )
+                except ValueError as exc:
+                    if str(exc) == "Page text changed while narration was generating.":
+                        continue
+                    raise
+                job["completedPages"] = sorted(set(job["completedPages"]) | {page})
+                _persist_job(job)
+                break
             if job["status"] == "CANCELLED":
                 break
-            if job["cancelRequested"]:
-                job["status"] = "CANCELLED"
-                break
-            relative = str(result["audio_url"]).removeprefix("/sessions/")
-            source = Path(os.environ.get("DATA_DIR", "data")) / "sessions" / relative
-            mark_page_audio(
-                job["bookId"], job["profileId"], page, source,
-                result.get("word_timings") or [], result.get("duration_s") or 0,
-                voice_id, language_id,
-            )
-            job["completedPages"] = sorted(set(job["completedPages"]) | {page})
-            _persist_job(job)
         if job["status"] == "RUNNING":
             job["status"] = "COMPLETED"
     except Exception as exc:  # noqa: BLE001 - persisted for the UI
@@ -873,41 +943,46 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
 
 
 def _persist_job(job: dict) -> None:
-    manifest = get_book(job["bookId"])
-    manifest["preparation"] = {
-        key: value
-        for key, value in job.items()
-        if key != "cancelRequested" and not key.startswith("_")
-    }
-    manifest["updatedAt"] = int(time.time())
-    _write_json(_manifest_path(job["bookId"]), manifest)
+    with _lock:
+        manifest = get_book(job["bookId"])
+        manifest["preparation"] = _public_job(job)
+        manifest["updatedAt"] = int(time.time())
+        _write_json(_manifest_path(job["bookId"]), manifest)
 
 
 def get_preparation(job_id: str) -> dict:
-    job = _jobs.get(job_id)
-    if not job:
-        raise FileNotFoundError("Preparation job was not found.")
+    with _lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise FileNotFoundError("Preparation job was not found.")
+        return _public_job(job)
+
+
+def _public_job(job: dict) -> dict:
+    """Return preparation state without worker-only runtime handles."""
     return {
         key: value
-        for key, value in job.items()
+        for key, value in job.copy().items()
         if key != "cancelRequested" and not key.startswith("_")
     }
 
 
 def cancel_preparation(job_id: str) -> dict:
-    job = _jobs.get(job_id)
-    if not job:
-        return {"id": job_id, "status": "CANCELLED"}
-    if job["status"] in {"COMPLETED", "FAILED", "CANCELLED"}:
-        return get_preparation(job_id)
-    job["cancelRequested"] = True
-    future = job.get("_future")
-    if future is not None:
-        future.cancel()
-    if job["status"] == "RUNNING":
+    with _lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return {"id": job_id, "status": "CANCELLED"}
+        if job["status"] in {"COMPLETED", "FAILED", "CANCELLED"}:
+            return _public_job(job)
+        job["cancelRequested"] = True
+        future = job.get("_future")
+        if future is not None:
+            future.cancel()
+        was_running = job["status"] == "RUNNING"
+        job["status"] = "CANCELLED"
+    if was_running:
         from services.tts_service import bump_generation
 
         bump_generation()
-    job["status"] = "CANCELLED"
     _persist_job(job)
     return get_preparation(job_id)

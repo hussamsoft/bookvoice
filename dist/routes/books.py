@@ -85,7 +85,7 @@ async def import_book(file: UploadFile = File(...)):
             if filename.lower().endswith(".bookvoice"):
                 return library.import_bookvoice_path(staged, filename)
             return library.import_pdf_path(staged, filename)
-        except (ValueError, FileNotFoundError, KeyError) as exc:
+        except (ValueError, FileNotFoundError, KeyError, RuntimeError) as exc:
             _error("INVALID_BOOK_FILE", str(exc))
     finally:
         if staged is not None:
@@ -104,6 +104,8 @@ async def get_book(book_id: str):
 async def delete_book(book_id: str):
     try:
         library.delete_book(book_id)
+    except RuntimeError as exc:
+        _error("BOOK_BUSY", str(exc), 409)
     except ValueError as exc:
         _error("BOOK_NOT_FOUND", str(exc), 404)
 
