@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.2 - 2026-07-15
+
+### Fixed
+
+- The desktop title bar now follows the selected dark or light theme instead of retaining a light-only gradient in dark mode.
+- Whole-book preparation is now used by the Play action after preparation completes or the app is reopened: persisted page WAVs load immediately instead of being generated again.
+- Verified prepared audio remains playable while the TTS worker is warming up or unavailable; only new narration requires the worker.
+
 ## 2.1.1 - 2026-07-15
 
 ### Fixed

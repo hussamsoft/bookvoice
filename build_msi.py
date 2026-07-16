@@ -330,6 +330,18 @@ def compile_msi(wxs_path: Path, msi_path: Path, *, per_user: bool = False) -> No
     subprocess.run(light_cmd, check=True)
 
 
+def clear_cab_cache() -> None:
+    """Remove WiX's generated cabinet cache before a fresh release build.
+
+    ``-reusecab`` is safe for the machine/user pair built in one invocation,
+    but stale extension cabinets can retain temp paths from a previous WiX
+    run. Starting from an empty cache prevents the linker from resolving a
+    missing temp cabinet into the next release.
+    """
+    for cabinet in OUT.glob("cab*.cab"):
+        cabinet.unlink()
+
+
 def build_product(files, product: MsiProduct) -> Path:
     OUT.mkdir(parents=True, exist_ok=True)
     wxs_path = OUT / product.wxs_name
@@ -359,6 +371,8 @@ def main():
     files = collect_files()
     if not files:
         raise SystemExit("No files found in dist/. Run build.py first.")
+
+    clear_cab_cache()
 
     if args.user_only:
         build_product(files, PRODUCTS["user"])

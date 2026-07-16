@@ -125,6 +125,25 @@ class BundleBaselineTests(unittest.TestCase):
 
 
 class MsiConfigTests(unittest.TestCase):
+    def test_clear_cab_cache_removes_generated_cabinets_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            installer = Path(temp_dir)
+            generated = installer / "cab_0_WixUIExtension.cab"
+            payload = installer / "cab12.cab"
+            retained = installer / "release-assets.json"
+            generated.write_bytes(b"stale-ui-cache")
+            payload.write_bytes(b"stale-payload")
+            retained.write_text("{}", encoding="utf-8")
+            original_out = build_msi.OUT
+            build_msi.OUT = installer
+            try:
+                build_msi.clear_cab_cache()
+            finally:
+                build_msi.OUT = original_out
+            self.assertFalse(generated.exists())
+            self.assertFalse(payload.exists())
+            self.assertTrue(retained.exists())
+
     def test_release_asset_manifest_covers_both_msis_and_external_cabinets(self):
         spec = importlib.util.spec_from_file_location(
             "prepare_release_assets", ROOT / "scripts" / "prepare_release_assets.py"
