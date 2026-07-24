@@ -62,6 +62,17 @@ class RuntimeBundleContractTests(unittest.TestCase):
 
         self.assertIn("runtime manifest forbids no startup provisioning", errors)
 
+    def test_build_validation_requires_packaged_media_tools(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir)
+            (dist / "runtime-manifest.json").write_text(
+                '{"startup_provisioning":"forbidden"}\n', encoding="utf-8"
+            )
+
+            errors = build.runtime_contract_errors(dist)
+
+        self.assertIn("runtime manifest media tools contract missing", errors)
+
     def test_launcher_uses_only_the_packaged_worker_runtime(self):
         launch_spec = importlib.util.spec_from_file_location("bookvoice_launch", ROOT / "launch.py")
         launch = importlib.util.module_from_spec(launch_spec)

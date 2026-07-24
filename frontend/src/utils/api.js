@@ -118,11 +118,12 @@ export async function getVoices() {
     return data.voices;
 }
 
-export async function uploadVoice(audioBlob, name) {
+export async function uploadVoice(audioBlob, name, consentConfirmed = false) {
     const formData = new FormData();
     const filename = name.endsWith('.wav') ? name : `${name}.wav`;
     formData.append('file', audioBlob, filename);
     formData.append('name', name);
+    formData.append('consent_confirmed', String(Boolean(consentConfirmed)));
 
     const response = await fetch(`${API_BASE_URL}/voices/`, {
         method: 'POST',
@@ -427,4 +428,133 @@ export async function createBookArchive(bookId, profileId) {
     if (!response.ok) throw new Error('Could not create a prepared-book file.');
     const data = await response.json();
     return { ...data, downloadUrl: `${AUDIO_BASE_URL}${data.downloadUrl}` };
+}
+
+async function studioRequest(path, options = {}, fallback = 'Voice Studio request failed') {
+    const response = await fetch(`${API_BASE_URL}/studio${path}`, options);
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, fallback));
+    }
+    if (response.status === 204) return null;
+    return response.json();
+}
+
+export async function listStudioProjects() {
+    const data = await studioRequest('/projects', {}, 'Could not load Voice Studio projects.');
+    return Array.isArray(data.projects) ? data.projects : [];
+}
+
+export function createStudioProject(name) {
+    return studioRequest('/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+    }, 'Could not create the Studio project.');
+}
+
+export function getStudioProject(projectId) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}`, {}, 'Could not open the Studio project.');
+}
+
+export function updateStudioProject(projectId, changes) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes),
+    }, 'Could not save the Studio project.');
+}
+
+export function duplicateStudioProject(projectId) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/copies`, {
+        method: 'POST',
+    }, 'Could not duplicate the Studio project.');
+}
+
+export function deleteStudioProject(projectId) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}`, {
+        method: 'DELETE',
+    }, 'Could not delete the Studio project.');
+}
+
+export function openStudioProjectFolder(projectId) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/open-folder`, {
+        method: 'POST',
+    }, 'Could not open the Studio project folder.');
+}
+
+export function uploadStudioSource(projectId, file) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/sources`, {
+        method: 'POST',
+        body: form,
+    }, 'Could not import the media file.');
+}
+
+export function createStudioProfile(projectId, input) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+    }, 'Could not create the voice profile.');
+}
+
+export function createStudioNarration(projectId, input) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/narrations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+    }, 'Could not generate Studio narration.');
+}
+
+export function createStudioRepair(projectId, input) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/repairs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+    }, 'Could not create the media repair.');
+}
+
+export function exportStudioRepair(projectId, repairId) {
+    return studioRequest(
+        `/projects/${encodeURIComponent(projectId)}/repairs/${encodeURIComponent(repairId)}/exports`,
+        { method: 'POST' },
+        'Could not export the repaired video.',
+    );
+}
+
+export function saveStudioOutput(projectId, outputId) {
+    return studioRequest(
+        `/projects/${encodeURIComponent(projectId)}/outputs/${encodeURIComponent(outputId)}/download`,
+        { method: 'POST' },
+        'Could not save the Studio output to Downloads.',
+    );
+}
+
+export function getStudioJob(jobId) {
+    return studioRequest(`/jobs/${encodeURIComponent(jobId)}`, {}, 'Could not read Studio progress.');
+}
+
+export function cancelStudioJob(jobId) {
+    return studioRequest(`/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }, 'Could not cancel the Studio job.');
+}
+
+export async function waitForStudioJob(jobId, { intervalMs = 500, signal, onProgress } = {}) {
+    for (;;) {
+        if (signal?.aborted) throw new DOMException('Studio job polling was cancelled.', 'AbortError');
+        const job = await getStudioJob(jobId);
+        onProgress?.(job);
+        if (job.status === 'COMPLETED') return job;
+        if (['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(job.status)) {
+            throw new Error(job.error?.message || job.message || `Studio job ${job.status.toLowerCase()}.`);
+        }
+        await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, intervalMs);
+            signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new DOMException('Studio job polling was cancelled.', 'AbortError'));
+            }, { once: true });
+        });
+    }
 }

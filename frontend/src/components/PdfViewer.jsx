@@ -63,6 +63,7 @@ import {
     missingPreparedTextPages,
     preparedBookDetails,
     preparationForActiveProfile,
+    shouldAdoptPreparedProfile,
 } from '../utils/preparedPages';
 import {
     documentFingerprint,
@@ -257,6 +258,29 @@ export default function PdfViewer({ onDirty }) {
         }, 1000);
         return () => clearInterval(timer);
     }, [preparation?.id, preparation?.status, toast]);
+
+    // Keep the reader's active narration profile aligned with an in-flight
+    // whole-book preparation. Without this, pages the preparation has already
+    // finished get re-narrated on Play: activeProfileId was only adopted once
+    // the job reported COMPLETED, so until then resolvePageContent had no
+    // profile to read prepared audio from and fell back to on-demand
+    // generation, leaving the transport reporting "Warming up…" over a page
+    // that was already on disk.
+    const preparedProfileId = preparation?.profileId ?? null;
+    const preparedVoiceId = preparation?.voiceId ?? null;
+    const preparedLanguageId = preparation?.languageId ?? null;
+    useEffect(() => {
+        if (!shouldAdoptPreparedProfile({
+            preparation: {
+                profileId: preparedProfileId,
+                voiceId: preparedVoiceId,
+                languageId: preparedLanguageId,
+            },
+            voiceId: activeVoiceRef.current,
+            languageId: langRef.current,
+        })) return;
+        setActiveProfileId((current) => (current === preparedProfileId ? current : preparedProfileId));
+    }, [preparedProfileId, preparedVoiceId, preparedLanguageId]);
 
     const {
         adoptPdfDocument,

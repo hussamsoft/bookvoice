@@ -26,6 +26,15 @@ This MVP was built across three development phases:
    - Playback progress, seeking, speed control, skip controls, and page-audio export.
    - Desktop launcher binds to **localhost only** (not exposed on the LAN).
 
+4. **Voice Studio**
+   - Persistent local projects for narration written directly in BookVoice; no text-file import is required.
+   - Create Narration starts with direct WAV, MP3, M4A/AAC, FLAC, OGG, WebM, MP4, MOV, or MKV import. Select 5–30 seconds of one speaker, confirm ownership/permission, and the resulting cloned profile is automatically selected to narrate whatever you type.
+   - Video imports receive a local H.264/AAC preview for reliable in-app picture and sound, while standalone narration adds short head and tail silence to protect speech from playback cutoffs.
+   - Descriptive pace, expression, temperature, guidance, and optional seed controls for English and Arabic narration. Pace preserves pitch, and the interface explains the result of increasing or decreasing every value.
+   - Transcript-guided sentence correction and waveform-guided phrase replacement create new immutable WAV output versions while preserving the source.
+   - Repaired video exports use the original video stream when compatible and otherwise produce a broadly compatible H.264/AAC MP4.
+   - Generated outputs save directly to the Windows Downloads folder without overwriting existing files, and each project can open its complete managed folder from the project list.
+
 ## Technology Stack
 
 - **Frontend**: React + Vite + plain CSS
@@ -56,6 +65,7 @@ bookvoice/
     ├── routes/         # Copied backend routes
     ├── services/       # Copied backend services
     ├── main.py         # Entry point for serving both backend API and static frontend
+    ├── tools/ffmpeg/   # Pinned FFmpeg/FFprobe, license, and distribution notice
     └── requirements.txt
 ```
 
@@ -105,6 +115,7 @@ npm run dev
 - Backend → `dist/main.py`, `routes/`, `services/`
 - Portable Python 3.10 worker and locked packages → `dist/runtime/worker`
 - Bundled English models, default voices, `launch.py`, `Launcher.exe`
+- Pinned FFmpeg/FFprobe 8.1.1 and license notices → `dist/tools/ffmpeg`
 
 ```bash
 python build.py                 # dist/ only
@@ -121,7 +132,10 @@ python scripts/smoke_launch.py --app-dir dist --skip-server
 PDF reading position, bookmarks, zoom and playback speed are stored locally in
 the app browser profile. Translation uses the `deep-translator` Google backend
 and therefore sends the selected page text to that external service; narration,
-OCR and PDF viewing otherwise run locally from the bundled runtime.
+OCR, PDF viewing, voice profiling, and Voice Studio media processing otherwise
+run locally from the bundled runtime. Voice Studio projects are stored under the
+BookVoice user-data directory and keep copied sources and immutable output
+versions until the project is explicitly deleted.
 
 
 ## Packaging (Windows installers)
@@ -145,3 +159,6 @@ creates a venv or invokes pip, and no system Python on PATH is required.
 
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.
+Release builds also distribute FFmpeg/FFprobe under GPLv3; the installed
+`tools/ffmpeg/NOTICE.txt` and `tools/ffmpeg/LICENSE.txt` files include the
+applicable attribution, license, and corresponding-source locations.

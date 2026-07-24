@@ -31,6 +31,7 @@ runtime\worker\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
+| `tools/ffmpeg/` | Pinned FFmpeg/FFprobe media tools and license notices |
 
 ## Notes
 
@@ -38,3 +39,4 @@ runtime\worker\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
   `%LocalAppData%\BookVoice\installs\<install-id>\`.
 - Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
 - English TTS is offline once `data/models/en` is present.
+- Voice Studio projects, imported media, profiles, and outputs remain local.

@@ -1,6 +1,30 @@
 # Changelog
 
-## 2.1.2 - 2026-07-15
+## 2.1.3 - 2026-07-23
+
+### Added
+
+- Voice Studio adds persistent local projects for typed English/Arabic narration and waveform-guided audio or video phrase repair.
+- Audio and video references can create reusable, consent-gated voice profiles with duration, loudness, clipping, silence, and sample-quality feedback.
+- Studio narration includes pace, expression, temperature, guidance, and repeatable variation-seed controls, plus transcript-based sentence correction that creates a new immutable WAV version.
+- Media repair preserves imported sources, creates loudness-matched and crossfaded WAV versions, and can remux repaired audio into a compatible MP4 without replacing the original video.
+- Release payloads now include pinned FFmpeg and FFprobe 8.1.1 executables, checksums, and license notices in both runtime and release manifests.
+
+### Fixed
+
+- Pace is now applied once to the completed narration with FFmpeg's pitch-preserving `atempo` filter, eliminating the phase-vocoder doubling and hall-like echo that could occur on chunked speech.
+- Expression now stays in Chatterbox's safer exaggeration range with an adaptive automatic guidance curve; manually entered guidance remains an exact override.
+- Advanced delivery controls now explain their lower and higher endpoints, show semantic value labels, and provide persistent accessible help.
+- Voice Studio output actions now save automatically to the Windows Downloads folder without overwriting existing files, and every project has an Open Folder action for its complete managed project directory.
+- Standalone Voice Studio narrations now include short leading and trailing silence so the first and last spoken sounds are not clipped; phrase-repair clips remain tightly trimmed for clean crossfades.
+- Uploaded videos now use a generated H.264/AAC browser preview and a substantially taller responsive player, preventing audio-only black frames for otherwise valid MOV, MKV, WebM, and other imports.
+- Create Narration now exposes media-derived voice cloning as its first step and automatically selects the new profile, so typed narration is conditioned on the imported speaker instead of silently using the default voice. Packaged smoke coverage now proves both WAV- and MP4-derived profiles reach Chatterbox synthesis.
+- Opening Reading options (or any other panel) while the AI models are still loading no longer blanks the window. The reader now renders on the CPU, so a busy GPU can no longer take the display driver — and the window with it — down mid-load.
+- Pages that whole-book preparation has already finished now play immediately, instead of being narrated again while the rest of the book is still being prepared. Previously prepared audio was only used once the whole book had finished.
+
+### Changed
+
+- The dark theme is now a warm "dark paper" that matches the cream light theme, with clearer separation between the background, panels, and raised surfaces. The cold blue-grey shades and the flat, single-tone look are gone.
 
 ### Fixed
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "app_version": "2.1.2",
+  "app_version": "2.1.3",
   "worker_python": "runtime/worker/python.exe",
   "startup_provisioning": "forbidden",
   "required_packages": [
@@ -15,6 +15,19 @@
     "PIL",
     "numpy",
     "cv2",
-    "soundfile"
-  ]
+    "soundfile",
+    "librosa"
+  ],
+  "media_tools": {
+    "version": "8.1.1",
+    "provider": "Gyan FFmpeg full build",
+    "ffmpeg": "tools/ffmpeg/ffmpeg.exe",
+    "ffprobe": "tools/ffmpeg/ffprobe.exe",
+    "notice": "tools/ffmpeg/NOTICE.txt",
+    "license": "tools/ffmpeg/LICENSE.txt",
+    "sha256": {
+      "ffmpeg": "09948d4cdd0650da6ff5a87577469f2a218dc2615ae379f8f734d24c49de0f73",
+      "ffprobe": "a6618e99bb58869ded3c6f37b53aa1a8d701c3591dbb7b5b317d47369c112be2"
+    }
+  }
 }

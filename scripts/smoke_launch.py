@@ -6,6 +6,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -28,6 +29,10 @@ def check_payload(app_dir: Path) -> list[str]:
         "runtime-manifest.json",
         "launch.py",
         "scripts/kill_stale_bookvoice.ps1",
+        "tools/ffmpeg/ffmpeg.exe",
+        "tools/ffmpeg/ffprobe.exe",
+        "tools/ffmpeg/NOTICE.txt",
+        "tools/ffmpeg/LICENSE.txt",
     ):
         if not (app_dir / rel).is_file():
             errors.append(f"missing required file: {rel}")
@@ -43,9 +48,9 @@ def wait_for_health(base_url: str, timeout_s: int = 60) -> bool:
     return False
 
 
-def fetch_ok(url: str) -> bool:
+def fetch_ok(url: str, timeout_s: int = 10) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=2) as response:
+        with urllib.request.urlopen(url, timeout=timeout_s) as response:
             return 200 <= response.status < 300
     except (OSError, urllib.error.URLError):
         return False
@@ -81,41 +86,52 @@ def main() -> int:
         print("[smoke] payload OK")
         return 0
 
-    os.makedirs(runtime_dir, exist_ok=True)
-    log = launch.Logger(str(Path(runtime_dir) / "bookvoice_smoke.log"))
-    py = launch.packaged_worker(str(app_dir), log)
-    if not py:
-        print("[smoke] ERROR: packaged worker runtime missing")
-        return 1
-
-    port = launch.pick_port(log)
-    env = launch.build_env(str(app_dir), runtime_dir)
-    proc = subprocess.Popen(
-        [py, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
-        cwd=str(app_dir),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=launch._no_window(),
-    )
-    try:
-        base = f"http://127.0.0.1:{port}"
-        if not wait_for_health(base):
-            print("[smoke] ERROR: /api/health did not become ready")
+    with tempfile.TemporaryDirectory(prefix="bookvoice-packaged-smoke-") as smoke_runtime:
+        print(f"[smoke] isolated_runtime={smoke_runtime}")
+        log = launch.Logger(str(Path(smoke_runtime) / "bookvoice_smoke.log"))
+        py = launch.packaged_worker(str(app_dir), log)
+        if not py:
+            print("[smoke] ERROR: packaged worker runtime missing")
             return 1
-        for path in ("/api/health", "/api/books", "/api/config/", "/api/voices/"):
-            if not fetch_ok(base + path):
-                print(f"[smoke] ERROR: {path} failed")
-                return 1
-        print("[smoke] server endpoints OK")
-        return 0
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
+
+        port = launch.pick_port(log)
+        env = launch.build_env(str(app_dir), smoke_runtime)
+        server_log_path = Path(smoke_runtime) / "bookvoice_server.log"
+        with server_log_path.open("wb") as server_log:
+            proc = subprocess.Popen(
+                [py, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
+                cwd=str(app_dir),
+                env=env,
+                stdout=server_log,
+                stderr=subprocess.STDOUT,
+                creationflags=launch._no_window(),
+            )
             try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+                base = f"http://127.0.0.1:{port}"
+                if not wait_for_health(base):
+                    print("[smoke] ERROR: /api/health did not become ready")
+                    print(server_log_path.read_text(encoding="utf-8", errors="replace")[-2000:])
+                    return 1
+                for path in (
+                    "/api/health",
+                    "/api/books",
+                    "/api/config/",
+                    "/api/voices/",
+                    "/api/studio/projects",
+                ):
+                    if not fetch_ok(base + path):
+                        print(f"[smoke] ERROR: {path} failed")
+                        print(server_log_path.read_text(encoding="utf-8", errors="replace")[-2000:])
+                        return 1
+                print("[smoke] server endpoints OK")
+                return 0
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
 
 
 if __name__ == "__main__":

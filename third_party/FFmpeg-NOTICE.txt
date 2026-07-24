@@ -1,0 +1,19 @@
+FFmpeg distribution notice
+==========================
+
+BookVoice bundles unmodified FFmpeg and FFprobe 8.1.1 executables for local
+media inspection, conversion, and remuxing. BookVoice invokes these programs
+as separate processes; they are not loaded as application libraries.
+
+The bundled Windows full build is provided by Gyan Doshi (gyan.dev) and is
+licensed under GNU GPL version 3. The complete license text is installed as
+tools/ffmpeg/LICENSE.txt. FFmpeg source for this exact version is available at:
+
+  https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz
+
+Build-provider source and build scripts are available at:
+
+  https://github.com/GyanD/codexffmpeg
+
+FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
+The FFmpeg project and build provider do not endorse BookVoice.

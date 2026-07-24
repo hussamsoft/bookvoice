@@ -1,7 +1,9 @@
 """TTS status/reload lifecycle tests — never load the real model or CUDA."""
 from __future__ import annotations
 
+import math
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -190,6 +192,287 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertEqual(len({base, other_voice, other_language, other_text}), 4)
         self.assertTrue(base.startswith("page_2_"))
         self.assertTrue(base.endswith(".wav"))
+
+    def test_audio_filename_changes_with_studio_generation_settings(self):
+        normal = self.tts._audio_filename(
+            0, "Studio text", "voice-a", "en", None,
+            {"pace": 1.0, "expression": 0.5, "temperature": 0.8, "guidance": None, "seed": 7},
+        )
+        expressive = self.tts._audio_filename(
+            0, "Studio text", "voice-a", "en", None,
+            {"pace": 1.0, "expression": 0.9, "temperature": 0.8, "guidance": None, "seed": 7},
+        )
+
+        self.assertNotEqual(normal, expressive)
+
+    def test_studio_audio_filename_changes_when_voice_reference_changes(self):
+        settings = {"pace": 1.0, "expression": 0.5, "temperature": 0.8, "guidance": None, "seed": 7}
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            os.environ, {"DATA_DIR": temp_dir}
+        ):
+            voices = Path(temp_dir) / "voices"
+            voices.mkdir()
+            reference = voices / "voice-a.wav"
+            reference.write_bytes(b"first reference")
+            first = self.tts._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
+            reference.write_bytes(b"replacement reference")
+            second = self.tts._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
+
+        self.assertNotEqual(first, second)
+
+    def test_voice_condition_cache_identity_includes_model_version(self):
+        model = type("ChatterboxTTS", (), {})()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reference = Path(temp_dir) / "voice.wav"
+            reference.write_bytes(b"reference")
+            with patch.object(self.tts, "_chatterbox_model_version", return_value="1.0"):
+                first = self.tts._voice_condition_cache_path(str(reference), model)
+            with patch.object(self.tts, "_chatterbox_model_version", return_value="2.0"):
+                second = self.tts._voice_condition_cache_path(str(reference), model)
+
+        self.assertNotEqual(first.name, second.name)
+
+    def test_studio_settings_map_to_chatterbox_generation_kwargs(self):
+        settings = {
+            "pace": 1.1,
+            "expression": 0.7,
+            "temperature": 0.9,
+            "guidance": 0.3,
+            "seed": 42,
+        }
+
+        kwargs = self.tts._generation_kwargs(settings, chunk_index=2)
+
+        self.assertAlmostEqual(kwargs["exaggeration"], 0.58)
+        self.assertEqual(kwargs["temperature"], 0.9)
+        self.assertEqual(kwargs["cfg_weight"], 0.3)
+        self.assertEqual(kwargs["seed"], 44)
+
+    def test_auto_guidance_tracks_the_safe_expression_curve_on_every_device(self):
+        calm = self.tts._generation_kwargs({"expression": 0.0})
+        neutral = self.tts._generation_kwargs({"expression": 0.5})
+        animated = self.tts._generation_kwargs({"expression": 1.0})
+
+        self.assertAlmostEqual(calm["exaggeration"], 0.4)
+        self.assertAlmostEqual(calm["cfg_weight"], 0.5)
+        self.assertAlmostEqual(neutral["exaggeration"], 0.5)
+        self.assertAlmostEqual(neutral["cfg_weight"], 0.4)
+        self.assertAlmostEqual(animated["exaggeration"], 0.7)
+        self.assertAlmostEqual(animated["cfg_weight"], 0.3)
+
+    def test_manual_guidance_remains_an_exact_override(self):
+        with patch.object(self.tts, "_is_cuda_build", return_value=True):
+            result = self.tts._generation_kwargs(
+                {"expression": 1.0, "guidance": 0.65}
+            )
+
+        self.assertEqual(result["cfg_weight"], 0.65)
+
+    def test_studio_cache_identity_includes_the_generation_pipeline_version(self):
+        settings = {
+            "pace": 1.0,
+            "expression": 0.5,
+            "temperature": 0.8,
+            "guidance": None,
+            "seed": 7,
+        }
+        with patch.object(self.tts, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v1"):
+            first = self.tts._audio_filename(
+                0, "Studio text", None, "en", None, settings
+            )
+        with patch.object(self.tts, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v2"):
+            second = self.tts._audio_filename(
+                0, "Studio text", None, "en", None, settings
+            )
+
+        self.assertNotEqual(first, second)
+
+    def test_studio_pace_is_applied_once_after_chunks_are_concatenated(self):
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24_000
+        chunk = torch.ones(1, 12_000)
+        paced = torch.ones(1, 19_200)
+        settings = {
+            "pace": 1.25,
+            "expression": 0.5,
+            "temperature": 0.8,
+            "guidance": None,
+            "seed": 7,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            self.tts, "get_model", return_value=model
+        ), patch.object(
+            self.tts, "maybe_cleanup_sessions"
+        ), patch.object(
+            self.tts, "_split_into_chunks", return_value=["First.", "Second."]
+        ), patch.object(
+            self.tts, "_generate_chunk", return_value=chunk
+        ), patch.object(
+            self.tts, "_apply_pace", return_value=paced
+        ) as apply_pace, patch.object(
+            self.tts.ta, "save"
+        ), patch.object(
+            self.tts,
+            "_data_dirs",
+            return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(Path(temp_dir) / "sessions")),
+        ), patch(
+            "services.alignment_service.align_words", return_value=None
+        ):
+            result = self.tts.narrate_studio_text(
+                "First. Second.", "studio-session", None, "en", settings
+            )
+
+        apply_pace.assert_called_once()
+        self.assertEqual(apply_pace.call_args.args[0].shape[-1], 24_000)
+        self.assertEqual(apply_pace.call_args.args[1:3], (1.25, 24_000))
+        self.assertAlmostEqual(
+            result["segments"][0]["end_s"] - result["segments"][0]["start_s"],
+            0.4,
+            places=3,
+        )
+        self.assertAlmostEqual(
+            result["segments"][1]["end_s"] - result["segments"][1]["start_s"],
+            0.4,
+            places=3,
+        )
+
+    @unittest.skipUnless(
+        (ROOT / "dist" / "tools" / "ffmpeg" / "ffmpeg.exe").is_file()
+        or shutil.which("ffmpeg"),
+        "FFmpeg is required for the real pace quality check.",
+    )
+    def test_ffmpeg_pace_preserves_pitch_duration_and_a_silent_tail(self):
+        import torch
+
+        sample_rate = 24_000
+        time_axis = torch.arange(sample_rate * 2, dtype=torch.float32) / sample_rate
+        source = 0.25 * torch.sin(2 * math.pi * 220 * time_axis)
+        source[int(sample_rate * 1.8):] = 0
+
+        for pace in (0.75, 1.25):
+            with self.subTest(pace=pace):
+                adjusted = self.tts._apply_pace(
+                    source.unsqueeze(0), pace, sample_rate
+                )[0]
+                self.assertAlmostEqual(
+                    adjusted.numel() / sample_rate,
+                    2 / pace,
+                    delta=0.08,
+                )
+                middle = adjusted[
+                    int(sample_rate * 0.3):min(
+                        adjusted.numel(), int(sample_rate * 1.2)
+                    )
+                ]
+                spectrum = torch.fft.rfft(
+                    middle * torch.hann_window(middle.numel())
+                ).abs()
+                dominant_hz = (
+                    float(torch.argmax(spectrum))
+                    * sample_rate
+                    / middle.numel()
+                )
+                self.assertAlmostEqual(dominant_hz, 220, delta=2)
+                tail = adjusted[-int(sample_rate * 0.08):]
+                tail_rms = float(torch.sqrt(torch.mean(tail**2)))
+                self.assertLess(tail_rms, 0.0001)
+
+    def test_selected_imported_voice_conditions_studio_synthesis_with_reference_audio(self):
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24_000
+        fake = torch.zeros(1, 12_000)
+        settings = {
+            "pace": 1.0,
+            "expression": 0.5,
+            "temperature": 0.8,
+            "guidance": None,
+            "seed": 7,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            voices = Path(temp_dir) / "voices"
+            sessions = Path(temp_dir) / "sessions"
+            voices.mkdir()
+            reference = voices / "imported_voice.wav"
+            reference.write_bytes(b"media-derived voice reference")
+            with patch.object(self.tts, "get_model", return_value=model), patch.object(
+                self.tts, "maybe_cleanup_sessions"
+            ), patch.object(
+                self.tts, "_split_into_chunks", return_value=["New words in the imported voice."]
+            ), patch.object(
+                self.tts, "_generate_chunk", return_value=fake
+            ) as generate, patch.object(
+                self.tts.ta, "save"
+            ), patch.object(
+                self.tts, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
+            ), patch(
+                "services.alignment_service.align_words", return_value=None
+            ):
+                self.tts.narrate_studio_text(
+                    "New words in the imported voice.",
+                    "studio-session",
+                    "imported_voice",
+                    "en",
+                    settings,
+                )
+
+        self.assertEqual(generate.call_args.kwargs["audio_prompt_path"], str(reference))
+
+    def test_standalone_studio_narration_adds_silence_before_and_after_speech(self):
+        import torch
+
+        model = MagicMock()
+        model.device = "cpu"
+        model.sr = 24_000
+        speech = torch.ones(1, 24_000)
+        settings = {
+            "pace": 1.0,
+            "expression": 0.5,
+            "temperature": 0.8,
+            "guidance": None,
+            "seed": 7,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            self.tts, "get_model", return_value=model
+        ), patch.object(
+            self.tts, "maybe_cleanup_sessions"
+        ), patch.object(
+            self.tts, "_split_into_chunks", return_value=["Clear beginning and ending."]
+        ), patch.object(
+            self.tts, "_generate_chunk", return_value=speech
+        ), patch.object(
+            self.tts.ta, "save"
+        ) as save, patch.object(
+            self.tts,
+            "_data_dirs",
+            return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(Path(temp_dir) / "sessions")),
+        ), patch(
+            "services.alignment_service.align_words", return_value=None
+        ):
+            result = self.tts.narrate_studio_text(
+                "Clear beginning and ending.", "studio-session", None, "en", settings
+            )
+
+        saved = save.call_args.args[1]
+        leading = int(round(self.tts.STUDIO_LEADING_SILENCE_S * model.sr))
+        trailing = int(round(self.tts.STUDIO_TRAILING_SILENCE_S * model.sr))
+        self.assertTrue(torch.count_nonzero(saved[..., :leading]) == 0)
+        self.assertTrue(torch.count_nonzero(saved[..., -trailing:]) == 0)
+        self.assertTrue(torch.all(saved[..., leading:leading + speech.shape[-1]] == 1))
+        self.assertEqual(saved.shape[-1], speech.shape[-1] + leading + trailing)
+        self.assertAlmostEqual(result["segments"][0]["start_s"], self.tts.STUDIO_LEADING_SILENCE_S)
+        self.assertAlmostEqual(
+            result["duration_s"],
+            1.0 + self.tts.STUDIO_LEADING_SILENCE_S + self.tts.STUDIO_TRAILING_SILENCE_S,
+        )
 
     def test_bump_generation_aborts_in_flight_chunks(self):
         """A generation-token bump mid-synthesis cancels remaining chunks."""
@@ -703,6 +986,38 @@ class LauncherRuntimeTests(unittest.TestCase):
             open(exe, "wb").close()
             resolved = self.launch.bundled_python(temp_dir)
         self.assertEqual(resolved, exe)
+
+    def test_webview_renders_on_the_cpu_by_default(self):
+        """The TTS model and WebView2 must not contend for the same GPU."""
+        with patch.dict(os.environ, {}, clear=True):
+            self.launch.configure_webview_gpu()
+            self.assertEqual(
+                os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"], "--disable-gpu"
+            )
+
+    def test_webview_gpu_can_be_re_enabled_for_debugging(self):
+        with patch.dict(os.environ, {"BOOKVOICE_ENABLE_GPU": "1"}, clear=True):
+            self.launch.configure_webview_gpu()
+            self.assertNotIn("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", os.environ)
+
+    def test_webview_keeps_caller_supplied_browser_arguments(self):
+        with patch.dict(
+            os.environ,
+            {"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--custom-flag"},
+            clear=True,
+        ):
+            self.launch.configure_webview_gpu()
+            self.assertEqual(
+                os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"], "--custom-flag"
+            )
+
+    def test_webview_downloads_are_enabled_before_start(self):
+        webview_module = MagicMock()
+        webview_module.settings = {"ALLOW_DOWNLOADS": False}
+
+        self.launch.configure_webview_downloads(webview_module)
+
+        self.assertTrue(webview_module.settings["ALLOW_DOWNLOADS"])
 
 
 if __name__ == "__main__":

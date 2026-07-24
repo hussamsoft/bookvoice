@@ -1,8 +1,11 @@
 import gc
 import hashlib
+import importlib.metadata
+import json
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import Future
@@ -10,10 +13,12 @@ from enum import IntEnum
 from pathlib import Path
 from queue import PriorityQueue
 
+import numpy as np
 import torch
 import torchaudio as ta
 
-from services.config_service import config_value
+from services import media_tools
+from services.config_service import app_version, config_value
 from services.path_utils import (
     safe_join,
     validate_language_id,
@@ -92,6 +97,13 @@ _generate_lock = threading.Lock()
 # across consecutive chunks / narrate calls (big win on voice switch).
 _last_voice_prompt: str | None = None
 _last_voice_exaggeration: float | None = None
+
+# Standalone Studio narration gets a small safety bed so the first and last
+# phonemes are not flush against the WAV boundary. Repair synthesis explicitly
+# bypasses this because silence inside a splice would create an audible gap.
+STUDIO_LEADING_SILENCE_S = 0.30
+STUDIO_TRAILING_SILENCE_S = 0.40
+STUDIO_GENERATION_PIPELINE_VERSION = "studio-dry-voice-v2"
 
 # Cooperative generation cancellation: bumped on page change / voice switch /
 # document close so an in-flight multi-chunk synthesis can abort at the next
@@ -197,6 +209,120 @@ def _data_dirs():
     os.makedirs(voices_dir, exist_ok=True)
     os.makedirs(sessions_dir, exist_ok=True)
     return data_dir, voices_dir, sessions_dir
+
+
+def _safe_exaggeration(expression: float) -> float:
+    """Map the public 0..1 control onto Chatterbox's stable speech range."""
+    value = max(0.0, min(1.0, float(expression)))
+    if value <= 0.5:
+        return 0.4 + (value * 0.2)
+    return 0.5 + ((value - 0.5) * 0.4)
+
+
+def _auto_guidance(expression: float) -> float:
+    value = max(0.0, min(1.0, float(expression)))
+    return 0.5 - (value * 0.2)
+
+
+def _generation_kwargs(settings: dict | None, *, chunk_index: int = 0) -> dict:
+    """Map the stable Studio settings contract onto Chatterbox parameters."""
+    if not settings:
+        return {}
+    expression = float(settings.get("expression", 0.5))
+    result = {
+        "exaggeration": _safe_exaggeration(expression),
+        "temperature": float(settings.get("temperature", 0.8)),
+    }
+    guidance = settings.get("guidance")
+    if guidance is not None:
+        result["cfg_weight"] = float(guidance)
+    else:
+        result["cfg_weight"] = _auto_guidance(expression)
+    seed = settings.get("seed")
+    if seed is not None:
+        result["seed"] = (int(seed) + int(chunk_index)) % 4_294_967_296
+    return result
+
+
+def _chatterbox_model_version() -> str:
+    for distribution in ("chatterbox-tts", "chatterbox"):
+        try:
+            return importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return "bundled-unknown"
+
+
+def _voice_reference_checksum(voice_id: str | None) -> str:
+    if not voice_id:
+        return "default"
+    _, voices_dir, _ = _data_dirs()
+    prompt = Path(voices_dir) / f"{validate_voice_id(voice_id)}.wav"
+    if not prompt.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with prompt.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _apply_pace(
+    wav: torch.Tensor,
+    pace: float,
+    sample_rate: int,
+    *,
+    cancel_check=None,
+) -> torch.Tensor:
+    if abs(float(pace) - 1.0) < 0.0001:
+        return wav
+    with tempfile.TemporaryDirectory(prefix="bookvoice-pace-") as temp_dir:
+        source_path = Path(temp_dir) / "source.f32le"
+        target_path = Path(temp_dir) / "paced.f32le"
+        source = (
+            wav.detach()
+            .cpu()
+            .float()
+            .transpose(0, 1)
+            .contiguous()
+            .numpy()
+            .astype("<f4", copy=False)
+        )
+        source.tofile(source_path)
+        channels = int(wav.shape[0])
+        try:
+            media_tools.run_media_tool(
+                "ffmpeg",
+                [
+                    "-y",
+                    "-v",
+                    "error",
+                    "-f",
+                    "f32le",
+                    "-ar",
+                    str(int(sample_rate)),
+                    "-ac",
+                    str(channels),
+                    "-i",
+                    str(source_path),
+                    "-filter:a",
+                    f"atempo={float(pace):.4f}",
+                    "-acodec",
+                    "pcm_f32le",
+                    "-f",
+                    "f32le",
+                    str(target_path),
+                ],
+                timeout=600,
+                cancel_check=cancel_check,
+            )
+        except media_tools.MediaToolCancelled as exc:
+            raise GenerationCancelled("generation was cancelled") from exc
+        adjusted = np.fromfile(target_path, dtype="<f4")
+        if adjusted.size == 0 or adjusted.size % channels:
+            raise RuntimeError("Pace processing returned invalid audio.")
+        adjusted = adjusted.reshape((-1, channels)).T.copy()
+        return torch.from_numpy(adjusted)
 
 
 def _estimate_max_new_tokens(text: str) -> int:
@@ -375,6 +501,52 @@ def _has_local_model(target_type: str, local_model_path: str) -> bool:
     return os.path.exists(os.path.join(local_model_path, "grapheme_mtl_merged_expanded_v1.json"))
 
 
+def _voice_condition_cache_path(audio_prompt_path: str, model) -> Path:
+    prompt = Path(audio_prompt_path)
+    digest = hashlib.sha256()
+    with prompt.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    kind = "multilingual" if "Multilingual" in type(model).__name__ else "en"
+    digest.update(b"\0")
+    digest.update(_chatterbox_model_version().encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(type(model).__name__.encode("utf-8"))
+    return prompt.with_name(f"{prompt.stem}.{kind}.{digest.hexdigest()[:12]}.conds.pt")
+
+
+def _prepare_voice_conditionals(model, audio_prompt_path: str, *, force: bool = False) -> None:
+    if not force and getattr(model, "_bookvoice_voice_prompt", None) == audio_prompt_path:
+        if model.conds is not None:
+            return
+    cache_path = _voice_condition_cache_path(audio_prompt_path, model)
+    if cache_path.is_file() and not force:
+        if "Multilingual" in type(model).__name__:
+            from chatterbox.mtl_tts import Conditionals
+        else:
+            from chatterbox.tts import Conditionals
+        model.conds = Conditionals.load(cache_path, map_location="cpu").to(model.device)
+    else:
+        model.prepare_conditionals(audio_prompt_path, exaggeration=0.5)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{cache_path.name}-", suffix=".tmp", dir=cache_path.parent
+        )
+        os.close(fd)
+        temp_path = Path(temp_name)
+        try:
+            model.conds.save(temp_path)
+            os.replace(temp_path, cache_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+        prefix = f"{Path(audio_prompt_path).stem}."
+        for stale in cache_path.parent.glob(f"{prefix}*.conds.pt"):
+            if stale != cache_path and (
+                ".en." in stale.name or ".multilingual." in stale.name
+            ):
+                stale.unlink(missing_ok=True)
+    model._bookvoice_voice_prompt = audio_prompt_path
+
+
 def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
     """
     Call Chatterbox generate with a text-length-aware speech-token budget.
@@ -395,19 +567,13 @@ def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
     exaggeration = generate_kwargs.get("exaggeration", 0.5)
     audio_prompt_path = generate_kwargs.get("audio_prompt_path")
     force_prepare = bool(generate_kwargs.get("force_prepare", False))
+    seed = generate_kwargs.get("seed")
 
     global _last_voice_prompt, _last_voice_exaggeration
     if audio_prompt_path:
-        same_prompt = (
-            not force_prepare
-            and _last_voice_prompt == audio_prompt_path
-            and _last_voice_exaggeration == exaggeration
-            and model.conds is not None
-        )
-        if not same_prompt:
-            model.prepare_conditionals(audio_prompt_path, exaggeration=exaggeration)
-            _last_voice_prompt = audio_prompt_path
-            _last_voice_exaggeration = exaggeration
+        _prepare_voice_conditionals(model, audio_prompt_path, force=force_prepare)
+        _last_voice_prompt = audio_prompt_path
+        _last_voice_exaggeration = exaggeration
     elif model.conds is None:
         raise RuntimeError("Model has no speaker conditionals; select a voice or reinstall models.")
 
@@ -445,35 +611,40 @@ def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
     text_tokens = F.pad(text_tokens, (0, 1), value=eot)
 
     t0 = time.perf_counter()
-    with torch.inference_mode():
-        speech_tokens = model.t3.inference(
-            t3_cond=model.conds.t3,
-            text_tokens=text_tokens,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            cfg_weight=cfg_weight,
-            repetition_penalty=repetition_penalty,
-            min_p=min_p,
-            top_p=top_p,
-        )
-        speech_tokens = speech_tokens[0]
-        from chatterbox.models.s3tokenizer import drop_invalid_tokens
+    with torch.random.fork_rng(enabled=seed is not None):
+        if seed is not None:
+            torch.manual_seed(int(seed))
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(int(seed))
+        with torch.inference_mode():
+            speech_tokens = model.t3.inference(
+                t3_cond=model.conds.t3,
+                text_tokens=text_tokens,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                cfg_weight=cfg_weight,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                top_p=top_p,
+            )
+            speech_tokens = speech_tokens[0]
+            from chatterbox.models.s3tokenizer import drop_invalid_tokens
 
-        speech_tokens = drop_invalid_tokens(speech_tokens)
-        speech_tokens = speech_tokens[speech_tokens < 6561]
-        speech_tokens = speech_tokens.to(model.device)
+            speech_tokens = drop_invalid_tokens(speech_tokens)
+            speech_tokens = speech_tokens[speech_tokens < 6561]
+            speech_tokens = speech_tokens.to(model.device)
 
-        wav, _ = model.s3gen.inference(
-            speech_tokens=speech_tokens,
-            ref_dict=model.conds.gen,
-        )
-        wav = wav.squeeze(0).detach().cpu().numpy()
-        # Watermark is optional quality; skip on CPU to save time
-        if _is_cuda_build() and getattr(model, "watermarker", None) is not None:
-            try:
-                wav = model.watermarker.apply_watermark(wav, sample_rate=model.sr)
-            except Exception as e:
-                _log(f"Watermark skipped: {e}")
+            wav, _ = model.s3gen.inference(
+                speech_tokens=speech_tokens,
+                ref_dict=model.conds.gen,
+            )
+            wav = wav.squeeze(0).detach().cpu().numpy()
+            # Watermark is optional quality; skip on CPU to save time
+            if _is_cuda_build() and getattr(model, "watermarker", None) is not None:
+                try:
+                    wav = model.watermarker.apply_watermark(wav, sample_rate=model.sr)
+                except Exception as e:
+                    _log(f"Watermark skipped: {e}")
 
     elapsed = time.perf_counter() - t0
     _log(
@@ -712,6 +883,9 @@ def _synthesize_audio(
     voice_id=None,
     language_id: str = "en",
     cancel_event: GenerationCancellation | None = None,
+    generation_settings: dict | None = None,
+    leading_silence_s: float = 0.0,
+    trailing_silence_s: float = 0.0,
 ) -> dict:
     """Core TTS synthesis; writes WAV to session dir with the given filename."""
     text = validate_narration_text_length(text)
@@ -762,6 +936,7 @@ def _synthesize_audio(
                     + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
                 )
                 kwargs = dict(generate_kwargs)
+                kwargs.update(_generation_kwargs(generation_settings, chunk_index=i))
                 if i > 0:
                     kwargs.pop("audio_prompt_path", None)
                 elif i == 0 and audio_prompt_path:
@@ -801,6 +976,45 @@ def _synthesize_audio(
             _model_state["detail"] = f"Model ready on {str(device).upper()}."
 
     wav = _concat_wavs(wav_parts)
+    if generation_settings:
+        pace = float(generation_settings.get("pace", 1.0))
+        if abs(pace - 1.0) >= 0.0001:
+            original_samples = int(wav.shape[-1])
+            _raise_if_cancelled(cancel_event, started_token)
+            wav = _apply_pace(
+                wav,
+                pace,
+                int(sr),
+                cancel_check=lambda: (
+                    (cancel_event is not None and cancel_event.cancelled())
+                    or _current_generation() != started_token
+                ),
+            )
+            _raise_if_cancelled(cancel_event, started_token)
+            timing_scale = (
+                float(wav.shape[-1]) / float(original_samples)
+                if original_samples > 0
+                else 1.0
+            )
+            for segment in segment_meta:
+                segment["start_s"] = round(float(segment["start_s"]) * timing_scale, 4)
+                segment["end_s"] = round(float(segment["end_s"]) * timing_scale, 4)
+    leading_samples = max(0, int(round(float(leading_silence_s) * sr)))
+    trailing_samples = max(0, int(round(float(trailing_silence_s) * sr)))
+    if leading_samples or trailing_samples:
+        silence_shape = (*wav.shape[:-1],)
+        pieces = []
+        if leading_samples:
+            pieces.append(torch.zeros(*silence_shape, leading_samples, dtype=wav.dtype, device=wav.device))
+        pieces.append(wav)
+        if trailing_samples:
+            pieces.append(torch.zeros(*silence_shape, trailing_samples, dtype=wav.dtype, device=wav.device))
+        wav = torch.cat(pieces, dim=-1)
+        if leading_samples:
+            offset_s = leading_samples / sr
+            for segment in segment_meta:
+                segment["start_s"] = round(float(segment["start_s"]) + offset_s, 4)
+                segment["end_s"] = round(float(segment["end_s"]) + offset_s, 4)
 
     output_dir = safe_join(sessions_dir, session_id)
     os.makedirs(output_dir, exist_ok=True)
@@ -860,17 +1074,27 @@ def _audio_filename(
     voice_id: str | None,
     language_id: str,
     clip_suffix: str | None,
+    generation_settings: dict | None = None,
 ) -> str:
     """Return an immutable filename for one narration input revision."""
-    identity = "\0".join(
-        (
-            str(page_index),
-            text,
-            voice_id or "default",
-            language_id,
-            str(clip_suffix or ""),
+    identity_parts = [
+        str(page_index),
+        text,
+        voice_id or "default",
+        language_id,
+        str(clip_suffix or ""),
+    ]
+    if generation_settings is not None:
+        identity_parts.extend(
+            [
+                json.dumps(generation_settings, sort_keys=True, separators=(",", ":")),
+                _voice_reference_checksum(voice_id),
+                _chatterbox_model_version(),
+                app_version(),
+                STUDIO_GENERATION_PIPELINE_VERSION,
+            ]
         )
-    )
+    identity = "\0".join(identity_parts)
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     partial = ""
     if clip_suffix:
@@ -878,6 +1102,58 @@ def _audio_filename(
         if safe_suffix:
             partial = f"_p{safe_suffix}"
     return f"page_{page_index}{partial}_{digest}.wav"
+
+
+def narrate_studio_text(
+    text: str,
+    session_id: str,
+    voice_id: str | None,
+    language_id: str,
+    generation_settings: dict,
+    cancel_event: GenerationCancellation | None = None,
+    *,
+    add_buffer_silence: bool = True,
+) -> dict:
+    """Generate one immutable Studio narration without touching the book cache."""
+    filename = _audio_filename(
+        0,
+        text,
+        voice_id,
+        validate_language_id(language_id),
+        "studio",
+        generation_settings,
+    )
+    return _synthesize_audio(
+        text,
+        validate_session_id(session_id),
+        filename,
+        voice_id,
+        language_id,
+        cancel_event,
+        generation_settings,
+        STUDIO_LEADING_SILENCE_S if add_buffer_silence else 0.0,
+        STUDIO_TRAILING_SILENCE_S if add_buffer_silence else 0.0,
+    )
+
+
+def narrate_studio_repair_text(
+    text: str,
+    session_id: str,
+    voice_id: str | None,
+    language_id: str,
+    generation_settings: dict,
+    cancel_event: GenerationCancellation | None = None,
+) -> dict:
+    """Generate splice audio without the standalone narration safety bed."""
+    return narrate_studio_text(
+        text,
+        session_id,
+        voice_id,
+        language_id,
+        generation_settings,
+        cancel_event,
+        add_buffer_silence=False,
+    )
 
 
 def pronounce_text(text, session_id, voice_id=None, language_id="en"):

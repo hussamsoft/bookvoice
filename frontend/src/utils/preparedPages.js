@@ -59,6 +59,26 @@ export function preparationForActiveProfile(book) {
     };
 }
 
+/**
+ * Decide whether the reader should adopt a preparation's profile for playback.
+ *
+ * A preparation writes its audio under its own profile id, so the reader can
+ * only play those pages back while reading from the same profile. We adopt as
+ * soon as the job exists rather than waiting for COMPLETED, so pages the job
+ * has already finished play from disk instead of being regenerated on demand.
+ * Any status is adoptable — a page that is prepared stays prepared even if the
+ * job later paused or failed, and unprepared pages fall back to on-demand
+ * narration anyway.
+ *
+ * The voice and language must match what the reader is currently using, so one
+ * voice's audio is never served while another is selected.
+ */
+export function shouldAdoptPreparedProfile({ preparation, voiceId, languageId } = {}) {
+    if (!preparation?.profileId) return false;
+    if ((preparation.voiceId ?? null) !== (voiceId ?? null)) return false;
+    return (preparation.languageId || 'en') === (languageId || 'en');
+}
+
 export function preparedBookDetails(book) {
     const profile = activePreparedProfile(book);
     const pageCount = Math.max(0, Number(book?.pageCount) || 0);

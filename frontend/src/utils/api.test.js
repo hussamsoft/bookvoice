@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exportCachedAudio, getPreparedBook, narrateTextStream, pronounceText } from './api';
+import {
+  createStudioNarration,
+  createStudioProject,
+  exportCachedAudio,
+  getPreparedBook,
+  narrateTextStream,
+  openStudioProjectFolder,
+  pronounceText,
+  saveStudioOutput,
+  waitForStudioJob,
+} from './api';
 
 describe('pronounceText', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -90,5 +100,82 @@ describe('getPreparedBook', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/books\/book$/));
     expect(result.pageHashes).toEqual({ '1.json': 'hash' });
+  });
+});
+
+describe('Voice Studio API', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('creates a persistent project with the requested name', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'project-1', name: 'Voice work' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createStudioProject('Voice work');
+
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/studio\/projects$/);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: 'Voice work' });
+  });
+
+  it('submits typed narration with the full advanced-settings contract', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'job-1', status: 'QUEUED' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const settings = { pace: 1.1, expression: 0.7, temperature: 0.9, guidance: 0.3, seed: 42 };
+
+    await createStudioNarration('project-1', {
+      text: 'Written in the app.', languageId: 'en', voiceId: 'aria', generationSettings: settings,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.text).toBe('Written in the app.');
+    expect(body.generationSettings).toEqual(settings);
+  });
+
+  it('returns a completed job without unnecessary polling', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'job-1', status: 'COMPLETED', result: { outputId: 'out' } }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const job = await waitForStudioJob('job-1', { intervalMs: 1 });
+
+    expect(job.result.outputId).toBe('out');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts an automatic Downloads-folder save job', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'job-2', status: 'QUEUED', kind: 'SAVE_OUTPUT' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await saveStudioOutput('project-1', 'output-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/studio\/projects\/project-1\/outputs\/output-1\/download$/),
+      { method: 'POST' },
+    );
+  });
+
+  it('opens the complete managed project folder', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ opened: true }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await openStudioProjectFolder('project-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/studio\/projects\/project-1\/open-folder$/),
+      { method: 'POST' },
+    );
   });
 });

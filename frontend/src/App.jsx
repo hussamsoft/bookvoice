@@ -1,14 +1,15 @@
 import React, { lazy, Suspense, useState } from 'react';
-import { FileText, ScanLine } from 'lucide-react';
+import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import { useToast } from './components/Toast';
 import TitleBar from './components/TitleBar';
 
 const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
+const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 
 function App() {
     const toast = useToast();
-    const [mode, setMode] = useState('pdf'); // 'camera' or 'pdf'
+    const [mode, setMode] = useState('pdf');
     const [sessionDirty, setSessionDirty] = useState(false);
 
     const requestMode = (next) => {
@@ -51,6 +52,16 @@ function App() {
                         <span>Scan a page</span>
                         <small>Capture a physical book</small>
                     </button>
+                    <button
+                        className={`mode-button ${mode === 'studio' ? 'is-active' : ''}`}
+                        aria-label="Voice Studio"
+                        aria-pressed={mode === 'studio'}
+                        onClick={() => requestMode('studio')}
+                    >
+                        <AudioWaveform size={17} aria-hidden="true" />
+                        <span>Voice Studio</span>
+                        <small>Create and repair speech</small>
+                    </button>
                 </nav>
             </header>
 
@@ -58,6 +69,8 @@ function App() {
                 <Suspense fallback={<div className="loading-state" role="status">Loading reader…</div>}>
                     {mode === 'camera' ? (
                         <BookSession key="camera" onDirty={() => setSessionDirty(true)} />
+                    ) : mode === 'studio' ? (
+                        <VoiceStudio key="studio" />
                     ) : (
                         <PdfViewer key="pdf" onDirty={() => setSessionDirty(true)} />
                     )}

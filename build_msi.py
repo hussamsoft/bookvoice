@@ -71,10 +71,16 @@ PRODUCTS = {
 
 def excluded(rel_posix: str) -> bool:
     parts = rel_posix.split("/")
+    if parts and parts[0] == ".bookvoice":
+        return True
     if any(p in (".venv", "__pycache__") for p in parts):
         return True
     lowered = rel_posix.lower()
-    if lowered.startswith("data/sessions") or lowered.startswith("data/voices"):
+    if (
+        lowered.startswith("data/sessions")
+        or lowered.startswith("data/voices")
+        or lowered.startswith("data/studio")
+    ):
         return True
     name = parts[-1].lower()
     if name.endswith(".log") or name == ".env":
@@ -366,13 +372,22 @@ def main():
         action="store_true",
         help="Build only BookVoice-User.msi",
     )
+    parser.add_argument(
+        "--keep-cab-cache",
+        action="store_true",
+        help="Reuse an existing cab*.cab cache (incremental/recovery builds only)",
+    )
     args = parser.parse_args()
 
     files = collect_files()
     if not files:
         raise SystemExit("No files found in dist/. Run build.py first.")
 
-    clear_cab_cache()
+    if args.keep_cab_cache:
+        if not any(OUT.glob("cab*.cab")):
+            raise SystemExit("No cabinet cache exists to reuse.")
+    else:
+        clear_cab_cache()
 
     if args.user_only:
         build_product(files, PRODUCTS["user"])

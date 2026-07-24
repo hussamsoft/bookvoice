@@ -125,6 +125,27 @@ class BundleBaselineTests(unittest.TestCase):
 
 
 class MsiConfigTests(unittest.TestCase):
+    def test_collect_files_excludes_live_portable_studio_data_without_deleting_it(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir) / "dist"
+            project_file = dist / ".bookvoice" / "data" / "studio" / "projects" / ("a" * 32) / "manifest.json"
+            legacy_file = dist / "data" / "studio" / "projects" / ("b" * 32) / "manifest.json"
+            app_file = dist / "main.py"
+            project_file.parent.mkdir(parents=True)
+            legacy_file.parent.mkdir(parents=True)
+            project_file.write_text('{"name":"Portable"}', encoding="utf-8")
+            legacy_file.write_text('{"name":"Legacy"}', encoding="utf-8")
+            app_file.write_text("print('ok')", encoding="utf-8")
+            original_dist = build_msi.DIST
+            build_msi.DIST = dist
+            try:
+                files = build_msi.collect_files()
+            finally:
+                build_msi.DIST = original_dist
+            self.assertEqual([relative for relative, _path in files], ["main.py"])
+            self.assertTrue(project_file.is_file())
+            self.assertTrue(legacy_file.is_file())
+
     def test_clear_cab_cache_removes_generated_cabinets_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             installer = Path(temp_dir)
@@ -143,6 +164,11 @@ class MsiConfigTests(unittest.TestCase):
             self.assertFalse(generated.exists())
             self.assertFalse(payload.exists())
             self.assertTrue(retained.exists())
+
+    def test_incremental_resume_flag_is_documented_by_the_cli(self):
+        source = (ROOT / "build_msi.py").read_text(encoding="utf-8")
+        self.assertIn('"--keep-cab-cache"', source)
+        self.assertIn("No cabinet cache exists to reuse.", source)
 
     def test_release_asset_manifest_covers_both_msis_and_external_cabinets(self):
         spec = importlib.util.spec_from_file_location(

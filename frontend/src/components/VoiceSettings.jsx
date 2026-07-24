@@ -16,6 +16,7 @@ export default function VoiceSettings({
     const [loading, setLoading] = useState(false);
     const [newVoiceName, setNewVoiceName] = useState('');
     const [uploadName, setUploadName] = useState('');
+    const [consentConfirmed, setConsentConfirmed] = useState(false);
 
     const recorderRef = useRef(null);
     const streamRef = useRef(null);
@@ -123,10 +124,15 @@ export default function VoiceSettings({
             e.target.value = null;
             return;
         }
+        if (!consentConfirmed) {
+            toast.error('Confirm that you own or have permission to clone this voice.');
+            e.target.value = null;
+            return;
+        }
 
         setLoading(true);
         try {
-            const result = await uploadVoice(file, name);
+            const result = await uploadVoice(file, name, true);
             await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
             setUploadName('');
@@ -142,6 +148,10 @@ export default function VoiceSettings({
     const startRecording = async () => {
         if (!newVoiceName.trim()) {
             toast.error('Voice name is required.');
+            return;
+        }
+        if (!consentConfirmed) {
+            toast.error('Confirm that you own or have permission to clone this voice.');
             return;
         }
         try {
@@ -173,7 +183,7 @@ export default function VoiceSettings({
                 return;
             }
 
-            const result = await uploadVoice(blob, newVoiceName.trim());
+            const result = await uploadVoice(blob, newVoiceName.trim(), true);
             const savedName = result.name || newVoiceName;
             await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
@@ -238,6 +248,15 @@ export default function VoiceSettings({
 
             {!compact && <div className="voice-creation">
                 <h4>Create new voice</h4>
+                <label className="voice-consent">
+                    <input
+                        type="checkbox"
+                        checked={consentConfirmed}
+                        onChange={(event) => setConsentConfirmed(event.target.checked)}
+                        disabled={loading || isRecording}
+                    />
+                    <span>I own or have permission to clone this voice.</span>
+                </label>
                 <div className="creation-controls">
                     <div className="record-section">
                         <input
@@ -250,7 +269,7 @@ export default function VoiceSettings({
                         <button
                             className="btn secondary file-upload"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={loading || !uploadName.trim()}
+                            disabled={loading || !uploadName.trim() || !consentConfirmed}
                         >
                             <Upload size={16} /> Upload .wav
                         </button>
@@ -275,7 +294,7 @@ export default function VoiceSettings({
                             <button
                                 className="btn secondary"
                                 onClick={startRecording}
-                                disabled={loading || !newVoiceName.trim()}
+                                disabled={loading || !newVoiceName.trim() || !consentConfirmed}
                             >
                                 <Mic size={16} /> Record
                             </button>

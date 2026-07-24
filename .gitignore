@@ -64,6 +64,12 @@ dist/.env
 # installers, never via git.
 dist/runtime/
 
+# Generated packaged media tools and local portable Studio data. The release
+# build stages FFmpeg into dist/MSI, while user projects must never be committed.
+dist/tools/ffmpeg/
+dist/.bookvoice/
+dist/data/studio/
+
 # Keep the committed, preloaded default voices (override the global *.wav rule)
 !voices/*.wav
 !dist/data/default_voices/*.wav

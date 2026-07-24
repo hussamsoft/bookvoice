@@ -3,10 +3,12 @@ import shutil
 import tempfile
 import wave
 from io import BytesIO
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from services.path_utils import MAX_VOICE_BYTES, validate_voice_id
+from services import voice_profile_service
 
 router = APIRouter()
 
@@ -117,20 +119,20 @@ def _validate_wav_duration(data: bytes, min_sec: float = 0.3, max_sec: float = 6
 @router.get("/")
 async def list_voices():
     seed_default_voices()
-    voices = []
-    voices_dir = _voices_dir()
-    if os.path.isdir(voices_dir):
-        for f in sorted(os.listdir(voices_dir)):
-            if f.endswith(".wav"):
-                voices.append({"id": f[:-4], "name": f[:-4].replace("_", " ").title()})
-    return {"voices": voices}
+    return {"voices": voice_profile_service.list_profiles()}
 
 
 @router.post("/")
 async def upload_voice(
     file: UploadFile = File(...),
     name: str = Form(...),
+    consent_confirmed: bool = Form(False),
 ):
+    if not consent_confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm that you own or have permission to clone this voice.",
+        )
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file.")
@@ -164,24 +166,33 @@ async def upload_voice(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    file_path = os.path.join(_voices_dir(), f"{voice_id}.wav")
     temp_path = None
     try:
-        fd, temp_path = tempfile.mkstemp(prefix=f".{voice_id}-", suffix=".wav.tmp", dir=_voices_dir())
+        fd, temp_path = tempfile.mkstemp(prefix=f".{voice_id}-", suffix=".wav", dir=_voices_dir())
         with os.fdopen(fd, "wb") as buffer:
             buffer.write(wav_bytes)
             buffer.flush()
             os.fsync(buffer.fileno())
-        os.replace(temp_path, file_path)
+        profile = voice_profile_service.create_profile(
+            Path(temp_path),
+            safe_name,
+            consent_confirmed=True,
+            source_info={"kind": "AUDIO", "fileName": file.filename},
+            min_seconds=0.3,
+            max_seconds=60,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
+    finally:
         if temp_path:
             try:
                 os.unlink(temp_path)
             except OSError:
                 pass
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
 
-    return {"id": voice_id, "name": safe_name, "message": "Voice profile created."}
+    return {**profile, "message": "Voice profile created."}
 
 
 @router.delete("/{voice_id}")
@@ -191,12 +202,10 @@ async def delete_voice(voice_id: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    file_path = os.path.join(_voices_dir(), f"{safe_id}.wav")
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Voice not found.")
-
     try:
-        os.remove(file_path)
+        voice_profile_service.delete_profile(safe_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Voice not found.") from e
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete voice: {e}") from e
 

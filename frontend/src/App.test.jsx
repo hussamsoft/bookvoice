@@ -12,6 +12,10 @@ vi.mock('./components/PdfViewer', () => ({
   default: () => <div data-testid="pdf-viewer-mock">Pdf Viewer Component</div>
 }));
 
+vi.mock('./components/VoiceStudio', () => ({
+  default: () => <div data-testid="voice-studio-mock">Voice Studio Component</div>
+}));
+
 function renderApp() {
   return render(
     <ToastProvider>
@@ -47,5 +51,14 @@ describe('App Component', () => {
     expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
     expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'PDF reader' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens Voice Studio as a third persistent workspace', async () => {
+    renderApp();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Voice Studio' }));
+
+    expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

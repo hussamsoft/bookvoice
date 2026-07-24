@@ -39,6 +39,14 @@ BACKEND = ROOT / "backend"
 DIST = ROOT / "dist"
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def tree_fingerprint(root: Path, excluded_top_level: set[str] | None = None) -> str:
     """Hash relative paths and bytes for deterministic release provenance."""
     excluded = excluded_top_level or set()
@@ -124,6 +132,7 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
 | `data/models/en/` | Bundled English TTS weights |
+| `tools/ffmpeg/` | Pinned FFmpeg/FFprobe media tools and license notices |
 
 ## Notes
 
@@ -131,6 +140,7 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
   `%LocalAppData%\\BookVoice\\installs\\<install-id>\\`.
 - Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
 - English TTS is offline once `data/models/en` is present.
+- Voice Studio projects, imported media, profiles, and outputs remain local.
 """
 
 
@@ -284,6 +294,7 @@ def assemble_dist():
 
     stage_embed_python()
     stage_runtime_bundle()
+    stage_media_tools()
 
     # Portable bat uses this helper to terminate the full stale uvicorn tree.
     scripts_src = ROOT / "scripts" / "kill_stale_bookvoice.ps1"
@@ -367,6 +378,22 @@ def stage_runtime_bundle():
     print(f"[build] staged immutable worker runtime → {destination}")
 
 
+def stage_media_tools():
+    """Stage the pinned media executables used by Voice Studio."""
+    script = ROOT / "scripts" / "stage_media_tools.py"
+    if not script.is_file():
+        raise SystemExit("scripts/stage_media_tools.py missing")
+    import importlib.util as _ilu
+
+    spec = _ilu.spec_from_file_location("stage_media_tools", script)
+    if not spec or not spec.loader:
+        raise SystemExit("Could not load scripts/stage_media_tools.py")
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    contract = mod.stage_media_tools(ROOT, DIST)
+    print(f"[build] staged FFmpeg/FFprobe {contract['version']} → {DIST / 'tools' / 'ffmpeg'}")
+
+
 def runtime_contract_errors(dist: Path) -> list[str]:
     """Return release errors when the package could self-provision at startup."""
     manifest_path = dist / "runtime-manifest.json"
@@ -378,6 +405,11 @@ def runtime_contract_errors(dist: Path) -> list[str]:
         return ["runtime manifest is invalid"]
     if manifest.get("startup_provisioning") != "forbidden":
         return ["runtime manifest forbids no startup provisioning"]
+    media_tools = manifest.get("media_tools")
+    if not isinstance(media_tools, dict):
+        return ["runtime manifest media tools contract missing"]
+    if media_tools.get("version") != "8.1.1":
+        return ["runtime manifest media tools version is not pinned to 8.1.1"]
     worker = dist / "runtime" / "worker"
     required = [
         worker / "python.exe",
@@ -388,6 +420,16 @@ def runtime_contract_errors(dist: Path) -> list[str]:
         for path in required
         if not path.exists()
     ]
+    for key in ("ffmpeg", "ffprobe", "notice", "license"):
+        relative = media_tools.get(key)
+        if not isinstance(relative, str) or not (dist / relative).is_file():
+            errors.append(f"runtime media tool missing: {key}")
+    digests = media_tools.get("sha256") or {}
+    for key in ("ffmpeg", "ffprobe"):
+        relative = media_tools.get(key)
+        path = dist / relative if isinstance(relative, str) else None
+        if path and path.is_file() and digests.get(key) != file_sha256(path):
+            errors.append(f"runtime media tool checksum mismatch: {key}")
     packages = worker / "Lib" / "site-packages"
     for package in (
         "fastapi",
@@ -402,6 +444,7 @@ def runtime_contract_errors(dist: Path) -> list[str]:
         "numpy",
         "cv2",
         "soundfile",
+        "librosa",
     ):
         if not (packages / package).is_dir() and not (packages / f"{package}.py").is_file():
             errors.append(f"runtime worker missing import: {package}")
@@ -486,9 +529,17 @@ def validate():
         "routes/tts.py",
         "routes/voices.py",
         "routes/config.py",
+        "routes/studio.py",
         "services/tts_service.py",
         "services/config_service.py",
+        "services/media_tools.py",
         "services/path_utils.py",
+        "services/studio_service.py",
+        "services/voice_profile_service.py",
+        "tools/ffmpeg/ffmpeg.exe",
+        "tools/ffmpeg/ffprobe.exe",
+        "tools/ffmpeg/NOTICE.txt",
+        "tools/ffmpeg/LICENSE.txt",
         "static/index.html",
         "data/models/en/tokenizer.json",
         "data/models/en/t3_cfg.safetensors",

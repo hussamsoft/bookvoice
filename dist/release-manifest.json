@@ -1,5 +1,17 @@
 {
-  "version": "2.1.2",
-  "source_sha256": "dd9eae4099ef1774b86d97f191362a1ac36975234632588011e80c89fb6490b8",
-  "static_sha256": "0ae9a3a99b63825e4d742a01173289d604fa28108856bb62a675ea7c187e9c13"
+  "version": "2.1.3",
+  "source_sha256": "023f70326436c984b10f8c2452a4db324363603654d6c611fc564f920d2e8371",
+  "static_sha256": "f105ca11bbad53d974107907ef57094192f0632283c6a704e6694a43cbefc506",
+  "media_tools": {
+    "version": "8.1.1",
+    "provider": "Gyan FFmpeg full build",
+    "ffmpeg": "tools/ffmpeg/ffmpeg.exe",
+    "ffprobe": "tools/ffmpeg/ffprobe.exe",
+    "notice": "tools/ffmpeg/NOTICE.txt",
+    "license": "tools/ffmpeg/LICENSE.txt",
+    "sha256": {
+      "ffmpeg": "09948d4cdd0650da6ff5a87577469f2a218dc2615ae379f8f734d24c49de0f73",
+      "ffprobe": "a6618e99bb58869ded3c6f37b53aa1a8d701c3591dbb7b5b317d47369c112be2"
+    }
+  }
 }

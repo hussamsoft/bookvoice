@@ -41,6 +41,45 @@ PORT_START = 8000
 PORT_END = 8020
 
 
+def configure_webview_gpu() -> None:
+    """Render the WebView2 shell on the CPU instead of the GPU.
+
+    The Chatterbox TTS model loads ~1 GB onto the same GPU that WebView2 uses
+    for hardware-accelerated rendering. While the model warms up, VRAM and GPU
+    compute are saturated; a heavy repaint at that moment (e.g. expanding the
+    Reading options panel) can tip the display driver into a TDR reset. WebView2
+    then loses its graphics device and the window blanks — which reads as the
+    app "crashing," even though the backend and page JavaScript are fine (the
+    OS logs it as a display LiveKernelEvent, not an application fault).
+
+    Chosen for quality *and* speed, not just stability: this is a PDF/text
+    reader, so the GPU buys us nothing we can see or feel. Chromium rasterizes
+    glyphs on the CPU in either mode, so text is pixel-identical; the GPU only
+    accelerates compositing, and the only frequent repaint here (the narration
+    word-highlight loop) is trivial for software compositing. Meanwhile pdf.js
+    already rasterizes pages on the CPU. So software rendering costs no visible
+    quality and no meaningful speed at reader sizes, while being the only mode
+    that is immune to the GPU TDR — a partial measure like disabling only
+    compositing keeps a live GPU device in the render path and can still be
+    dropped by a driver reset.
+
+    Set BOOKVOICE_ENABLE_GPU=1 to opt back into hardware acceleration; a
+    caller-provided WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS is left untouched.
+    """
+    if os.environ.get("BOOKVOICE_ENABLE_GPU") == "1":
+        return
+    if os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"):
+        return
+    # --disable-gpu forces software compositing, so no hardware GPU device
+    # remains in the render path for a TDR to remove.
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = "--disable-gpu"
+
+
+def configure_webview_downloads(webview_module) -> None:
+    """Allow HTML download links before the embedded WebView starts."""
+    webview_module.settings["ALLOW_DOWNLOADS"] = True
+
+
 def _log_path(runtime_dir: str, app_dir: str) -> str:
     for folder in (runtime_dir, app_dir):
         try:
@@ -530,6 +569,12 @@ def main(argv: list[str] | None = None) -> int:
     log_file = None
 
     if use_webview:
+        configure_webview_gpu()
+        configure_webview_downloads(webview)
+        log.write(
+            "webview gpu args="
+            + os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "(default)")
+        )
         window = create_main_window(webview)
 
     state = {"error": None}
