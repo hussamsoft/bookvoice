@@ -52,6 +52,17 @@ class NarrationCreate(BaseModel):
     generationSettings: GenerationSettingsInput = Field(default_factory=GenerationSettingsInput)
 
 
+class ConversionCreate(BaseModel):
+    sourceId: str
+    startSec: float | None = Field(None, ge=0)
+    endSec: float | None = Field(None, gt=0)
+    targetVoiceId: str | None = None
+    targetSourceId: str | None = None
+    targetStartSec: float | None = Field(None, ge=0)
+    targetEndSec: float | None = Field(None, gt=0)
+    consentConfirmed: bool = False
+
+
 class RepairCreate(BaseModel):
     assetId: str
     startSec: float = Field(..., ge=0)
@@ -213,7 +224,10 @@ async def create_profile(project_id: str, request: ProfileCreate):
             request.endSec,
             consent_confirmed=True,
         )
-        return {"voiceId": profile["id"]}
+        return {
+            "voiceId": profile["id"],
+            "suggestedSettings": profile.get("suggestedSettings"),
+        }
 
     return studio.submit_job(project_id, "VOICE_PROFILE", work)
 
@@ -241,6 +255,51 @@ async def create_narration(project_id: str, request: NarrationCreate):
         return {"outputId": output["id"]}
 
     return studio.submit_job(project_id, "NARRATION", work)
+
+
+@router.post("/projects/{project_id}/conversions", status_code=202)
+async def create_conversion(project_id: str, request: ConversionCreate):
+    try:
+        studio.get_project(project_id)
+    except ValueError as exc:
+        _error("INVALID_PROJECT_ID", str(exc))
+    except FileNotFoundError as exc:
+        _error("PROJECT_NOT_FOUND", str(exc), 404)
+    if not request.consentConfirmed:
+        _error(
+            "VOICE_CONSENT_REQUIRED",
+            "Confirm that you own or have permission to use this voice.",
+        )
+    if bool(request.targetVoiceId) == bool(request.targetSourceId):
+        _error(
+            "INVALID_CONVERSION",
+            "Choose exactly one target voice: a saved profile or a recording.",
+        )
+
+    def work(*, job_id, cancel_event):
+        studio.update_job_progress(project_id, job_id, 0.08, "Preparing voice conversion")
+        return {
+            "outputId": studio.create_conversion(
+                project_id,
+                request.sourceId,
+                start_sec=request.startSec,
+                end_sec=request.endSec,
+                target_voice_id=request.targetVoiceId,
+                target_source_id=request.targetSourceId,
+                target_start_sec=request.targetStartSec,
+                target_end_sec=request.targetEndSec,
+                consent_confirmed=True,
+                cancel_event=cancel_event,
+                progress=lambda value: studio.update_job_progress(
+                    project_id,
+                    job_id,
+                    0.1 + (0.85 * max(0.0, min(1.0, float(value)))),
+                    "Converting the recording",
+                ),
+            )["id"]
+        }
+
+    return studio.submit_job(project_id, "VOICE_CONVERSION", work)
 
 
 @router.post("/projects/{project_id}/repairs", status_code=202)

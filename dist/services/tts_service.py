@@ -2,12 +2,14 @@ import gc
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import re
 import sys
 import tempfile
 import threading
 import time
+import wave
 from concurrent.futures import Future
 from enum import IntEnum
 from pathlib import Path
@@ -1102,6 +1104,262 @@ def _audio_filename(
         if safe_suffix:
             partial = f"_p{safe_suffix}"
     return f"page_{page_index}{partial}_{digest}.wav"
+
+
+VC_INPUT_SR = 16_000
+VC_MAX_WINDOW_S = 24.0
+VC_MIN_SPEECH_S = 0.12
+VC_MERGE_GAP_S = 0.30
+VC_EDGE_PAD_S = 0.06
+VC_FRAME_S = 0.02
+
+
+def _decode_pcm_mono(path: str, sample_rate: int) -> "np.ndarray":
+    """Decode any supported media file to mono float32 at ``sample_rate``."""
+    with tempfile.TemporaryDirectory(prefix="bookvoice-vc-") as temp_dir:
+        raw_path = Path(temp_dir) / "audio.f32le"
+        media_tools.run_media_tool(
+            "ffmpeg",
+            [
+                "-y", "-v", "error", "-i", str(path),
+                "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(int(sample_rate)),
+                "-f", "f32le", str(raw_path),
+            ],
+            timeout=1800,
+        )
+        data = np.fromfile(raw_path, dtype="<f4")
+    if data.size == 0:
+        raise ValueError("The recording contains no decodable audio.")
+    return np.nan_to_num(data.astype(np.float32, copy=False), nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _write_pcm16_wav(path: str, audio: torch.Tensor, sample_rate: int) -> None:
+    """Write mono 16-bit PCM.
+
+    Studio waveforms, splicing and repair all require 16-bit PCM, so conversion
+    output is encoded explicitly rather than relying on the torchaudio backend's
+    default encoding.
+    """
+    samples = audio.detach().cpu().float().reshape(-1).numpy()
+    clipped = np.clip(np.nan_to_num(samples, nan=0.0), -1.0, 1.0)
+    encoded = np.round(clipped * 32767.0).astype("<i2")
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(int(sample_rate))
+        output.writeframes(encoded.tobytes())
+
+
+def _speech_windows(
+    audio: "np.ndarray",
+    sample_rate: int,
+    *,
+    max_window_s: float = VC_MAX_WINDOW_S,
+) -> list[tuple[int, int]]:
+    """Split audio into speech spans at natural pauses, each under the window cap.
+
+    Converting a long recording in one pass overruns the speech tokenizer, so the
+    source is cut where the speaker is already silent. Pauses are preserved by the
+    caller, which keeps the converted performance aligned with the original.
+    """
+    total = int(audio.shape[-1])
+    if total <= 0:
+        return []
+    frame = max(1, int(sample_rate * VC_FRAME_S))
+    frame_count = total // frame
+    if frame_count < 2:
+        return [(0, total)]
+    frames = audio[: frame_count * frame].reshape(frame_count, frame)
+    rms = np.sqrt(np.mean(np.square(frames, dtype=np.float64), axis=1))
+    loud = float(np.percentile(rms, 95))
+    threshold = max(1e-4, loud * 0.10)
+    voiced = rms >= threshold
+    if not bool(voiced.any()):
+        return [(0, total)]
+
+    spans: list[list[int]] = []
+    start = None
+    for index, is_voiced in enumerate(voiced):
+        if is_voiced and start is None:
+            start = index
+        elif not is_voiced and start is not None:
+            spans.append([start, index])
+            start = None
+    if start is not None:
+        spans.append([start, frame_count])
+
+    merge_frames = max(1, int(VC_MERGE_GAP_S / VC_FRAME_S))
+    merged: list[list[int]] = []
+    for span in spans:
+        if merged and span[0] - merged[-1][1] <= merge_frames:
+            merged[-1][1] = span[1]
+        else:
+            merged.append(list(span))
+
+    min_frames = max(1, int(VC_MIN_SPEECH_S / VC_FRAME_S))
+    pad = max(0, int(VC_EDGE_PAD_S / VC_FRAME_S))
+    max_frames = max(min_frames, int(max_window_s / VC_FRAME_S))
+    windows: list[tuple[int, int]] = []
+    for span_start, span_end in merged:
+        if span_end - span_start < min_frames:
+            continue
+        span_start = max(0, span_start - pad)
+        span_end = min(frame_count, span_end + pad)
+        length = span_end - span_start
+        if length <= max_frames:
+            windows.append((span_start * frame, min(total, span_end * frame)))
+            continue
+        pieces = int(math.ceil(length / max_frames))
+        step = int(math.ceil(length / pieces))
+        for offset in range(span_start, span_end, step):
+            piece_end = min(span_end, offset + step)
+            if piece_end - offset < min_frames:
+                continue
+            windows.append((offset * frame, min(total, piece_end * frame)))
+    return windows or [(0, total)]
+
+
+def get_voice_converter():
+    """Build a ChatterboxVC over the already-loaded S3Gen decoder.
+
+    The narration model keeps S3Gen resident, so conversion reuses it instead of
+    loading a second copy of the ~1 GB decoder into VRAM.
+    """
+    from chatterbox.vc import ChatterboxVC
+
+    model = get_model("en")
+    s3gen = getattr(model, "s3gen", None)
+    if s3gen is None:
+        raise RuntimeError("The loaded speech model does not support voice conversion.")
+    return ChatterboxVC(s3gen, getattr(model, "device", _resolve_device()))
+
+
+def convert_voice_audio(
+    source_path: str,
+    target_voice_path: str,
+    session_id: str,
+    filename: str,
+    cancel_event: GenerationCancellation | None = None,
+    *,
+    progress=None,
+) -> dict:
+    """Re-render a recording in a target voice, keeping the original delivery.
+
+    Speech-to-speech conversion carries the source performance — timing, rhythm,
+    emphasis — so no generation controls are needed to recreate the sound.
+    """
+    session_id = validate_session_id(session_id)
+    if not os.path.isfile(source_path):
+        raise FileNotFoundError("The recording to convert was not found.")
+    if not os.path.isfile(target_voice_path):
+        raise FileNotFoundError("The target voice reference was not found.")
+
+    maybe_cleanup_sessions()
+    _, _, sessions_dir = _data_dirs()
+    converter = get_voice_converter()
+    device = getattr(converter, "device", _resolve_device())
+    out_sr = int(getattr(converter, "sr", 24_000) or 24_000)
+
+    audio = _decode_pcm_mono(source_path, VC_INPUT_SR)
+    windows = _speech_windows(audio, VC_INPUT_SR)
+    total_windows = len(windows)
+    _log(
+        f"[vc] convert file={filename} source_s={audio.shape[-1] / VC_INPUT_SR:.1f} "
+        f"windows={total_windows} device={device}"
+    )
+
+    with _generate_lock:
+        _model_state["status"] = "generating"
+        started_token = _current_generation()
+        pieces: list[torch.Tensor] = []
+        try:
+            converter.set_target_voice(target_voice_path)
+            cursor = 0
+            for index, (start, end) in enumerate(windows):
+                _raise_if_cancelled(cancel_event, started_token)
+                _model_state["detail"] = (
+                    f"Converting voice {index + 1}/{total_windows} on {str(device).upper()}"
+                )
+                gap = start - cursor
+                if gap > 0:
+                    silence = int(round(gap * out_sr / VC_INPUT_SR))
+                    if silence > 0:
+                        pieces.append(torch.zeros(1, silence))
+                window = audio[start:end]
+                with torch.inference_mode():
+                    tensor = torch.from_numpy(window).float().to(device)[None,]
+                    tokens, _ = converter.s3gen.tokenizer(tensor)
+                    wav, _ = converter.s3gen.inference(
+                        speech_tokens=tokens,
+                        ref_dict=converter.ref_dict,
+                    )
+                    rendered = wav.squeeze(0).detach().cpu().float().numpy()
+                if _is_cuda_build() and getattr(converter, "watermarker", None) is not None:
+                    try:
+                        rendered = converter.watermarker.apply_watermark(
+                            rendered, sample_rate=out_sr
+                        )
+                    except Exception as exc:  # noqa: BLE001 - watermark is optional
+                        _log(f"Watermark skipped: {exc}")
+                pieces.append(torch.from_numpy(np.asarray(rendered)).float().unsqueeze(0))
+                cursor = end
+                if progress is not None:
+                    try:
+                        progress((index + 1) / max(1, total_windows))
+                    except Exception:  # noqa: BLE001 - progress is advisory
+                        pass
+            trailing = int(audio.shape[-1]) - cursor
+            if trailing > 0:
+                silence = int(round(trailing * out_sr / VC_INPUT_SR))
+                if silence > 0:
+                    pieces.append(torch.zeros(1, silence))
+        except GenerationCancelled:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+            raise
+        except Exception as exc:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = (
+                f"Model ready on {str(device).upper()} (last conversion failed: {exc})"
+            )
+            raise
+        else:
+            _model_state["status"] = "ready"
+            _model_state["detail"] = f"Model ready on {str(device).upper()}."
+
+    if not pieces:
+        raise ValueError("No speech was found in the recording to convert.")
+    converted = _concat_wavs(pieces)
+    peak = float(converted.abs().max().item() or 0.0)
+    if peak > 1.0:
+        converted = converted / peak
+
+    output_dir = safe_join(sessions_dir, session_id)
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = safe_join(output_dir, filename)
+    _write_pcm16_wav(output_path, converted, out_sr)
+    return {
+        "audio_url": f"/sessions/{session_id}/{filename}",
+        "duration_s": round(float(converted.shape[-1]) / out_sr, 4),
+        "sampleRate": out_sr,
+        "windows": total_windows,
+        "sourceDurationSec": round(float(audio.shape[-1]) / VC_INPUT_SR, 4),
+    }
+
+
+def conversion_filename(source_signature: str, voice_id: str | None) -> str:
+    """Immutable filename for one conversion input revision."""
+    identity = "\0".join(
+        (
+            str(source_signature or ""),
+            str(voice_id or "default"),
+            _voice_reference_checksum(voice_id),
+            _chatterbox_model_version(),
+            app_version(),
+            STUDIO_GENERATION_PIPELINE_VERSION,
+        )
+    )
+    return f"convert_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}.wav"
 
 
 def narrate_studio_text(

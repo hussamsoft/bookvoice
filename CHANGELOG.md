@@ -1,6 +1,17 @@
 # Changelog
 
-## 2.1.3 - 2026-07-23
+## Unreleased
+
+### Added
+
+- Voice Studio adds a **Convert voice** workflow: import a recording and re-render it in another voice while keeping the original performance. Timing, rhythm, pauses, and emphasis come from the recording itself, so a delivery no longer has to be recreated by hand with the narration controls.
+- The target voice for a conversion can be any saved voice profile or a 5–30 second selection taken straight from a second recording, without first saving it to the voice library.
+- Long recordings are cut at natural pauses before conversion and reassembled with the original silences preserved, so a conversion stays aligned with the source instead of drifting.
+- Cloning a voice from media now also derives matching pace, expression, and temperature from the recording's speaking rate and dynamic range, and applies them to the project automatically.
+
+### Changed
+
+- Converted output is written as 16-bit PCM WAV, so it can be used directly as a source for waveform display and phrase repair.
 
 ### Added
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, RotateCw, Scissors, X } from 'lucide-react';
+import { AudioLines, Repeat2, RotateCw, Scissors, X } from 'lucide-react';
 import {
     cancelStudioJob,
     createStudioProject,
@@ -13,6 +13,7 @@ import {
     waitForStudioJob,
 } from '../utils/api';
 import { useToast } from './Toast';
+import StudioConversion from './StudioConversion';
 import StudioNarration from './StudioNarration';
 import StudioProjectSidebar from './StudioProjectSidebar';
 import StudioRepair from './StudioRepair';
@@ -267,6 +268,16 @@ export default function VoiceStudio() {
                         </button>
                         <button
                             role="tab"
+                            aria-selected={project.activeWorkflow === 'CONVERSION'}
+                            aria-pressed={project.activeWorkflow === 'CONVERSION'}
+                            className={project.activeWorkflow === 'CONVERSION' ? 'is-active' : ''}
+                            onClick={() => patchProject({ activeWorkflow: 'CONVERSION' })}
+                            disabled={Boolean(activeJob)}
+                        >
+                            <Repeat2 size={18} /> <span><strong>Convert voice</strong><small>Re-voice an existing recording</small></span>
+                        </button>
+                        <button
+                            role="tab"
                             aria-selected={project.activeWorkflow === 'REPAIR'}
                             aria-pressed={project.activeWorkflow === 'REPAIR'}
                             className={project.activeWorkflow === 'REPAIR' ? 'is-active' : ''}
@@ -294,7 +305,10 @@ export default function VoiceStudio() {
                             <button
                                 className="btn secondary"
                                 onClick={() => patchProject({
-                                    activeWorkflow: retryableJob.kind === 'NARRATION' ? 'NARRATION' : 'REPAIR',
+                                    activeWorkflow: {
+                                        NARRATION: 'NARRATION',
+                                        VOICE_CONVERSION: 'CONVERSION',
+                                    }[retryableJob.kind] || 'REPAIR',
                                 })}
                             >
                                 Review and retry
@@ -302,9 +316,13 @@ export default function VoiceStudio() {
                         </div>
                     )}
 
-                    {project.activeWorkflow === 'REPAIR' ? (
+                    {project.activeWorkflow === 'REPAIR' && (
                         <StudioRepair project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
-                    ) : (
+                    )}
+                    {project.activeWorkflow === 'CONVERSION' && (
+                        <StudioConversion project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
+                    )}
+                    {!['REPAIR', 'CONVERSION'].includes(project.activeWorkflow) && (
                         <StudioNarration project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
                     )}
                 </>}

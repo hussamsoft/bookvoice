@@ -5,6 +5,7 @@ import { saveStudioOutput } from '../utils/api';
 function outputLabel(output) {
     if (output.kind === 'REPAIR_VIDEO') return 'Repaired video';
     if (output.kind === 'REPAIR_AUDIO') return 'Repaired audio';
+    if (output.kind === 'CONVERSION') return 'Converted voice';
     return 'Narration';
 }
 

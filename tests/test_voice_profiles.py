@@ -87,5 +87,106 @@ class VoiceProfileServiceTests(unittest.TestCase):
         self.assertFalse(any(profiles.voices_dir().glob(f'{created["id"]}*')))
 
 
+def spoken_wav(
+    syllables_per_sec: float,
+    *,
+    seconds: float = 6.0,
+    rate: int = 24_000,
+    loud: int = 9_000,
+    quiet: int = 900,
+) -> bytes:
+    """Synthesize a clip whose loudness pulses at a known syllable rate."""
+    payload = io.BytesIO()
+    with wave.open(payload, "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(rate)
+        period = max(2, int(rate / syllables_per_sec))
+        frames = bytearray()
+        for index in range(int(seconds * rate)):
+            in_pulse = (index % period) < (period // 2)
+            amplitude = loud if in_pulse else quiet
+            sample = amplitude if (index % 2 == 0) else -amplitude
+            frames += int(sample).to_bytes(2, "little", signed=True)
+        output.writeframes(bytes(frames))
+    return payload.getvalue()
+
+
+class DerivedGenerationSettingsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self.temp.name
+
+    def tearDown(self):
+        if self.previous is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self.previous
+        self.temp.cleanup()
+
+    def test_a_faster_speaker_yields_a_faster_derived_pace(self):
+        slow = Path(self.temp.name) / "slow.wav"
+        fast = Path(self.temp.name) / "fast.wav"
+        slow.write_bytes(spoken_wav(2.5))
+        fast.write_bytes(spoken_wav(6.0))
+
+        slow_settings = profiles.suggest_generation_settings(
+            profiles.analyze_reference(slow)["speechMetrics"]
+        )
+        fast_settings = profiles.suggest_generation_settings(
+            profiles.analyze_reference(fast)["speechMetrics"]
+        )
+
+        self.assertLess(slow_settings["pace"], fast_settings["pace"])
+        self.assertLessEqual(slow_settings["pace"], 1.0)
+        self.assertGreaterEqual(fast_settings["pace"], 1.0)
+
+    def test_derived_settings_stay_inside_the_supported_control_range(self):
+        for rate in (0.5, 3.0, 12.0):
+            metrics = profiles.analyze_reference(
+                self._write(f"rate-{rate}.wav", spoken_wav(rate))
+            )["speechMetrics"]
+            settings = profiles.suggest_generation_settings(metrics)
+            self.assertGreaterEqual(settings["pace"], 0.85)
+            self.assertLessEqual(settings["pace"], 1.15)
+            self.assertGreaterEqual(settings["expression"], 0.2)
+            self.assertLessEqual(settings["expression"], 0.8)
+            self.assertIsNone(settings["seed"])
+
+    def test_a_flat_recording_is_not_pushed_into_high_expression(self):
+        flat = profiles.suggest_generation_settings(
+            {"syllablesPerSec": 4.3, "dynamicsDb": 2.0}
+        )
+        lively = profiles.suggest_generation_settings(
+            {"syllablesPerSec": 4.3, "dynamicsDb": 22.0}
+        )
+
+        self.assertLess(flat["expression"], lively["expression"])
+        self.assertEqual(flat["temperature"], 0.7)
+        self.assertEqual(lively["temperature"], 0.8)
+
+    def test_silent_metrics_fall_back_to_the_neutral_defaults(self):
+        settings = profiles.suggest_generation_settings({})
+        self.assertEqual(settings["pace"], 1.0)
+        self.assertEqual(settings["expression"], 0.2)
+
+    def test_created_profiles_carry_settings_matched_to_the_recording(self):
+        source = self._write("speaker.wav", spoken_wav(5.0))
+
+        created = profiles.create_profile(source, "Matched Voice", consent_confirmed=True)
+
+        self.assertIn("suggestedSettings", created)
+        self.assertIn("speechMetrics", created["quality"])
+        self.assertGreater(created["quality"]["speechMetrics"]["syllablesPerSec"], 0)
+        listed = next(item for item in profiles.list_profiles() if item["id"] == "matched_voice")
+        self.assertEqual(listed["suggestedSettings"], created["suggestedSettings"])
+
+    def _write(self, name: str, payload: bytes) -> Path:
+        path = Path(self.temp.name) / name
+        path.write_bytes(payload)
+        return path
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -508,6 +508,14 @@ export function createStudioNarration(projectId, input) {
     }, 'Could not generate Studio narration.');
 }
 
+export function createStudioConversion(projectId, input) {
+    return studioRequest(`/projects/${encodeURIComponent(projectId)}/conversions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+    }, 'Could not convert the recording.');
+}
+
 export function createStudioRepair(projectId, input) {
     return studioRequest(`/projects/${encodeURIComponent(projectId)}/repairs`, {
         method: 'POST',

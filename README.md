@@ -30,6 +30,8 @@ This MVP was built across three development phases:
    - Persistent local projects for narration written directly in BookVoice; no text-file import is required.
    - Create Narration starts with direct WAV, MP3, M4A/AAC, FLAC, OGG, WebM, MP4, MOV, or MKV import. Select 5–30 seconds of one speaker, confirm ownership/permission, and the resulting cloned profile is automatically selected to narrate whatever you type.
    - Video imports receive a local H.264/AAC preview for reliable in-app picture and sound, while standalone narration adds short head and tail silence to protect speech from playback cutoffs.
+   - Convert Voice re-voices an existing recording instead of retyping it: the imported performance keeps its own timing, rhythm, pauses, and emphasis, and only the speaker changes. The target voice can be a saved profile or a 5–30 second selection from a second recording. No generation controls are involved.
+   - Cloning a voice from media also derives pace, expression, and temperature from that recording's speaking rate and dynamic range, so typed narration starts out matching the speaker.
    - Descriptive pace, expression, temperature, guidance, and optional seed controls for English and Arabic narration. Pace preserves pitch, and the interface explains the result of increasing or decreasing every value.
    - Transcript-guided sentence correction and waveform-guided phrase replacement create new immutable WAV output versions while preserving the source.
    - Repaired video exports use the original video stream when compatible and otherwise produce a broadly compatible H.264/AAC MP4.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -152,6 +153,102 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"opened": True})
         open_folder.assert_called_once_with(project["id"])
+
+    def test_conversion_route_queues_a_job_and_forwards_the_selected_region(self):
+        project = studio.create_project("Conversion route")
+        queued = {
+            "id": "9" * 32,
+            "projectId": project["id"],
+            "kind": "VOICE_CONVERSION",
+            "status": "QUEUED",
+            "progress": 0,
+            "canRetry": False,
+        }
+        with patch.object(studio_routes.studio, "submit_job", return_value=queued) as submit:
+            response = self.client.post(
+                f"/api/studio/projects/{project['id']}/conversions",
+                json={
+                    "sourceId": "1" * 32,
+                    "startSec": 3.5,
+                    "endSec": 20.25,
+                    "targetVoiceId": "narrator",
+                    "consentConfirmed": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["kind"], "VOICE_CONVERSION")
+        self.assertEqual(submit.call_args.args[1], "VOICE_CONVERSION")
+
+        work = submit.call_args.args[2]
+        with patch.object(
+            studio_routes.studio, "create_conversion", return_value={"id": "a" * 32}
+        ) as convert, patch.object(studio_routes.studio, "update_job_progress"):
+            result = work(job_id="9" * 32, cancel_event=None)
+
+        self.assertEqual(result, {"outputId": "a" * 32})
+        self.assertEqual(convert.call_args.kwargs["start_sec"], 3.5)
+        self.assertEqual(convert.call_args.kwargs["end_sec"], 20.25)
+        self.assertEqual(convert.call_args.kwargs["target_voice_id"], "narrator")
+        self.assertTrue(convert.call_args.kwargs["consent_confirmed"])
+
+    def test_conversion_route_rejects_missing_consent_and_ambiguous_targets(self):
+        project = studio.create_project("Conversion guards")
+        without_consent = self.client.post(
+            f"/api/studio/projects/{project['id']}/conversions",
+            json={"sourceId": "1" * 32, "targetVoiceId": "narrator", "consentConfirmed": False},
+        )
+        self.assertEqual(without_consent.status_code, 400)
+        self.assertEqual(
+            without_consent.json()["detail"]["code"], "VOICE_CONSENT_REQUIRED"
+        )
+
+        both_targets = self.client.post(
+            f"/api/studio/projects/{project['id']}/conversions",
+            json={
+                "sourceId": "1" * 32,
+                "targetVoiceId": "narrator",
+                "targetSourceId": "2" * 32,
+                "consentConfirmed": True,
+            },
+        )
+        self.assertEqual(both_targets.status_code, 400)
+        self.assertEqual(both_targets.json()["detail"]["code"], "INVALID_CONVERSION")
+
+    def test_voice_profile_route_returns_settings_matched_to_the_recording(self):
+        project = studio.create_project("Profile settings")
+        queued = {
+            "id": "8" * 32,
+            "projectId": project["id"],
+            "kind": "VOICE_PROFILE",
+            "status": "QUEUED",
+            "progress": 0,
+            "canRetry": False,
+        }
+        suggested = {"pace": 1.05, "expression": 0.6, "temperature": 0.8, "guidance": None, "seed": None}
+        with patch.object(studio_routes.studio, "submit_job", return_value=queued) as submit:
+            response = self.client.post(
+                f"/api/studio/projects/{project['id']}/profiles",
+                json={
+                    "sourceId": "1" * 32,
+                    "name": "Imported voice",
+                    "startSec": 0,
+                    "endSec": 8,
+                    "consentConfirmed": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 202)
+        work = submit.call_args.args[2]
+        with patch.object(
+            studio_routes.studio,
+            "create_voice_profile",
+            return_value={"id": "imported_voice", "suggestedSettings": suggested},
+        ), patch.object(studio_routes.studio, "update_job_progress"):
+            result = work(job_id="8" * 32, cancel_event=threading.Event())
+
+        self.assertEqual(result["voiceId"], "imported_voice")
+        self.assertEqual(result["suggestedSettings"], suggested)
 
 
 if __name__ == "__main__":

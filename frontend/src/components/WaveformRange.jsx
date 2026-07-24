@@ -6,7 +6,16 @@ function timeLabel(value = 0) {
     return `${minutes}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
 }
 
-export default function WaveformRange({ peaks = [], duration = 0, start, end, onChange, disabled }) {
+export default function WaveformRange({
+    peaks = [],
+    duration = 0,
+    start,
+    end,
+    onChange,
+    disabled,
+    idPrefix = 'studio-range',
+    label = 'Selected speech range',
+}) {
     const [zoom, setZoom] = useState(1);
     const safeDuration = Math.max(0.1, Number(duration) || 0.1);
     const windowDuration = safeDuration / zoom;
@@ -26,9 +35,9 @@ export default function WaveformRange({ peaks = [], duration = 0, start, end, on
 
     return (
         <fieldset className="studio-waveform" disabled={disabled}>
-            <legend className="sr-only">Selected speech range</legend>
+            <legend className="sr-only">{label}</legend>
             <div className="studio-waveform-heading">
-                <strong>Selected speech range</strong>
+                <strong>{label}</strong>
                 <label>Zoom
                     <select value={zoom} onChange={(event) => setZoom(Number(event.target.value))}>
                         <option value="1">1×</option>
@@ -49,10 +58,10 @@ export default function WaveformRange({ peaks = [], duration = 0, start, end, on
                 </g>
             </svg>
             <div className="studio-range-grid">
-                <label htmlFor="studio-range-start">
+                <label htmlFor={`${idPrefix}-start`}>
                     <span>Start <output>{timeLabel(start)}</output></span>
                     <input
-                        id="studio-range-start"
+                        id={`${idPrefix}-start`}
                         type="range"
                         min="0"
                         max={safeDuration}
@@ -61,10 +70,10 @@ export default function WaveformRange({ peaks = [], duration = 0, start, end, on
                         onChange={(event) => onChange(Math.min(Number(event.target.value), end - 0.25), end)}
                     />
                 </label>
-                <label htmlFor="studio-range-end">
+                <label htmlFor={`${idPrefix}-end`}>
                     <span>End <output>{timeLabel(end)}</output></span>
                     <input
-                        id="studio-range-end"
+                        id={`${idPrefix}-end`}
                         type="range"
                         min="0"
                         max={safeDuration}

@@ -486,5 +486,198 @@ class StudioProjectTests(unittest.TestCase):
         self.assertTrue(studio.asset_path(project["id"], exported["id"]).is_file())
 
 
+class StudioVoiceConversionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self.temp.name
+        studio.reset_runtime_state_for_tests()
+
+    def tearDown(self):
+        studio.reset_runtime_state_for_tests()
+        if self.previous is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self.previous
+        self.temp.cleanup()
+
+    def _project_with_source(self, name: str, *, source_id: str, duration: float = 12.0) -> dict:
+        project = studio.create_project(name)
+        root = studio.project_dir(project["id"])
+        (root / "sources" / f"{source_id}.wav").write_bytes(wav_bytes(duration))
+        (root / "derived" / f"{source_id}.wav").write_bytes(wav_bytes(duration))
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sources"] = [{
+            "id": source_id,
+            "fileName": "interview.wav",
+            "mediaType": "AUDIO",
+            "durationSec": duration,
+            "sha256": "a" * 64,
+            "path": f"sources/{source_id}.wav",
+            "audioPath": f"derived/{source_id}.wav",
+        }]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return project
+
+    def _converted_future(self, project_id: str, seconds: float = 3.0) -> Future:
+        session_dir = Path(self.temp.name) / "sessions" / f"studio-{project_id}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "converted.wav").write_bytes(wav_bytes(seconds))
+        future = Future()
+        future.set_result({
+            "audio_url": f"/sessions/studio-{project_id}/converted.wav",
+            "duration_s": seconds,
+            "sampleRate": 24_000,
+            "windows": 2,
+        })
+        return future
+
+    def test_conversion_to_saved_profile_produces_an_immutable_output(self):
+        source_id = "1" * 32
+        project = self._project_with_source("Convert", source_id=source_id)
+        voices = Path(self.temp.name) / "voices"
+        voices.mkdir(parents=True, exist_ok=True)
+        (voices / "narrator.wav").write_bytes(wav_bytes(6))
+        future = self._converted_future(project["id"])
+
+        with patch("services.tts_service.submit_tts", return_value=future) as submit, \
+                patch.object(studio, "_extract_clip") as extract:
+            extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(4))
+            output = studio.create_conversion(
+                project["id"],
+                source_id,
+                start_sec=2.0,
+                end_sec=6.0,
+                target_voice_id="narrator",
+                consent_confirmed=True,
+            )
+
+        self.assertEqual(output["kind"], "CONVERSION")
+        self.assertEqual(output["voiceId"], "narrator")
+        self.assertEqual(output["startSec"], 2.0)
+        self.assertEqual(output["endSec"], 6.0)
+        self.assertNotIn("path", output)
+        self.assertTrue(output["fileName"].endswith("-converted.wav"))
+        self.assertTrue(studio.asset_path(project["id"], output["id"]).is_file())
+        # The reference is the stored profile, not a copy of the source speaker.
+        self.assertTrue(str(submit.call_args.args[3]).endswith("narrator.wav"))
+        self.assertEqual(studio.get_project(project["id"])["voiceId"], "narrator")
+
+    def test_conversion_can_take_its_target_voice_from_another_recording(self):
+        source_id = "2" * 32
+        target_id = "3" * 32
+        project = self._project_with_source("Convert from file", source_id=source_id)
+        root = studio.project_dir(project["id"])
+        (root / "derived" / f"{target_id}.wav").write_bytes(wav_bytes(20))
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sources"].append({
+            "id": target_id,
+            "fileName": "target-speaker.wav",
+            "mediaType": "AUDIO",
+            "durationSec": 20.0,
+            "sha256": "b" * 64,
+            "path": f"derived/{target_id}.wav",
+            "audioPath": f"derived/{target_id}.wav",
+        })
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        future = self._converted_future(project["id"])
+
+        with patch("services.tts_service.submit_tts", return_value=future), \
+                patch.object(studio, "_extract_clip") as extract:
+            extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(8))
+            output = studio.create_conversion(
+                project["id"],
+                source_id,
+                target_source_id=target_id,
+                target_start_sec=0.0,
+                target_end_sec=10.0,
+                consent_confirmed=True,
+            )
+
+        self.assertEqual(output["kind"], "CONVERSION")
+        self.assertIsNone(output["voiceId"])
+        self.assertEqual(output["targetSourceId"], target_id)
+        self.assertEqual(output["targetVoiceName"], "target-speaker.wav")
+        # A file-sourced target must not leak into the global voice library.
+        self.assertFalse((Path(self.temp.name) / "voices" / "target-speaker.wav").exists())
+        self.assertIsNone(studio.get_project(project["id"])["voiceId"])
+
+    def test_conversion_requires_consent_one_target_and_a_valid_region(self):
+        source_id = "4" * 32
+        project = self._project_with_source("Guards", source_id=source_id)
+
+        with self.assertRaisesRegex(ValueError, "permission"):
+            studio.create_conversion(
+                project["id"], source_id, target_voice_id="narrator", consent_confirmed=False
+            )
+        with self.assertRaisesRegex(ValueError, "exactly one target"):
+            studio.create_conversion(
+                project["id"],
+                source_id,
+                target_voice_id="narrator",
+                target_source_id="5" * 32,
+                consent_confirmed=True,
+            )
+        with self.assertRaisesRegex(ValueError, "exactly one target"):
+            studio.create_conversion(project["id"], source_id, consent_confirmed=True)
+        with self.assertRaisesRegex(ValueError, "half a second"):
+            studio.create_conversion(
+                project["id"],
+                source_id,
+                start_sec=1.0,
+                end_sec=1.2,
+                target_voice_id="narrator",
+                consent_confirmed=True,
+            )
+        with self.assertRaisesRegex(ValueError, "beyond the recording"):
+            studio.create_conversion(
+                project["id"],
+                source_id,
+                start_sec=0.0,
+                end_sec=99.0,
+                target_voice_id="narrator",
+                consent_confirmed=True,
+            )
+
+    def test_conversion_rejects_a_missing_voice_profile(self):
+        source_id = "6" * 32
+        project = self._project_with_source("Missing voice", source_id=source_id)
+        with self.assertRaisesRegex(FileNotFoundError, "target voice profile"):
+            studio.create_conversion(
+                project["id"], source_id, target_voice_id="not_here", consent_confirmed=True
+            )
+
+    def test_conversion_leaves_no_staging_files_behind(self):
+        source_id = "7" * 32
+        project = self._project_with_source("Staging", source_id=source_id)
+        voices = Path(self.temp.name) / "voices"
+        voices.mkdir(parents=True, exist_ok=True)
+        (voices / "narrator.wav").write_bytes(wav_bytes(6))
+        future = self._converted_future(project["id"])
+
+        with patch("services.tts_service.submit_tts", return_value=future), \
+                patch.object(studio, "_extract_clip") as extract:
+            extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(4))
+            studio.create_conversion(
+                project["id"],
+                source_id,
+                start_sec=1.0,
+                end_sec=5.0,
+                target_voice_id="narrator",
+                consent_confirmed=True,
+            )
+
+        self.assertEqual(list((studio.studio_root() / "staging").iterdir()), [])
+
+    def test_conversion_workflow_is_selectable_on_a_project(self):
+        project = studio.create_project("Workflow")
+        updated = studio.update_project(project["id"], {"activeWorkflow": "CONVERSION"})
+        self.assertEqual(updated["activeWorkflow"], "CONVERSION")
+        with self.assertRaisesRegex(ValueError, "Invalid Studio workflow"):
+            studio.update_project(project["id"], {"activeWorkflow": "TRANSMOGRIFY"})
+
+
 if __name__ == "__main__":
     unittest.main()

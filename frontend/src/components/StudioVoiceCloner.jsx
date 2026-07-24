@@ -54,7 +54,22 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
             consentConfirmed: consent,
         }), {
             refreshVoices: true,
-            onComplete: ({ voiceId }) => voiceId ? onPatch({ voiceId }) : null,
+            // The imported recording already answers the questions the sliders
+            // ask, so the derived settings are applied instead of leaving the
+            // speaker's pace and expression to be rediscovered by hand.
+            onComplete: ({ voiceId, suggestedSettings }) => {
+                if (!voiceId) return null;
+                return onPatch(
+                    suggestedSettings
+                        ? { voiceId, generationSettings: suggestedSettings }
+                        : { voiceId },
+                );
+            },
+            successMessage: ({ suggestedSettings }) => (
+                suggestedSettings
+                    ? 'Voice cloned and narration settings matched to the recording'
+                    : 'Voice cloned'
+            ),
         });
         setConsent(false);
     };
