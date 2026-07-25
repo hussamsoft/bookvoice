@@ -7,6 +7,7 @@
 - Voice Studio adds a **Convert voice** workflow: import a recording and re-render it in another voice while keeping the original performance. Timing, rhythm, pauses, and emphasis come from the recording itself, so a delivery no longer has to be recreated by hand with the narration controls.
 - The target voice for a conversion can be any saved voice profile or a 5–30 second selection taken straight from a second recording, without first saving it to the voice library.
 - Long recordings are cut at natural pauses before conversion and reassembled with the original silences preserved, so a conversion stays aligned with the source instead of drifting.
+- Voice conversion loads only the S3Gen decoder (~1 GB) when the narration model is not already resident, instead of pulling in the full ~3 GB stack. Conversion never uses the autoregressive T3 text decoder, so it stays usable on machines that cannot comfortably run narration — CPU-only laptops in particular.
 - Cloning a voice from media now also derives matching pace, expression, and temperature from the recording's speaking rate and dynamic range, and applies them to the project automatically.
 
 - BookVoice can now be hosted on a server. `BOOKVOICE_SERVER_MODE`, `BOOKVOICE_ACCESS_PASSWORD` and `BOOKVOICE_PUBLIC_ORIGIN` enable a password gate, trust the deployment's own browser origin, and replace the Windows-only file actions with a browser download. With none of them set the desktop app is unchanged.

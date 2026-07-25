@@ -95,6 +95,15 @@ _model_state = {
 }
 _model_lock = threading.Lock()
 _generate_lock = threading.Lock()
+# Voice conversion only needs the S3Gen decoder. It is cached separately so a
+# machine that cannot hold the full narration model can still convert audio.
+_vc_model = None
+_vc_model_device: str | None = None
+# The S3Gen instance the cached converter was built over, tracked explicitly so
+# a converter borrowed from the narration model can be told apart from a
+# standalone one without depending on what the wrapper re-exposes.
+_vc_source_s3gen = None
+_vc_lock = threading.Lock()
 # Avoid re-running expensive prepare_conditionals for the same voice prompt
 # across consecutive chunks / narrate calls (big win on voice switch).
 _last_voice_prompt: str | None = None
@@ -1220,18 +1229,69 @@ def _speech_windows(
 
 
 def get_voice_converter():
-    """Build a ChatterboxVC over the already-loaded S3Gen decoder.
+    """Return a ChatterboxVC, reusing resident weights when there are any.
 
-    The narration model keeps S3Gen resident, so conversion reuses it instead of
-    loading a second copy of the ~1 GB decoder into VRAM.
+    Conversion needs only the S3Gen decoder (~1 GB) — never the ~2 GB
+    autoregressive T3 text decoder that narration depends on. So:
+
+    * If the narration model is already loaded, wrap its S3Gen. No second copy
+      of the decoder is allocated.
+    * Otherwise load S3Gen on its own rather than pulling in the whole narration
+      stack. That keeps conversion usable on machines that cannot comfortably
+      hold the full model — notably CPU-only laptops, where T3's autoregressive
+      loop is the slow part and conversion never runs it.
     """
+    global _vc_model, _vc_model_device, _vc_source_s3gen
     from chatterbox.vc import ChatterboxVC
 
-    model = get_model("en")
-    s3gen = getattr(model, "s3gen", None)
-    if s3gen is None:
-        raise RuntimeError("The loaded speech model does not support voice conversion.")
-    return ChatterboxVC(s3gen, getattr(model, "device", _resolve_device()))
+    with _model_lock:
+        resident = _model
+    s3gen = getattr(resident, "s3gen", None) if resident is not None else None
+    if s3gen is not None:
+        device = getattr(resident, "device", _resolve_device())
+        with _vc_lock:
+            # Drop a standalone decoder once the full model supersedes it.
+            if _vc_model is not None and _vc_source_s3gen is not s3gen:
+                _vc_model = None
+                _vc_source_s3gen = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            if _vc_model is None:
+                _vc_model = ChatterboxVC(s3gen, device)
+                _vc_model_device = device
+                _vc_source_s3gen = s3gen
+            return _vc_model
+
+    with _vc_lock:
+        if _vc_model is not None:
+            return _vc_model
+        device = _resolve_device()
+        ckpt_dir = _local_model_path("en")
+        if not os.path.isfile(os.path.join(ckpt_dir, "s3gen.safetensors")):
+            raise FileNotFoundError(
+                f"Voice conversion weights (s3gen.safetensors) were not found at: {ckpt_dir}."
+            )
+        _model_state["status"] = "loading"
+        _model_state["detail"] = (
+            f"Loading S3Gen audio decoder (~1.0GB) into {device.upper()} for voice conversion…"
+        )
+        _model_state["loading_started"] = time.time()
+        started = time.time()
+        try:
+            _vc_model = ChatterboxVC.from_local(ckpt_dir, device)
+            _vc_model_device = device
+        except Exception as exc:
+            _model_state["status"] = "error"
+            _model_state["detail"] = str(exc)
+            _model_state["loading_started"] = None
+            raise
+        _model_state["status"] = "ready"
+        _model_state["detail"] = f"Voice conversion ready on {str(device).upper()}."
+        _model_state["loading_started"] = None
+        _model_state["device"] = device
+        _log(f"Voice conversion decoder loaded in {time.time() - started:.1f}s on {device}.")
+        return _vc_model
 
 
 def convert_voice_audio(

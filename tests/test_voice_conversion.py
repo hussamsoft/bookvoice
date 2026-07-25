@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import types
 import unittest
 import wave
 from pathlib import Path
@@ -78,6 +79,91 @@ class SpeechWindowTests(unittest.TestCase):
     def test_fully_silent_audio_still_returns_a_single_window(self):
         self.assertEqual(tts._speech_windows(silence(1.0), 16_000), [(0, 16_000)])
         self.assertEqual(tts._speech_windows(np.zeros(0, dtype=np.float32), 16_000), [])
+
+
+class VoiceConverterLoadingTests(unittest.TestCase):
+    """Conversion needs only S3Gen, never the ~2 GB autoregressive T3 decoder."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        tts._vc_model = None
+        tts._vc_source_s3gen = None
+        tts._model = None
+        # chatterbox is a heavy optional import; stub the module the loader
+        # reaches for so this stays a pure unit test.
+        self.vc_class = MagicMock(name="ChatterboxVC")
+        module = types.ModuleType("chatterbox.vc")
+        module.ChatterboxVC = self.vc_class
+        self._previous = sys.modules.get("chatterbox.vc")
+        sys.modules["chatterbox.vc"] = module
+
+    def tearDown(self):
+        if self._previous is None:
+            sys.modules.pop("chatterbox.vc", None)
+        else:
+            sys.modules["chatterbox.vc"] = self._previous
+        tts._vc_model = None
+        tts._vc_source_s3gen = None
+        tts._model = None
+        self.temp.cleanup()
+
+    def test_reuses_the_resident_narration_decoder_without_a_second_copy(self):
+        narration = MagicMock()
+        narration.s3gen = MagicMock(name="resident-s3gen")
+        narration.device = "cpu"
+        tts._model = narration
+        converter = MagicMock()
+
+        self.vc_class.side_effect = lambda *args, **kwargs: converter
+        with patch.object(tts, "_local_model_path") as local_path:
+            first = tts.get_voice_converter()
+            second = tts.get_voice_converter()
+
+        self.assertIs(first, converter)
+        # Cached: the decoder is wrapped once, and no weights are loaded from disk.
+        self.assertIs(second, converter)
+        self.vc_class.assert_called_once_with(narration.s3gen, "cpu")
+        local_path.assert_not_called()
+
+    def test_loads_s3gen_alone_when_the_narration_model_is_not_resident(self):
+        checkpoint = Path(self.temp.name)
+        (checkpoint / "s3gen.safetensors").write_bytes(b"weights")
+        # Deliberately absent: t3_cfg.safetensors, the model conversion never needs.
+        converter = MagicMock()
+
+        self.vc_class.from_local.return_value = converter
+        with patch.object(tts, "_local_model_path", return_value=str(checkpoint)), \
+                patch.object(tts, "_resolve_device", return_value="cpu"), \
+                patch.object(tts, "get_model") as get_model:
+            loaded = tts.get_voice_converter()
+
+        self.assertIs(loaded, converter)
+        self.vc_class.from_local.assert_called_once_with(str(checkpoint), "cpu")
+        # The full narration stack is never touched.
+        get_model.assert_not_called()
+
+    def test_missing_conversion_weights_name_the_file_and_directory(self):
+        with patch.object(tts, "_local_model_path", return_value=self.temp.name), \
+                patch.object(tts, "_resolve_device", return_value="cpu"):
+            with self.assertRaisesRegex(FileNotFoundError, "s3gen.safetensors"):
+                tts.get_voice_converter()
+
+    def test_a_standalone_decoder_is_released_once_the_full_model_loads(self):
+        standalone = MagicMock(name="standalone")
+        tts._vc_model = standalone
+        tts._vc_source_s3gen = MagicMock(name="standalone-s3gen")
+
+        narration = MagicMock()
+        narration.s3gen = MagicMock(name="resident-s3gen")
+        narration.device = "cpu"
+        tts._model = narration
+        replacement = MagicMock(name="wrapped-resident")
+
+        self.vc_class.side_effect = lambda *args, **kwargs: replacement
+        result = tts.get_voice_converter()
+
+        self.assertIs(result, replacement)
+        self.assertIs(tts._vc_model, replacement)
 
 
 class ConvertVoiceAudioTests(unittest.TestCase):
