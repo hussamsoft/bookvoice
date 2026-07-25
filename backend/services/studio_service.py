@@ -969,21 +969,13 @@ def create_narration(
     settings = validate_generation_settings(generation_settings)
     get_project(safe_id)
 
-    from services import tts_service
+    from services import generation_gateway
 
     session_id = f"studio-{safe_id}"
     cancellation = _EventCancellation(cancel_event)
-    future = tts_service.submit_tts(
-        tts_service.TtsPriority.CURRENT,
-        tts_service.narrate_studio_text,
-        script,
-        session_id,
-        voice,
-        language,
-        settings,
-        cancellation,
+    generated = generation_gateway.narrate(
+        session_id, script, language, voice, settings, cancellation=cancellation
     )
-    generated = future.result()
     if cancellation.cancelled():
         raise RuntimeError("Studio narration was cancelled.")
     prefix = f"/sessions/{session_id}/"
@@ -1122,7 +1114,7 @@ def create_conversion(
             trimmed = _staged("studio-convert-source-")
             _extract_clip(source_audio, trimmed, start_sec=start, duration_sec=span)
 
-        from services import tts_service, voice_profile_service
+        from services import generation_gateway, tts_service, voice_profile_service
 
         if target_voice_id:
             voice = validate_voice_id(target_voice_id)
@@ -1152,17 +1144,16 @@ def create_conversion(
         signature = f'{source.get("sha256")}:{start:.3f}:{span:.3f}:{target_label}:{_sha256_file(reference)}'
         filename = tts_service.conversion_filename(signature, voice)
         cancellation = _EventCancellation(cancel_event)
-        future = tts_service.submit_tts(
-            tts_service.TtsPriority.CURRENT,
-            tts_service.convert_voice_audio,
+        # Both staged files live under DATA_DIR, so a remote worker sharing the
+        # same storage reaches them at these exact paths.
+        generated = generation_gateway.convert(
+            session_id,
             str(trimmed),
             str(reference),
-            session_id,
             filename,
-            cancellation,
+            cancellation=cancellation,
             progress=progress,
         )
-        generated = future.result()
     finally:
         for path in temp_paths:
             path.unlink(missing_ok=True)
@@ -1412,21 +1403,13 @@ def create_repair(
     if duration and end > duration + 0.01:
         raise ValueError("Repair selection extends beyond the source audio.")
 
-    from services import tts_service
+    from services import generation_gateway
 
     session_id = f"studio-{safe_id}"
     cancellation = _EventCancellation(cancel_event)
-    future = tts_service.submit_tts(
-        tts_service.TtsPriority.INTERACTIVE,
-        tts_service.narrate_studio_repair_text,
-        text,
-        session_id,
-        voice,
-        language,
-        settings,
-        cancellation,
+    generated = generation_gateway.narrate_repair(
+        session_id, text, language, voice, settings, cancellation=cancellation
     )
-    generated = future.result()
     if cancellation.cancelled():
         raise RuntimeError("Studio repair was cancelled.")
     replacement_path = _session_audio_path(session_id, generated.get("audio_url"))

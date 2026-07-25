@@ -38,9 +38,15 @@ PUBLIC_ORIGIN = os.environ.get("BOOKVOICE_PUBLIC_ORIGIN", "")
 # roughly an order of magnitude faster than CPU for this model.
 GPU_KIND = os.environ.get("BOOKVOICE_MODAL_GPU", "A10G")
 
-# Keep the container alive briefly after the last request so a burst of
-# narration does not pay a cold start each time, but idle time stays unbilled.
+# The web container carries no GPU, so keeping it warm is cheap and avoids a
+# cold start on every page load.
 SCALEDOWN_WINDOW_SECONDS = int(os.environ.get("BOOKVOICE_MODAL_IDLE", "300"))
+
+# The GPU worker is the expensive one. A short window lets consecutive jobs
+# reuse a warm container with the weights already resident, without paying for
+# long idle tails. Raise it if you generate in bursts and cold starts annoy you
+# more than cost does.
+GPU_SCALEDOWN_SECONDS = int(os.environ.get("BOOKVOICE_MODAL_GPU_IDLE", "60"))
 
 DATA_VOLUME = modal.Volume.from_name("bookvoice-data", create_if_missing=True)
 MODEL_VOLUME = modal.Volume.from_name("bookvoice-models", create_if_missing=True)
@@ -161,10 +167,64 @@ def _start_volume_committer(interval_seconds: int = 30) -> None:
 @app.function(
     gpu=GPU_KIND,
     volumes={DATA_PATH: DATA_VOLUME, MODEL_PATH: MODEL_VOLUME},
+    scaledown_window=GPU_SCALEDOWN_SECONDS,
+    timeout=60 * 60,
+    max_containers=1,
+)
+def generate(kind: str, payload: dict) -> dict:
+    """Run one generation job on a GPU, then exit.
+
+    This is where the GPU billing lives. The container exists for the duration
+    of a single narration, repair or conversion — not for the duration of
+    someone's browsing session — so idle reading and typing cost nothing.
+    """
+    sys.path.insert(0, APP_PATH)
+    os.chdir(APP_PATH)
+    # Pick up staged inputs the web container just wrote.
+    DATA_VOLUME.reload()
+
+    from services import generation_gateway
+
+    result = generation_gateway.run_remote_job(kind, payload)
+    # Publish the rendered audio before the web container looks for it.
+    DATA_VOLUME.commit()
+    return result
+
+
+def _remote_executor(kind, payload, *, cancel_check=None, progress=None):
+    """Run a job on the GPU function and wait, honouring cancellation.
+
+    Progress is coarse for remote jobs: the worker is a separate process, so
+    per-window callbacks do not cross the boundary. The Studio job still
+    reports queued/running/complete.
+    """
+    call = generate.spawn(kind, payload)
+    while True:
+        try:
+            result = call.get(timeout=5)
+        except TimeoutError:
+            if cancel_check is not None and cancel_check():
+                # Stop paying for work whose result is already discarded.
+                call.cancel()
+                raise RuntimeError(f"{kind} was cancelled.")
+            continue
+        if progress is not None:
+            try:
+                progress(1.0)
+            except Exception:  # noqa: BLE001 - progress is advisory
+                pass
+        # See the files the worker wrote.
+        DATA_VOLUME.reload()
+        return result
+
+
+@app.function(
+    # No GPU: this container serves the UI and the API, holds Studio job state,
+    # and reads and writes the Volume. Generation is handed to `generate`.
+    volumes={DATA_PATH: DATA_VOLUME, MODEL_PATH: MODEL_VOLUME},
     secrets=[modal.Secret.from_name("bookvoice-access")],
     scaledown_window=SCALEDOWN_WINDOW_SECONDS,
-    # Studio jobs run in an in-process thread pool; a generous request timeout
-    # keeps long narration and conversion jobs from being cut off mid-run.
+    # Studio jobs run in an in-process thread pool and wait on the GPU worker.
     timeout=60 * 60,
     # One container only: the voice library and Studio projects are a single
     # shared tree on the Volume, and concurrent writers to the same files are
@@ -181,7 +241,9 @@ def web():
         (Path(DATA_PATH) / child).mkdir(parents=True, exist_ok=True)
 
     from main import app as fastapi_app
+    from services import remote_execution
 
+    remote_execution.set_executor(_remote_executor)
     _start_volume_committer()
     return fastapi_app
 

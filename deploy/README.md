@@ -50,10 +50,40 @@ export BOOKVOICE_PUBLIC_ORIGIN="https://you--bookvoice-web.modal.run"
 modal deploy deploy/modal_app.py
 ```
 
+### How the billing works
+
+Two functions, and only one of them is expensive:
+
+- **`web`** — no GPU. Serves the UI and API, holds Studio job state, reads and
+  writes the Volume. This is where your browsing session lives: reading, typing
+  a script, adjusting settings, listening to finished audio. Cheap to keep warm.
+- **`generate`** — GPU. Exists only for the duration of one narration, repair or
+  conversion, then exits.
+
+That split is the point. If the GPU were attached to the web app, you would pay
+for the whole session — every minute spent reading or typing with the tab open.
+Instead you pay for the seconds a job actually runs, plus its cold start.
+
+The wiring is `services/remote_execution.py`: the web container registers an
+executor, and `services/generation_gateway.py` sends jobs to it instead of
+running them in-process. With no executor registered — the desktop app — the
+same calls run locally exactly as before.
+
+`BOOKVOICE_MODAL_GPU_IDLE` (default 60s) controls how long a GPU worker stays
+warm for a follow-up job. Raising it trades money for fewer cold starts.
+
 ### Why it is shaped this way
 
 - **Weights live in a Volume, not the image.** Three gigabytes in an image layer
   means every code change rebuilds three gigabytes. `fetch_models` runs once.
+- **Staged inputs travel through the Volume.** Conversion writes its trimmed
+  source and target-voice clip under `DATA_DIR`, so the worker reads them at the
+  same absolute paths. The worker calls `reload()` before starting and
+  `commit()` when finished; the web side reloads before looking for the result.
+- **Remote progress is coarse.** Per-window conversion progress does not cross
+  the process boundary, so a remote job reports queued/running/complete rather
+  than a percentage. Cancellation does cross: cancelling a Studio job cancels
+  the worker, so you stop paying for output you discarded.
 - **One container maximum.** The voice library and Studio projects are a single
   shared tree; Modal Volumes are last-write-wins on concurrent modification of
   the same file, so a second writer would corrupt project manifests.
@@ -66,9 +96,12 @@ modal deploy deploy/modal_app.py
 
 ### Cold starts
 
-The first request after idle loads ~3 GB of weights from the Volume onto the
-GPU. Expect roughly 30–60 seconds. Subsequent requests are warm until the
-scaledown window expires.
+The first generation after idle loads weights from the Volume onto the GPU:
+~3 GB for narration, ~1 GB for conversion, which never loads the autoregressive
+T3 decoder. Expect roughly 30–60 seconds for narration and less for conversion.
+Follow-up jobs within `BOOKVOICE_MODAL_GPU_IDLE` reuse the warm worker. Cold
+start is billed — it is GPU time — so a long idle window is not automatically
+the expensive choice if you generate in bursts.
 
 ## Other hosts
 

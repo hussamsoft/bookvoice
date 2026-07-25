@@ -11,7 +11,8 @@
 - Cloning a voice from media now also derives matching pace, expression, and temperature from the recording's speaking rate and dynamic range, and applies them to the project automatically.
 
 - BookVoice can now be hosted on a server. `BOOKVOICE_SERVER_MODE`, `BOOKVOICE_ACCESS_PASSWORD` and `BOOKVOICE_PUBLIC_ORIGIN` enable a password gate, trust the deployment's own browser origin, and replace the Windows-only file actions with a browser download. With none of them set the desktop app is unchanged.
-- `deploy/modal_app.py` and `deploy/README.md` deploy the app to Modal as a scale-to-zero GPU service, with model weights in a Volume so code changes do not rebuild three gigabytes.
+- `deploy/modal_app.py` and `deploy/README.md` deploy the app to Modal, with model weights in a Volume so code changes do not rebuild three gigabytes.
+- Generation can run off-process. `services/generation_gateway.py` is now the single dispatch point for narration, repair and conversion, and `services/remote_execution.py` lets a deployment register a worker to run them elsewhere. The Modal deployment uses this to serve the UI from a CPU container and spawn a GPU worker per job, so a browsing session no longer holds a GPU. With no executor registered the desktop app runs generation locally exactly as before.
 
 ### Changed
 
