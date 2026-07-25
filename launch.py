@@ -353,11 +353,54 @@ def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
         time.sleep(1.5)
 
 
-def pick_port(log: Logger) -> int:
+LOOPBACK_HOST = "127.0.0.1"
+
+
+def resolve_bind_host(requested: str | None = None) -> str:
+    """The address uvicorn binds to. Loopback unless deliberately widened.
+
+    ``--host``/``BOOKVOICE_HOST`` accepts an interface address, or ``lan`` /
+    ``all`` as a friendly spelling of 0.0.0.0.
+    """
+    value = str(requested or os.environ.get("BOOKVOICE_HOST", "") or "").strip()
+    if not value:
+        return LOOPBACK_HOST
+    if value.lower() in {"lan", "all", "any"}:
+        return "0.0.0.0"
+    return value
+
+
+def is_loopback_host(host: str) -> bool:
+    return str(host).strip().lower() in {LOOPBACK_HOST, "localhost", "::1"}
+
+
+def lan_addresses() -> list[str]:
+    """Best-effort list of this machine's addresses on the local network."""
+    found = []
+    try:
+        # Connecting a UDP socket picks the interface that reaches the gateway
+        # without sending anything.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.settimeout(0.2)
+            probe.connect(("192.168.255.255", 1))
+            found.append(probe.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            address = info[4][0]
+            if address not in found and not address.startswith("127."):
+                found.append(address)
+    except OSError:
+        pass
+    return found
+
+
+def pick_port(log: Logger, host: str = LOOPBACK_HOST) -> int:
     for port in range(PORT_START, PORT_END + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
-                sock.bind(("127.0.0.1", port))
+                sock.bind((host, port))
                 return port
             except OSError:
                 continue
@@ -438,6 +481,21 @@ def build_env(app_dir: str, runtime_dir: str) -> dict:
     return env
 
 
+def apply_network_env(env: dict, host: str) -> dict:
+    """Let LAN browsers through when the app is deliberately bound beyond loopback.
+
+    A phone on the same Wi-Fi arrives with a private-address Origin, which the
+    loopback-only policy would reject, and over plain HTTP a Secure session
+    cookie would be discarded. Both are relaxed only for a non-loopback bind,
+    and only when the operator has not already made the call.
+    """
+    if is_loopback_host(host):
+        return env
+    env.setdefault("BOOKVOICE_ALLOW_PRIVATE_ORIGINS", "1")
+    env.setdefault("BOOKVOICE_COOKIE_SECURE", "0")
+    return env
+
+
 def set_status(window, title: str, detail: str) -> None:
     if window is None:
         return
@@ -511,6 +569,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-window",
         action="store_true",
         help="Start the backend only (no UI shell)",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help=(
+            "Address to bind (default 127.0.0.1, this machine only). Use 'lan' "
+            "to accept connections from other devices on your network. Anyone "
+            "who can reach the port gets full access unless "
+            "BOOKVOICE_ACCESS_PASSWORD is set."
+        ),
     )
     parser.add_argument(
         "book_path",
@@ -594,14 +662,25 @@ def main(argv: list[str] | None = None) -> int:
                 return
 
             kill_stale_servers(app_dir, runtime_dir, log)
-            port = pick_port(log)
-            env = build_env(app_dir, runtime_dir)
+            bind_host = resolve_bind_host(args.host)
+            port = pick_port(log, bind_host)
+            env = apply_network_env(build_env(app_dir, runtime_dir), bind_host)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
             log.write(f"venv={py}")
             log.write(f"port={port}")
+            log.write(f"bind={bind_host}")
+            if not is_loopback_host(bind_host):
+                for address in lan_addresses():
+                    log.write(f"reachable on this network at http://{address}:{port}")
+                if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
+                    log.write(
+                        "WARNING: bound beyond loopback with no BOOKVOICE_ACCESS_PASSWORD. "
+                        "Anyone who can reach this port has full access to your voice "
+                        "profiles and Studio projects."
+                    )
 
-            status("Starting AI Engine", f"Launching backend on 127.0.0.1:{port}…")
+            status("Starting AI Engine", f"Launching backend on {bind_host}:{port}…")
             server_log = os.path.join(runtime_dir, "bookvoice_server.log")
             try:
                 if os.path.isfile(server_log):
@@ -612,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
             except OSError:
                 pass
             log_file = open(server_log, "w", encoding="utf-8", errors="replace")
-            cmd = [py, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)]
+            cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
             process = subprocess.Popen(
                 cmd,
                 cwd=app_dir,
