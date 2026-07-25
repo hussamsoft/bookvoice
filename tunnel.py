@@ -80,13 +80,14 @@ def resolve_settings(runtime_dir: str, overrides: dict | None = None) -> dict:
         "mode": (pick("mode", "BOOKVOICE_TUNNEL") or "").lower(),
         "hostname": pick("hostname", "BOOKVOICE_TUNNEL_HOSTNAME"),
         "name": pick("name", "BOOKVOICE_TUNNEL_NAME"),
+        "token": pick("token", "BOOKVOICE_TUNNEL_TOKEN"),
         "config": pick("config", "BOOKVOICE_TUNNEL_CONFIG"),
         "binary": pick("binary", "BOOKVOICE_CLOUDFLARED"),
     }
     if settings["mode"] in _TRUTHY:
         settings["mode"] = "cloudflare"
-    # A hostname or tunnel name on its own is an unambiguous request for one.
-    if not settings["mode"] and (settings["hostname"] or settings["name"]):
+    # A hostname, tunnel name or token on its own is an unambiguous request.
+    if not settings["mode"] and (settings["hostname"] or settings["name"] or settings["token"]):
         settings["mode"] = "cloudflare"
     return settings
 
@@ -95,8 +96,24 @@ def is_enabled(settings: dict) -> bool:
     return str(settings.get("mode") or "").lower() in {"cloudflare", "cloudflared", "quick"}
 
 
+def is_remote_managed(settings: dict) -> bool:
+    """A dashboard tunnel run from a token.
+
+    Cloudflare serves the ingress rules for these, so the local port comes from
+    the dashboard's public hostname entry and ``--url`` is ignored. The port the
+    app listens on therefore has to be pinned to match.
+    """
+    return bool(settings.get("token"))
+
+
 def is_named(settings: dict) -> bool:
-    """A named tunnel is the only mode with a hostname that does not change."""
+    """True when the public address will not change between runs.
+
+    Either a locally-created named tunnel with a routed hostname, or a
+    dashboard tunnel whose hostname is configured in Cloudflare.
+    """
+    if is_remote_managed(settings):
+        return True
     return bool(settings.get("name") and settings.get("hostname"))
 
 
@@ -127,18 +144,41 @@ def find_cloudflared(explicit: str = "") -> str:
 def build_command(settings: dict, port: int, binary: str) -> list[str]:
     """Build the cloudflared invocation for this run.
 
-    The local port is passed on the command line rather than baked into
-    config.yml, because the launcher picks a free port at startup and it will
-    not always be the same one.
+    For locally-managed tunnels the port is passed on the command line rather
+    than baked into config.yml, because the launcher picks a free port and it
+    will not always be the same one.
+
+    A dashboard tunnel takes its ingress from Cloudflare and ignores ``--url``
+    and ``--config`` entirely, so neither is sent — the port must instead be
+    pinned to whatever the dashboard's public hostname points at.
     """
-    origin = f"http://127.0.0.1:{int(port)}"
     command = [binary, "tunnel", "--no-autoupdate"]
+    if is_remote_managed(settings):
+        return command + ["run", "--token", str(settings["token"])]
     if settings.get("config"):
         command += ["--config", str(settings["config"])]
-    command += ["--url", origin]
+    command += ["--url", f"http://127.0.0.1:{int(port)}"]
     if settings.get("name"):
         command += ["run", str(settings["name"])]
     return command
+
+
+def redact_command(command: list[str]) -> str:
+    """Render a command for the log with any tunnel token removed.
+
+    The token carries account credentials, and the launcher log is a plain file
+    people paste into bug reports.
+    """
+    parts = []
+    redact_next = False
+    for part in command:
+        if redact_next:
+            parts.append("<token>")
+            redact_next = False
+            continue
+        parts.append(part)
+        redact_next = part == "--token"
+    return " ".join(parts)
 
 
 def public_origin(settings: dict) -> str:
@@ -171,7 +211,7 @@ class CloudflareTunnel:
     def start(self) -> str:
         binary = find_cloudflared(self.settings.get("binary", ""))
         command = build_command(self.settings, self.port, binary)
-        self._write(f"tunnel: {' '.join(command)}")
+        self._write(f"tunnel: {redact_command(command)}")
         creation = 0
         if os.name == "nt":
             creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -189,8 +229,10 @@ class CloudflareTunnel:
             raise TunnelError(f"cloudflared could not be started: {exc}") from exc
 
         threading.Thread(target=self._drain_output, name="cloudflared-log", daemon=True).start()
-        if not self.url:
+        if not self.url and not is_remote_managed(self.settings):
             # Quick tunnel: the hostname only exists once Cloudflare announces it.
+            # A dashboard tunnel never prints one — its hostname lives in
+            # Cloudflare, so it has to be supplied as --tunnel-hostname.
             if not self._quick_url_seen.wait(QUICK_URL_TIMEOUT_S):
                 self.stop()
                 raise TunnelError("cloudflared did not report a tunnel URL in time.")
@@ -233,3 +275,15 @@ def start_tunnel(settings: dict, port: int, runtime_dir: str, log=None) -> Cloud
     persisted["lastStartedAt"] = time.time()
     save_settings(runtime_dir, persisted)
     return tunnel
+
+
+def missing_hostname_warning(settings: dict) -> str:
+    """Explain the one way a dashboard tunnel is left half-configured."""
+    if is_remote_managed(settings) and not settings.get("hostname"):
+        return (
+            "The tunnel is running, but no --tunnel-hostname was given. BookVoice "
+            "cannot trust requests from a hostname it does not know, so the browser "
+            "will be refused. Pass the public hostname you routed in the Cloudflare "
+            "dashboard."
+        )
+    return ""

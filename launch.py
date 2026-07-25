@@ -362,6 +362,21 @@ def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
 LOOPBACK_HOST = "127.0.0.1"
 
 
+def resolve_pinned_port(requested: int | None = None) -> int:
+    """A fixed port, when one is demanded, else 0 meaning 'scan for a free one'.
+
+    A dashboard-managed tunnel routes its public hostname to a specific
+    localhost port, so the app has to land on that exact port every time rather
+    than taking whatever is free.
+    """
+    value = requested if requested else os.environ.get("BOOKVOICE_PORT", "")
+    try:
+        port = int(str(value).strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+    return port if 1 <= port <= 65535 else 0
+
+
 def resolve_bind_host(requested: str | None = None) -> str:
     """The address uvicorn binds to. Loopback unless deliberately widened.
 
@@ -402,7 +417,20 @@ def lan_addresses() -> list[str]:
     return found
 
 
-def pick_port(log: Logger, host: str = LOOPBACK_HOST) -> int:
+def pick_port(log: Logger, host: str = LOOPBACK_HOST, pinned: int = 0) -> int:
+    if pinned:
+        # Deliberately not falling back to another port: something is routed to
+        # this one, and starting elsewhere would look like a broken tunnel
+        # rather than a port conflict.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, pinned))
+            except OSError:
+                log.write(
+                    f"WARNING: port {pinned} is already in use. Close whatever is "
+                    "holding it — BookVoice will try to start on it anyway."
+                )
+        return pinned
     for port in range(PORT_START, PORT_END + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
@@ -616,6 +644,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Permanent hostname routed to the tunnel, e.g. bookvoice.example.com.",
     )
     parser.add_argument(
+        "--tunnel-token",
+        default=None,
+        help=(
+            "Token for a tunnel created in the Cloudflare dashboard. Its ingress "
+            "lives in Cloudflare, so pair this with --port matching the public "
+            "hostname you routed."
+        ),
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=(
+            "Pin the local port instead of scanning 8000-8020. Required when a "
+            "dashboard tunnel points at a fixed localhost port."
+        ),
+    )
+    parser.add_argument(
         "--host",
         default=None,
         help=(
@@ -709,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
 
             kill_stale_servers(app_dir, runtime_dir, log)
             bind_host = resolve_bind_host(args.host)
-            port = pick_port(log, bind_host)
+            port = pick_port(log, bind_host, resolve_pinned_port(args.port))
             env = apply_network_env(build_env(app_dir, runtime_dir), bind_host)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
@@ -721,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
                 "mode": args.tunnel,
                 "name": args.tunnel_name,
                 "hostname": args.tunnel_hostname,
+                "token": args.tunnel_token,
             })
             if tunnel.is_enabled(tunnel_settings):
                 status("Opening tunnel", "Publishing BookVoice over Cloudflare…")
@@ -737,6 +784,21 @@ def main(argv: list[str] | None = None) -> int:
                             "address every start. Use --tunnel-name and "
                             "--tunnel-hostname for a permanent one."
                         )
+                    if tunnel.is_remote_managed(tunnel_settings):
+                        log.write(
+                            f"dashboard tunnel: point its public hostname at "
+                            f"http://localhost:{port}"
+                        )
+                        if not resolve_pinned_port(args.port):
+                            log.write(
+                                "WARNING: no --port given. A dashboard tunnel routes to "
+                                "one fixed port, but this launch scanned for a free one "
+                                "and may pick a different port next time."
+                            )
+                    hostname_warning = tunnel.missing_hostname_warning(tunnel_settings)
+                    if hostname_warning:
+                        log.write(f"WARNING: {hostname_warning}")
+                        status("Tunnel needs a hostname", hostname_warning)
                     if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
                         log.write(
                             "WARNING: the tunnel is reachable from the public internet "

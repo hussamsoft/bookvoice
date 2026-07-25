@@ -22,6 +22,7 @@ TUNNEL_ENV = {
     "BOOKVOICE_TUNNEL": "",
     "BOOKVOICE_TUNNEL_HOSTNAME": "",
     "BOOKVOICE_TUNNEL_NAME": "",
+    "BOOKVOICE_TUNNEL_TOKEN": "",
     "BOOKVOICE_TUNNEL_CONFIG": "",
     "BOOKVOICE_CLOUDFLARED": "",
 }
@@ -130,6 +131,112 @@ class CommandTests(unittest.TestCase):
         with patch.object(tunnel.shutil, "which", return_value=None):
             with self.assertRaisesRegex(tunnel.TunnelError, "cloudflared was not found"):
                 tunnel.find_cloudflared()
+
+
+class DashboardTunnelTests(unittest.TestCase):
+    """Tunnels created in the Cloudflare dashboard take their config from the cloud."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_a_token_run_sends_no_url_or_config(self):
+        # Cloudflare serves the ingress for these; --url and --config are
+        # ignored, so sending them would only imply a control that does nothing.
+        command = tunnel.build_command({"token": "eyJtoken", "config": "C:/cf.yml"}, 8000, "cloudflared")
+        self.assertNotIn("--url", command)
+        self.assertNotIn("--config", command)
+        self.assertEqual(command[-3:], ["run", "--token", "eyJtoken"])
+
+    def test_a_dashboard_tunnel_counts_as_a_stable_address(self):
+        settings = {"mode": "cloudflare", "token": "eyJtoken", "hostname": "voice.example.com"}
+        self.assertTrue(tunnel.is_remote_managed(settings))
+        self.assertTrue(tunnel.is_named(settings))
+        self.assertEqual(tunnel.public_origin(settings), "https://voice.example.com")
+
+    def test_a_token_alone_is_taken_as_a_request_for_a_tunnel(self):
+        with patch.dict(os.environ, TUNNEL_ENV):
+            settings = tunnel.resolve_settings(self.temp.name, {"token": "eyJtoken"})
+        self.assertTrue(tunnel.is_enabled(settings))
+        self.assertTrue(tunnel.is_remote_managed(settings))
+
+    def test_the_token_is_kept_out_of_the_log(self):
+        command = tunnel.build_command({"token": "eyJverysecrettoken"}, 8000, "cloudflared")
+        rendered = tunnel.redact_command(command)
+        self.assertNotIn("eyJverysecrettoken", rendered)
+        self.assertIn("<token>", rendered)
+
+    def test_a_dashboard_tunnel_without_a_hostname_is_called_out(self):
+        # Without it the browser origin is unknown and every request is refused.
+        warning = tunnel.missing_hostname_warning({"token": "eyJtoken"})
+        self.assertIn("--tunnel-hostname", warning)
+        self.assertEqual(
+            tunnel.missing_hostname_warning({"token": "eyJtoken", "hostname": "voice.example.com"}),
+            "",
+        )
+        self.assertEqual(tunnel.missing_hostname_warning({"name": "bookvoice"}), "")
+
+    def test_a_token_tunnel_starts_without_waiting_for_a_printed_url(self):
+        # A dashboard tunnel never announces a URL, so waiting would just stall.
+        process = MagicMock()
+        process.stdout = iter([])
+        process.poll.return_value = None
+        settings = {"mode": "cloudflare", "token": "eyJtoken", "hostname": "voice.example.com"}
+        with patch.object(tunnel, "find_cloudflared", return_value="cloudflared"), \
+                patch.object(subprocess, "Popen", return_value=process), \
+                patch.object(tunnel, "QUICK_URL_TIMEOUT_S", 30):
+            started = tunnel.start_tunnel(settings, 8000, self.temp.name)
+        self.assertEqual(started.url, "https://voice.example.com")
+
+    def test_token_settings_persist_so_it_is_pasted_once(self):
+        with patch.dict(os.environ, TUNNEL_ENV):
+            tunnel.save_settings(self.temp.name, tunnel.resolve_settings(self.temp.name, {
+                "mode": "cloudflare", "token": "eyJtoken", "hostname": "voice.example.com",
+            }))
+            later = tunnel.resolve_settings(self.temp.name)
+        self.assertEqual(later["token"], "eyJtoken")
+        self.assertEqual(later["hostname"], "voice.example.com")
+
+
+class PinnedPortTests(unittest.TestCase):
+    def test_no_pin_means_scan_as_before(self):
+        with patch.dict(os.environ, {"BOOKVOICE_PORT": ""}):
+            self.assertEqual(launch.resolve_pinned_port(None), 0)
+
+    def test_an_explicit_port_is_used(self):
+        self.assertEqual(launch.resolve_pinned_port(8000), 8000)
+        with patch.dict(os.environ, {"BOOKVOICE_PORT": "8123"}):
+            self.assertEqual(launch.resolve_pinned_port(None), 8123)
+
+    def test_nonsense_ports_fall_back_to_scanning(self):
+        for value in ("abc", "0", "70000", "-1"):
+            with patch.dict(os.environ, {"BOOKVOICE_PORT": value}):
+                self.assertEqual(launch.resolve_pinned_port(None), 0)
+
+    def test_a_pinned_port_is_honoured_even_when_busy(self):
+        # Silently moving would look like a broken tunnel rather than a
+        # port conflict, so it starts there anyway and says so.
+        log = MagicMock()
+        with patch.object(launch.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.bind.side_effect = OSError("in use")
+            self.assertEqual(launch.pick_port(log, "127.0.0.1", pinned=8000), 8000)
+        self.assertIn("already in use", log.write.call_args[0][0])
+
+    def test_scanning_still_finds_the_first_free_port(self):
+        log = MagicMock()
+        attempts = []
+
+        def bind(address):
+            attempts.append(address[1])
+            if address[1] < 8002:
+                raise OSError("in use")
+
+        with patch.object(launch.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.bind.side_effect = bind
+            self.assertEqual(launch.pick_port(log, "127.0.0.1"), 8002)
+        self.assertEqual(attempts, [8000, 8001, 8002])
 
 
 class TunnelProcessTests(unittest.TestCase):

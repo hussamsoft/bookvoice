@@ -53,7 +53,38 @@ and gives you a real certificate. That matters for more than convenience:
 microphone recording only works in a secure context, so **recording on your
 phone works over the tunnel and cannot work over plain-HTTP LAN**.
 
-### One-time setup
+There are two ways to create the tunnel. Both give a permanent hostname; they
+differ in where the configuration lives.
+
+### Option A — created in the Cloudflare dashboard (token)
+
+Zero Trust → Networks → Tunnels → Create a tunnel. Name it, then **copy the
+token** from the install command — you do *not* need to run
+`cloudflared.exe service install`, which would install an always-on service.
+Install cloudflared itself (`winget install --id Cloudflare.cloudflared`), then
+add a **Public Hostname** in the dashboard pointing at `http://localhost:8000`.
+
+```bat
+.\BookVoice.bat --tunnel --tunnel-token eyJ... --tunnel-hostname voice.yourdomain.com --port 8000
+```
+
+Two things matter here, and both are easy to get wrong:
+
+- **`--port` is required.** A dashboard tunnel takes its ingress from Cloudflare
+  and ignores `--url`, so the local port cannot be handed to it at runtime. The
+  port must match the public hostname entry exactly, every launch. Without
+  `--port` the launcher scans 8000–8020 and may land elsewhere next time.
+- **`--tunnel-hostname` is required.** The token does not reveal the hostname,
+  and BookVoice refuses browser origins it does not know about.
+
+The token is stored in `tunnel.json` so later launches are just
+`.\BookVoice.bat --tunnel`. It is kept out of the launcher log — the log is a
+plain file people paste into bug reports, and the token grants account access.
+
+### Option B — created from the command line
+
+Configuration lives on your PC, and the launcher hands cloudflared the port it
+actually picked, so no `--port` pinning is needed.
 
 Needs a domain on your Cloudflare account. Run these once:
 
@@ -82,7 +113,7 @@ The name and hostname are **remembered**. Every launch after the first is just:
 
 | Changes between runs | Handled by |
 |---|---|
-| Local port (the launcher scans 8000–8020) | The origin is passed to `cloudflared` per run, never baked into `config.yml`. |
+| Local port (the launcher scans 8000–8020) | Option B passes the origin to `cloudflared` per run. Option A pins it with `--port`, because Cloudflare holds the ingress. |
 | LAN address after a DHCP renewal | Irrelevant — the tunnel dials out to Cloudflare. |
 | Reboot, or closing and reopening the app | Settings persist in `tunnel.json` beside the app's runtime data. |
 | Public hostname | Fixed by the DNS route you created once. |
@@ -94,7 +125,8 @@ written to `bookvoice_launch.log` as `tunnel ready at …`.
 
 Override order is argument, then environment, then stored value —
 `BOOKVOICE_TUNNEL`, `BOOKVOICE_TUNNEL_NAME`, `BOOKVOICE_TUNNEL_HOSTNAME`,
-`BOOKVOICE_TUNNEL_CONFIG`, `BOOKVOICE_CLOUDFLARED`.
+`BOOKVOICE_TUNNEL_TOKEN`, `BOOKVOICE_TUNNEL_CONFIG`, `BOOKVOICE_CLOUDFLARED`,
+`BOOKVOICE_PORT`.
 
 ### Without a domain
 
