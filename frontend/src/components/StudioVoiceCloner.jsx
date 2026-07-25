@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic2, Play, ShieldCheck, Upload } from 'lucide-react';
 import { createStudioProfile, uploadStudioSource } from '../utils/api';
+import StudioRecorder from './StudioRecorder';
 import WaveformRange from './WaveformRange';
 
 function suggestedProfileName(fileName) {
@@ -38,11 +39,27 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
         setConsent(false);
     }, [sourceDurationSec, sourceFileName, sourceId]);
 
+    const selectImported = ({ sourceId: imported }) => {
+        if (imported) setSourceId(imported);
+    };
+
     const upload = async (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        await onRunJob('Importing voice media', () => uploadStudioSource(project.id, file));
+        await onRunJob(
+            'Importing voice media',
+            () => uploadStudioSource(project.id, file),
+            { onComplete: selectImported, successMessage: () => `${file.name} imported and selected` },
+        );
         event.target.value = '';
+    };
+
+    const importRecording = async (blob, name) => {
+        await onRunJob(
+            'Importing voice media',
+            () => uploadStudioSource(project.id, new File([blob], name, { type: blob.type || 'audio/wav' })),
+            { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
+        );
     };
 
     const createAndSelectProfile = async () => {
@@ -113,6 +130,11 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
                     aria-label="Voice media file"
                     accept="audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg"
                     onChange={upload}
+                />
+                <StudioRecorder
+                    onRecorded={importRecording}
+                    disabled={disabled}
+                    label="Record this voice"
                 />
                 {selectedVoice && (
                     <div className="studio-active-clone" role="status">

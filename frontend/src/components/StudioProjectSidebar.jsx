@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
 import { useCapabilities } from '../hooks/useCapabilities';
 
 function diskLabel(bytes = 0) {
@@ -19,6 +19,7 @@ export default function StudioProjectSidebar({
     disabled,
 }) {
     const [name, setName] = useState('');
+    const [expanded, setExpanded] = useState(false);
     const { localFileActions } = useCapabilities();
 
     const create = async (event) => {
@@ -27,8 +28,10 @@ export default function StudioProjectSidebar({
         setName('');
     };
 
+    const activeName = projects.find((item) => item.id === activeId)?.name || 'No project';
+
     return (
-        <aside className="studio-sidebar" aria-label="Voice Studio projects">
+        <aside className={`studio-sidebar ${expanded ? 'is-expanded' : ''}`} aria-label="Voice Studio projects">
             <div className="studio-sidebar-heading">
                 <div>
                     <span className="studio-kicker">Local workspace</span>
@@ -36,6 +39,21 @@ export default function StudioProjectSidebar({
                 </div>
                 <span className="studio-project-count">{projects.length}</span>
             </div>
+
+            {/* On a phone the project list would otherwise occupy the top of
+                every screen before the actual work is reachable. */}
+            <button
+                className="studio-sidebar-toggle"
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((open) => !open)}
+            >
+                <span>
+                    <small>Project</small>
+                    <strong>{activeName}</strong>
+                </span>
+                <ChevronDown size={18} aria-hidden="true" />
+            </button>
 
             <form className="studio-new-project" onSubmit={create}>
                 <label className="sr-only" htmlFor="studio-project-name">New project name</label>
@@ -63,7 +81,14 @@ export default function StudioProjectSidebar({
                         className={`studio-project-row ${project.id === activeId ? 'is-active' : ''}`}
                         key={project.id}
                     >
-                        <button className="studio-project-open" onClick={() => onOpen(project.id)}>
+                        <button
+                            className="studio-project-open"
+                            onClick={() => {
+                                // Collapse after choosing, so the work is on screen.
+                                setExpanded(false);
+                                onOpen(project.id);
+                            }}
+                        >
                             <strong>{project.name}</strong>
                             <span><HardDrive size={12} /> {diskLabel(project.diskBytes)}</span>
                         </button>

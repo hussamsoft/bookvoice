@@ -2607,6 +2607,61 @@ body {
 .access-card .btn { width: 100%; justify-content: center; }
 .access-error { color: var(--danger, #d14343); font-size: 0.8rem; }
 
+/* Collapsible project summary — hidden until a phone-width viewport. */
+.studio-sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.studio-sidebar-toggle > span { display: grid; min-width: 0; }
+.studio-sidebar-toggle small { color: var(--text-muted); font-size: 0.7rem; }
+.studio-sidebar-toggle strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-sidebar-toggle svg { flex: none; transition: transform 0.15s ease; }
+
+.studio-recorder { display: grid; gap: 0.4rem; }
+.studio-recorder .btn { width: 100%; justify-content: center; }
+
+.studio-record-level {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.studio-record-level-bar {
+  display: block;
+  height: 0.35rem;
+  min-width: 2%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.1s linear;
+}
+
+.studio-record-level small { color: var(--text-muted); font-size: 0.72rem; }
+.studio-record-error { color: var(--danger, #d14343); font-size: 0.8rem; margin: 0; }
+
+.studio-record-unavailable {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .studio-source-picker { max-width: 30rem; }
 
 .studio-target-modes {
@@ -2796,13 +2851,71 @@ body {
 }
 
 @media (max-width: 680px) {
-  .voice-studio { display: block; overflow-y: auto; }
-  .studio-sidebar { max-height: 15rem; border-right: 0; border-bottom: 1px solid var(--border); }
-  .studio-main { overflow: visible; }
+  /* One scroll container, not three. The page scrolls; nothing inside does,
+     so the phone's address bar hide/show cannot fight a nested scroller. */
+  .app-shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .voice-studio {
+    display: block;
+    overflow: visible;
+    border-radius: var(--radius);
+  }
+  .studio-main {
+    overflow: visible;
+    padding: 1.15rem 1.05rem calc(2.5rem + env(safe-area-inset-bottom));
+  }
+
+  /* The project list collapses behind a summary rather than occupying the top
+     of every screen before the work is reachable. */
+  .studio-sidebar {
+    max-height: none;
+    padding: 0.75rem 1.05rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .studio-sidebar-heading { display: none; }
+  .studio-sidebar-toggle { display: flex; }
+  .studio-sidebar .studio-new-project,
+  .studio-sidebar .studio-project-list { display: none; }
+  .studio-sidebar.is-expanded .studio-new-project { display: grid; margin-top: 0.75rem; }
+  .studio-sidebar.is-expanded .studio-project-list { display: flex; max-height: 55dvh; overflow-y: auto; }
+  .studio-sidebar.is-expanded .studio-sidebar-toggle svg { transform: rotate(180deg); }
+
   .studio-workflow-tabs,
   .studio-select-row,
   .studio-settings-grid,
   .studio-range-grid,
-  .studio-ab-preview { grid-template-columns: 1fr; }
+  .studio-ab-preview,
+  .studio-target-modes { grid-template-columns: 1fr; }
   .studio-section-heading { flex-wrap: wrap; }
+
+  /* Breathing room: sections were butted against each other and the edges. */
+  .studio-workflow { gap: 1.35rem; }
+  .studio-profile-builder,
+  .studio-editor,
+  .studio-latest,
+  .studio-output-history,
+  .studio-repair-card { padding: 1.15rem 1rem; }
+  .studio-clone-intro,
+  .studio-range-note { line-height: 1.55; }
+
+  /* Comfortable touch targets. */
+  .studio-workflow-tabs button { padding: 0.95rem 1rem; }
+  .btn,
+  .studio-target-modes button { min-height: 2.85rem; }
+  .icon-btn { min-width: 2.4rem; min-height: 2.4rem; }
+  .studio-range-grid input[type="range"] { height: 2.25rem; }
+
+  /* iOS zooms the whole page when a focused field is under 16px. */
+  .studio-sidebar input,
+  .studio-source-picker select,
+  .studio-profile-fields input,
+  .studio-select-row select,
+  .studio-setting input,
+  .studio-correction textarea,
+  .studio-repair-card textarea,
+  #studio-script,
+  #studio-project-title,
+  .access-card input { font-size: 1rem; }
+
+  .studio-job { top: 0; border-radius: 0 0 var(--radius) var(--radius); }
 }

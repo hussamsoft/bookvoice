@@ -286,6 +286,50 @@ describe('VoiceStudio', () => {
         expect(api.createStudioConversion).not.toHaveBeenCalled();
     }, 15_000);
 
+    it('selects a newly imported recording instead of keeping the previous one', async () => {
+        const firstId = 'c'.repeat(32);
+        const secondId = 'd'.repeat(32);
+        const media = (id, fileName) => ({
+            id,
+            fileName,
+            mediaType: 'AUDIO',
+            durationSec: 12,
+            waveformPeaks: [0.2, 0.5, 0.9],
+            originalUrl: `/api/studio/assets/${id}`,
+            audioUrl: `/api/studio/assets/${id}`,
+        });
+        const before = {
+            ...project,
+            activeWorkflow: 'CONVERSION',
+            sources: [media(firstId, 'first.wav')],
+        };
+        const after = {
+            ...before,
+            sources: [media(firstId, 'first.wav'), media(secondId, 'second.wav')],
+        };
+
+        api.listStudioProjects.mockResolvedValue([before]);
+        api.getStudioProject.mockResolvedValueOnce(before).mockResolvedValue(after);
+        api.getVoices.mockResolvedValue([]);
+        api.uploadStudioSource.mockResolvedValue({ id: 'j'.repeat(32), status: 'QUEUED', progress: 0 });
+        api.waitForStudioJob.mockResolvedValue({
+            id: 'j'.repeat(32),
+            status: 'COMPLETED',
+            progress: 1,
+            result: { sourceId: secondId },
+        });
+
+        renderStudio();
+        const picker = await screen.findByLabelText('Recording to convert');
+        expect(picker).toHaveValue(firstId);
+
+        const file = new File(['audio'], 'second.wav', { type: 'audio/wav' });
+        fireEvent.change(screen.getByLabelText('Recording media file'), { target: { files: [file] } });
+
+        await waitFor(() => expect(api.uploadStudioSource).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getByLabelText('Recording to convert')).toHaveValue(secondId));
+    }, 15_000);
+
     it('switches the saved project workflow to Repair Media', async () => {
         renderStudio();
         await screen.findByDisplayValue('The corrected sentence.');

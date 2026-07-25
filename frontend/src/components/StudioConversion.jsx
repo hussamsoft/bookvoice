@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Repeat2, ShieldCheck, Upload, Wand2 } from 'lucide-react';
 import { createStudioConversion, uploadStudioSource } from '../utils/api';
 import StudioOutputs from './StudioOutputs';
+import StudioRecorder from './StudioRecorder';
 import WaveformRange from './WaveformRange';
 
 const MAX_TARGET_CLIP_SEC = 30;
@@ -52,11 +53,30 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
         setTargetRange({ start: 0, end: Math.min(MAX_TARGET_CLIP_SEC, Math.max(MIN_TARGET_CLIP_SEC, Number(targetDurationSec) || MIN_TARGET_CLIP_SEC)) });
     }, [targetSourceId, targetDurationSec]);
 
+    // Selecting whatever was just imported is the only sensible next step —
+    // otherwise the picker keeps pointing at the previous file and the new one
+    // looks like it never arrived.
+    const selectImported = ({ sourceId: imported }) => {
+        if (imported) setSourceId(imported);
+    };
+
     const importMedia = async (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        await onRunJob('Importing recording', () => uploadStudioSource(project.id, file));
+        await onRunJob(
+            'Importing recording',
+            () => uploadStudioSource(project.id, file),
+            { onComplete: selectImported, successMessage: () => `${file.name} imported and selected` },
+        );
         event.target.value = '';
+    };
+
+    const importRecording = async (blob, name) => {
+        await onRunJob(
+            'Importing recording',
+            () => uploadStudioSource(project.id, new File([blob], name, { type: blob.type || 'audio/wav' })),
+            { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
+        );
     };
 
     const playSelection = () => {
@@ -118,6 +138,11 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         aria-label="Recording media file"
                         accept="audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg"
                         onChange={importMedia}
+                    />
+                    <StudioRecorder
+                        onRecorded={importRecording}
+                        disabled={disabled}
+                        label="Record something to convert"
                     />
                 </div>
 

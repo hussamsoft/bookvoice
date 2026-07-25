@@ -1,3 +1,19 @@
+/**
+ * Whether the browser will hand over a microphone.
+ *
+ * getUserMedia is gated on a secure context, so over plain HTTP on a local
+ * network `navigator.mediaDevices` is undefined entirely — only localhost is
+ * exempt. Callers use this to explain the absence rather than offer a control
+ * that can only fail.
+ */
+export function canRecord() {
+    return Boolean(
+        typeof navigator !== 'undefined'
+        && navigator.mediaDevices
+        && typeof navigator.mediaDevices.getUserMedia === 'function',
+    );
+}
+
 export function waitForAudioMetadata(audio, timeoutMs = 15000) {
     if (!audio) return Promise.reject(new Error('Audio player is unavailable.'));
     if (audio.readyState >= 1) return Promise.resolve();
