@@ -92,6 +92,27 @@ class PrivateOriginPolicyTests(unittest.TestCase):
             self.assertTrue(security.is_allowed_browser_origin("http://127.0.0.1:8000"))
 
 
+class LauncherArgumentForwardingTests(unittest.TestCase):
+    """`BookVoice.bat --host lan` has to actually reach launch.py."""
+
+    def test_the_batch_launcher_forwards_extra_arguments(self):
+        for script in (ROOT / "BookVoice.bat", ROOT / "dist" / "BookVoice.bat"):
+            if not script.is_file():
+                continue
+            body = script.read_text(encoding="utf-8", errors="replace")
+            invocation = next(
+                line for line in body.splitlines()
+                if "launch.py" in line and "--browser" in line
+            )
+            # Without %* the arguments are dropped silently, which looks like
+            # the option not working rather than never arriving.
+            self.assertIn("%*", invocation, f"{script.name} drops its arguments")
+
+    def test_the_host_option_is_exposed_on_the_command_line(self):
+        parser_source = (ROOT / "launch.py").read_text(encoding="utf-8", errors="replace")
+        self.assertIn('"--host"', parser_source)
+
+
 class LanAddressTests(unittest.TestCase):
     def test_discovery_never_reports_loopback_and_never_raises(self):
         addresses = launch.lan_addresses()

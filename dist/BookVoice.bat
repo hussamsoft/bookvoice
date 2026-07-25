@@ -2,6 +2,8 @@
 setlocal EnableExtensions
 
 REM BookVoice browser launcher — delegates to launch.py (shared logic).
+REM Extra arguments are forwarded, so `BookVoice.bat --host lan` reaches
+REM launch.py instead of being silently dropped.
 cd /d "%~dp0"
 set "APP_DIR=%CD%"
 
@@ -12,7 +14,7 @@ if not exist "%APP_DIR%\launch.py" (
 
 set "PY=%APP_DIR%\runtime\worker\python.exe"
 if exist "%PY%" (
-  "%PY%" "%APP_DIR%\launch.py" --browser
+  "%PY%" "%APP_DIR%\launch.py" --browser %*
   exit /b %ERRORLEVEL%
 )
 
