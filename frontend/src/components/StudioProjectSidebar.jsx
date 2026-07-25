@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
+import { useCapabilities } from '../hooks/useCapabilities';
 
 function diskLabel(bytes = 0) {
     if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`;
@@ -18,6 +19,7 @@ export default function StudioProjectSidebar({
     disabled,
 }) {
     const [name, setName] = useState('');
+    const { localFileActions } = useCapabilities();
 
     const create = async (event) => {
         event.preventDefault();
@@ -66,14 +68,16 @@ export default function StudioProjectSidebar({
                             <span><HardDrive size={12} /> {diskLabel(project.diskBytes)}</span>
                         </button>
                         <div className="studio-project-actions">
-                            <button
-                                className="icon-btn"
-                                onClick={() => onOpenFolder(project)}
-                                aria-label={`Open ${project.name} folder`}
-                                title="Open complete project folder"
-                            >
-                                <FolderOpen size={14} />
-                            </button>
+                            {localFileActions && (
+                                <button
+                                    className="icon-btn"
+                                    onClick={() => onOpenFolder(project)}
+                                    aria-label={`Open ${project.name} folder`}
+                                    title="Open complete project folder"
+                                >
+                                    <FolderOpen size={14} />
+                                </button>
+                            )}
                             <button
                                 className="icon-btn"
                                 onClick={() => onDuplicate(project.id)}

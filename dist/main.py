@@ -23,9 +23,10 @@ except Exception:
 
 load_dotenv()
 
-from routes import books, config, ocr, studio, translation, tts, voices
+from routes import access, books, config, ocr, studio, translation, tts, voices
+from services import access_service
 from services.path_utils import safe_join
-from services.security import is_allowed_browser_origin
+from services.security import is_allowed_browser_origin, public_origins
 from services.tts_service import TtsPriority, preload_model, submit_tts
 
 # Seed default voices on startup (paths resolved from env at call time).
@@ -82,12 +83,15 @@ except Exception:
 if not isinstance(origins, list):
     origins = []
 origins = [str(origin) for origin in origins if origin and origin != "*"]
+# A hosted deployment serves the UI from its own origin; trust it explicitly so
+# the loopback-only policy can stay as-is for the desktop app.
+origins.extend(sorted(public_origins() - set(origins)))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_origin_regex=r"https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?",
-    allow_credentials=False,
+    allow_credentials=access_service.auth_required(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -96,8 +100,16 @@ app.add_middleware(
 @app.middleware("http")
 async def protect_local_api(request: Request, call_next):
     origin = request.headers.get("origin")
-    if request.url.path.startswith("/api/") and not is_allowed_browser_origin(origin):
+    path = request.url.path
+    if path.startswith("/api/") and not is_allowed_browser_origin(origin):
         response = JSONResponse({"detail": "Browser origin is not allowed."}, status_code=403)
+    elif access_service.requires_session(path) and not access_service.is_valid_session(
+        request.cookies.get(access_service.COOKIE_NAME)
+    ):
+        response = JSONResponse(
+            {"detail": {"code": "AUTH_REQUIRED", "message": "Sign in to continue."}},
+            status_code=401,
+        )
     else:
         response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -110,6 +122,7 @@ async def protect_local_api(request: Request, call_next):
     )
     return response
 
+app.include_router(access.router, prefix="/api/access", tags=["access"])
 app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
 app.include_router(translation.router, prefix="/api/translate", tags=["translation"])

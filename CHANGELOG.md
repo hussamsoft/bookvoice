@@ -9,9 +9,13 @@
 - Long recordings are cut at natural pauses before conversion and reassembled with the original silences preserved, so a conversion stays aligned with the source instead of drifting.
 - Cloning a voice from media now also derives matching pace, expression, and temperature from the recording's speaking rate and dynamic range, and applies them to the project automatically.
 
+- BookVoice can now be hosted on a server. `BOOKVOICE_SERVER_MODE`, `BOOKVOICE_ACCESS_PASSWORD` and `BOOKVOICE_PUBLIC_ORIGIN` enable a password gate, trust the deployment's own browser origin, and replace the Windows-only file actions with a browser download. With none of them set the desktop app is unchanged.
+- `deploy/modal_app.py` and `deploy/README.md` deploy the app to Modal as a scale-to-zero GPU service, with model weights in a Volume so code changes do not rebuild three gigabytes.
+
 ### Changed
 
 - Converted output is written as 16-bit PCM WAV, so it can be used directly as a source for waveform display and phrase repair.
+- `GET /api/config/` now reports runtime capabilities, so the UI hides Save-to-Downloads and Open Folder where they cannot work instead of failing when used.
 
 ### Added
 

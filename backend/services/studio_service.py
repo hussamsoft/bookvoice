@@ -719,6 +719,12 @@ def asset_path(project_id: str, asset_id: str, variant: str = "content") -> Path
 
 
 def _windows_downloads_dir() -> Path:
+    from services import access_service
+
+    if access_service.server_mode():
+        # On a server this would silently write into a directory the person can
+        # never open; the UI offers a browser download instead.
+        raise OSError("Saving to Downloads is only available in the desktop app.")
     if os.name == "nt":
         try:
             import winreg
@@ -829,6 +835,10 @@ def save_output_to_downloads(
 
 
 def _open_directory(path: Path) -> None:
+    from services import access_service
+
+    if access_service.server_mode():
+        raise OSError("Opening folders is only available in the desktop app.")
     if os.name != "nt" or not hasattr(os, "startfile"):
         raise OSError("Opening folders is available in the Windows desktop app.")
     os.startfile(str(path))  # type: ignore[attr-defined]

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services.access_service import capabilities
 from services.config_service import app_version, get_config, update_config
 from services.path_utils import validate_language_id, validate_voice_id
 
@@ -16,7 +17,11 @@ class ConfigUpdate(BaseModel):
 
 @router.get("/")
 async def read_config():
-    return {"version": app_version(), "config": get_config()}
+    return {
+        "version": app_version(),
+        "config": get_config(),
+        "capabilities": capabilities(),
+    }
 
 
 @router.put("/")
@@ -46,4 +51,4 @@ async def write_config(update: ConfigUpdate):
         config = update_config(partial)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Could not save config: {e}") from e
-    return {"version": app_version(), "config": config}
+    return {"version": app_version(), "config": config, "capabilities": capabilities()}

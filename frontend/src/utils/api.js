@@ -508,6 +508,35 @@ export function createStudioNarration(projectId, input) {
     }, 'Could not generate Studio narration.');
 }
 
+export async function getAccess() {
+    const response = await fetch(`${API_BASE_URL}/access/`);
+    if (!response.ok) {
+        throw new Error('Failed to read access state');
+    }
+    return response.json();
+}
+
+export async function signIn(password) {
+    const response = await fetch(`${API_BASE_URL}/access/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'That password is not correct.'));
+    }
+    return response.json();
+}
+
+export async function signOut() {
+    const response = await fetch(`${API_BASE_URL}/access/`, { method: 'DELETE' });
+    if (!response.ok) {
+        throw new Error('Failed to sign out');
+    }
+    return response.json();
+}
+
 export function createStudioConversion(projectId, input) {
     return studioRequest(`/projects/${encodeURIComponent(projectId)}/conversions`, {
         method: 'POST',

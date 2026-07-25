@@ -1,6 +1,7 @@
 import React from 'react';
 import { Download, Film, Music2 } from 'lucide-react';
 import { saveStudioOutput } from '../utils/api';
+import { useCapabilities } from '../hooks/useCapabilities';
 
 function outputLabel(output) {
     if (output.kind === 'REPAIR_VIDEO') return 'Repaired video';
@@ -15,6 +16,7 @@ export default function StudioOutputs({
     onRunJob,
     disabled = false,
 }) {
+    const { localFileActions } = useCapabilities();
     const ordered = [...outputs].reverse();
     const saveOutput = (output) => onRunJob(
         'Saving output to Downloads',
@@ -53,15 +55,26 @@ export default function StudioOutputs({
                             ) : (
                                 <audio controls preload="metadata" src={output.contentUrl} />
                             )}
-                            <button
-                                className="btn secondary studio-save-output"
-                                type="button"
-                                onClick={() => saveOutput(output)}
-                                disabled={disabled}
-                                aria-label={`Save ${outputLabel(output).toLowerCase()} to Downloads`}
-                            >
-                                <Download size={16} /> Save to Downloads
-                            </button>
+                            {localFileActions ? (
+                                <button
+                                    className="btn secondary studio-save-output"
+                                    type="button"
+                                    onClick={() => saveOutput(output)}
+                                    disabled={disabled}
+                                    aria-label={`Save ${outputLabel(output).toLowerCase()} to Downloads`}
+                                >
+                                    <Download size={16} /> Save to Downloads
+                                </button>
+                            ) : (
+                                <a
+                                    className="btn secondary studio-save-output"
+                                    href={output.contentUrl}
+                                    download={output.fileName || true}
+                                    aria-label={`Download ${outputLabel(output).toLowerCase()}`}
+                                >
+                                    <Download size={16} /> Download
+                                </a>
+                            )}
                         </article>
                     ))}
                 </div>

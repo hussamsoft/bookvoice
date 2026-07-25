@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from './Toast';
 import VoiceStudio from './VoiceStudio';
 import * as api from '../utils/api';
+import { resetCapabilities } from '../utils/capabilities';
 
 vi.mock('../utils/api', () => ({
     cancelStudioJob: vi.fn(),
@@ -12,7 +13,9 @@ vi.mock('../utils/api', () => ({
     createStudioProject: vi.fn(),
     deleteStudioProject: vi.fn(),
     duplicateStudioProject: vi.fn(),
+    getAccess: vi.fn(),
     getStudioProject: vi.fn(),
+    getUserConfig: vi.fn(),
     getVoices: vi.fn(),
     listStudioProjects: vi.fn(),
     openStudioProjectFolder: vi.fn(),
@@ -44,6 +47,9 @@ function renderStudio() {
 describe('VoiceStudio', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        resetCapabilities();
+        // Desktop capabilities by default: local file actions available.
+        api.getUserConfig.mockResolvedValue({ version: '0', config: {} });
         api.listStudioProjects.mockResolvedValue([project]);
         api.getStudioProject.mockResolvedValue(project);
         api.getVoices.mockResolvedValue([]);

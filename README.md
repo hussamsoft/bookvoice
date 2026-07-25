@@ -37,6 +37,13 @@ This MVP was built across three development phases:
    - Repaired video exports use the original video stream when compatible and otherwise produce a broadly compatible H.264/AAC MP4.
    - Generated outputs save directly to the Windows Downloads folder without overwriting existing files, and each project can open its complete managed folder from the project list.
 
+## Hosting
+
+BookVoice is a local desktop app by default: loopback-only, no login, files
+saved to your Downloads folder. It can also run as a private server — see
+[`deploy/README.md`](deploy/README.md) for the environment variables, the Modal
+deployment, and the limits (single-tenant, no per-user separation, no quotas).
+
 ## Technology Stack
 
 - **Frontend**: React + Vite + plain CSS
