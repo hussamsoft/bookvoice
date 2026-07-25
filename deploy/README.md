@@ -46,6 +46,70 @@ whole voice library and every Studio project, and can delete them. Set
 control; the launcher logs a warning when you have not. Only private and
 link-local addresses are ever accepted — a public hostname is still refused.
 
+## Cloudflare Tunnel — a permanent HTTPS address
+
+A tunnel publishes the local backend over HTTPS without opening a router port,
+and gives you a real certificate. That matters for more than convenience:
+microphone recording only works in a secure context, so **recording on your
+phone works over the tunnel and cannot work over plain-HTTP LAN**.
+
+### One-time setup
+
+Needs a domain on your Cloudflare account. Run these once:
+
+```bat
+winget install --id Cloudflare.cloudflared
+cloudflared tunnel login
+cloudflared tunnel create bookvoice
+cloudflared tunnel route dns bookvoice bookvoice.yourdomain.com
+```
+
+`login` opens a browser to authorize a zone and writes `cert.pem`; `create`
+writes a credentials JSON and prints the tunnel UUID. Both live under
+`%USERPROFILE%\.cloudflared\`. Then start BookVoice with:
+
+```bat
+.\BookVoice.bat --tunnel --tunnel-name bookvoice --tunnel-hostname bookvoice.yourdomain.com
+```
+
+The name and hostname are **remembered**. Every launch after the first is just:
+
+```bat
+.\BookVoice.bat --tunnel
+```
+
+### What stays stable, and why
+
+| Changes between runs | Handled by |
+|---|---|
+| Local port (the launcher scans 8000–8020) | The origin is passed to `cloudflared` per run, never baked into `config.yml`. |
+| LAN address after a DHCP renewal | Irrelevant — the tunnel dials out to Cloudflare. |
+| Reboot, or closing and reopening the app | Settings persist in `tunnel.json` beside the app's runtime data. |
+| Public hostname | Fixed by the DNS route you created once. |
+
+The launcher starts `cloudflared` before the backend and stops it on exit, so
+the tunnel's lifetime matches the app's. Settings are stored in
+`%LocalAppData%\BookVoice\installs\<id>\tunnel.json`; the resolved URL is
+written to `bookvoice_launch.log` as `tunnel ready at …`.
+
+Override order is argument, then environment, then stored value —
+`BOOKVOICE_TUNNEL`, `BOOKVOICE_TUNNEL_NAME`, `BOOKVOICE_TUNNEL_HOSTNAME`,
+`BOOKVOICE_TUNNEL_CONFIG`, `BOOKVOICE_CLOUDFLARED`.
+
+### Without a domain
+
+`--tunnel` alone runs a **quick tunnel**: no account, no domain, but Cloudflare
+issues a brand-new `*.trycloudflare.com` address on every start. Fine for a
+one-off, useless as a bookmark. The launcher logs a note when it is in this mode.
+
+### Set a password
+
+A tunnel is reachable from the public internet by anyone with the URL. Set
+`BOOKVOICE_ACCESS_PASSWORD` — the launcher warns when a tunnel is running
+without one. For a stronger perimeter, put Cloudflare Access in front of the
+hostname in the Zero Trust dashboard and require a login before traffic ever
+reaches the app.
+
 ## Modal (recommended)
 
 Modal bills per second and scales to zero, so you pay only while audio is

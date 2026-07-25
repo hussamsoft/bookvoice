@@ -24,6 +24,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from pathlib import Path as _Path
+
+# tunnel.py sits beside this file in both the source tree and dist/.
+if str(_Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import tunnel
 
 try:
     import psutil
@@ -481,6 +487,24 @@ def build_env(app_dir: str, runtime_dir: str) -> dict:
     return env
 
 
+def apply_tunnel_env(env: dict, origin: str) -> dict:
+    """Trust the tunnel's own hostname, and keep cookies Secure over its HTTPS.
+
+    The browser arrives from the tunnel hostname, which the loopback-only origin
+    policy would otherwise reject. Cookies stay Secure over the tunnel's HTTPS,
+    unless a LAN bind already had to relax that for plain HTTP — serving both at
+    once, the weaker setting is the one that works everywhere.
+    """
+    if not origin:
+        return env
+    existing = str(env.get("BOOKVOICE_PUBLIC_ORIGIN", "") or "").split()
+    if origin not in existing:
+        existing.append(origin)
+    env["BOOKVOICE_PUBLIC_ORIGIN"] = " ".join(part for part in existing if part)
+    env.setdefault("BOOKVOICE_COOKIE_SECURE", "1")
+    return env
+
+
 def apply_network_env(env: dict, host: str) -> dict:
     """Let LAN browsers through when the app is deliberately bound beyond loopback.
 
@@ -571,6 +595,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Start the backend only (no UI shell)",
     )
     parser.add_argument(
+        "--tunnel",
+        nargs="?",
+        const="cloudflare",
+        default=None,
+        help=(
+            "Publish over Cloudflare Tunnel. With --tunnel-name and "
+            "--tunnel-hostname the address is permanent; without them Cloudflare "
+            "issues a new random URL on every start."
+        ),
+    )
+    parser.add_argument(
+        "--tunnel-name",
+        default=None,
+        help="Named Cloudflare tunnel to run (created once with `cloudflared tunnel create`).",
+    )
+    parser.add_argument(
+        "--tunnel-hostname",
+        default=None,
+        help="Permanent hostname routed to the tunnel, e.g. bookvoice.example.com.",
+    )
+    parser.add_argument(
         "--host",
         default=None,
         help=(
@@ -646,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         window = create_main_window(webview)
 
     state = {"error": None}
+    tunnel_handle: dict = {}
 
     def worker():
         nonlocal process, log_file
@@ -670,6 +716,38 @@ def main(argv: list[str] | None = None) -> int:
             log.write(f"venv={py}")
             log.write(f"port={port}")
             log.write(f"bind={bind_host}")
+
+            tunnel_settings = tunnel.resolve_settings(runtime_dir, {
+                "mode": args.tunnel,
+                "name": args.tunnel_name,
+                "hostname": args.tunnel_hostname,
+            })
+            if tunnel.is_enabled(tunnel_settings):
+                status("Opening tunnel", "Publishing BookVoice over Cloudflare…")
+                try:
+                    active_tunnel = tunnel.start_tunnel(
+                        tunnel_settings, port, runtime_dir, log=log
+                    )
+                    tunnel_handle["tunnel"] = active_tunnel
+                    env = apply_tunnel_env(env, active_tunnel.url)
+                    log.write(f"tunnel ready at {active_tunnel.url}")
+                    if not tunnel.is_named(tunnel_settings):
+                        log.write(
+                            "NOTE: this is a quick tunnel — Cloudflare issues a new "
+                            "address every start. Use --tunnel-name and "
+                            "--tunnel-hostname for a permanent one."
+                        )
+                    if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
+                        log.write(
+                            "WARNING: the tunnel is reachable from the public internet "
+                            "with no BOOKVOICE_ACCESS_PASSWORD set."
+                        )
+                except tunnel.TunnelError as exc:
+                    # The app is still perfectly usable locally, so this is
+                    # reported rather than treated as a failure to launch.
+                    log.write(f"tunnel unavailable: {exc}")
+                    status("Tunnel unavailable", str(exc))
+
             if not is_loopback_host(bind_host):
                 for address in lan_addresses():
                     log.write(f"reachable on this network at http://{address}:{port}")
@@ -783,6 +861,13 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 process.kill()
     finally:
+        active_tunnel = tunnel_handle.get("tunnel")
+        if active_tunnel is not None:
+            try:
+                active_tunnel.stop()
+                log.write("tunnel closed")
+            except Exception as exc:  # noqa: BLE001 - shutdown must not fail here
+                log.write(f"tunnel shutdown skipped: {exc}")
         if log_file is not None:
             try:
                 log_file.close()

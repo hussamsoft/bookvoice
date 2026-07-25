@@ -292,6 +292,11 @@ def assemble_dist():
     if launch_src.is_file():
         shutil.copy2(launch_src, DIST / "launch.py")
 
+    # launch.py imports this from beside itself for Cloudflare Tunnel support.
+    tunnel_src = ROOT / "tunnel.py"
+    if tunnel_src.is_file():
+        shutil.copy2(tunnel_src, DIST / "tunnel.py")
+
     stage_embed_python()
     stage_runtime_bundle()
     stage_media_tools()
