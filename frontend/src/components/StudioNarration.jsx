@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { PencilLine, Sparkles } from 'lucide-react';
 import { createStudioNarration, createStudioRepair } from '../utils/api';
 import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
+import AudioPlayer from './AudioPlayer';
 import StudioOutputs from './StudioOutputs';
 import StudioSettings from './StudioSettings';
 import StudioVoiceCloner from './StudioVoiceCloner';
@@ -116,7 +117,7 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                             <h3 id="studio-latest-heading">Listen and correct</h3>
                         </div>
                     </div>
-                    <audio controls preload="metadata" src={latest.contentUrl} />
+                    <AudioPlayer src={latest.contentUrl} label="the narration" />
                     {(latest.wordTimings || []).length > 0 && (
                         <div className="studio-transcript" aria-label="Select a word to correct">
                             {latest.wordTimings.map((timing, index) => (

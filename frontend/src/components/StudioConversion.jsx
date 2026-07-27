@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Repeat2, ShieldCheck, Upload, Wand2 } from 'lucide-react';
 import { createStudioConversion, uploadStudioSource } from '../utils/api';
 import StudioOutputs from './StudioOutputs';
+import AudioPlayer from './AudioPlayer';
 import StudioRecorder from './StudioRecorder';
 import WaveformRange from './WaveformRange';
 
@@ -171,7 +172,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                                     onTimeUpdate={stopAtSelectionEnd}
                                 />
                             ) : (
-                                <audio ref={mediaRef} controls preload="metadata" src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} />
+                                <AudioPlayer ref={mediaRef} src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} label="the recording" />
                             )}
                             <button className="btn text" type="button" onClick={playSelection} disabled={disabled}>
                                 <Play size={15} /> Play selected region
@@ -312,7 +313,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                             <h3 id="studio-converted-heading">Listen to the converted voice</h3>
                         </div>
                     </div>
-                    <audio controls preload="metadata" src={latest.contentUrl} />
+                    <AudioPlayer src={latest.contentUrl} label="the converted voice" />
                 </section>
             )}
 

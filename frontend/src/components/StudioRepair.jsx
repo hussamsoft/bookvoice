@@ -1,3 +1,4 @@
+import AudioPlayer from './AudioPlayer';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileAudio, Scissors, ShieldCheck, Upload } from 'lucide-react';
 import {
@@ -118,7 +119,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
 
             {source && <>
                 <section className="studio-media-preview">
-                    {source.mediaType === 'VIDEO' ? <video ref={mediaRef} controls playsInline preload="metadata" aria-label="Source video preview" src={source.previewUrl || source.originalUrl} onTimeUpdate={keepSelectionLooping} /> : <audio ref={mediaRef} controls preload="metadata" src={source.originalUrl} onTimeUpdate={keepSelectionLooping} />}
+                    {source.mediaType === 'VIDEO' ? <video ref={mediaRef} controls playsInline preload="metadata" aria-label="Source video preview" src={source.previewUrl || source.originalUrl} onTimeUpdate={keepSelectionLooping} /> : <AudioPlayer ref={mediaRef} src={source.originalUrl} onTimeUpdate={keepSelectionLooping} label="the source audio" />}
                     <div className="studio-loop-controls">
                         <button className="btn secondary" onClick={playSelection}>Play selected range</button>
                         <label><input type="checkbox" checked={loopSelection} onChange={(event) => setLoopSelection(event.target.checked)} /> Loop selection</label>

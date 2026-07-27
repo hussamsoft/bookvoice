@@ -2607,6 +2607,130 @@ body {
 .access-card .btn { width: 100%; justify-content: center; }
 .access-error { color: var(--danger, #d14343); font-size: 0.8rem; }
 
+/* Audio transport ---------------------------------------------------------
+   Drawn in-app rather than left to the browser: Safari renders native audio
+   controls as an opaque dark slab that ignores the page theme entirely. */
+.audio-transport {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.audio-transport.is-compact { padding: 0.4rem 0.55rem; }
+
+.audio-transport-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 0;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+}
+
+.audio-transport-toggle:hover { filter: brightness(1.06); }
+.audio-transport-toggle:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.audio-transport-seek {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1.6rem;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.audio-transport-time {
+  flex: none;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* Recorder ---------------------------------------------------------------- */
+.studio-record-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  justify-content: center;
+  min-height: 3rem;
+}
+
+.studio-record-clock {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.studio-record-meter {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.studio-record-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 2.5rem;
+}
+
+.studio-record-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transform-origin: center;
+  transform: scaleY(0.06);
+  transition: transform 90ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-record-bar { transition: none; }
+}
+
+.studio-record-review {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.studio-record-review-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.studio-record-review-head span {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.studio-record-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.studio-record-review-actions .btn { flex: 1 1 auto; justify-content: center; }
+.studio-record-review-actions .btn.primary { flex: 2 1 100%; }
+
 /* Collapsible project summary — hidden until a phone-width viewport. */
 .studio-sidebar-toggle {
   display: none;
@@ -2738,7 +2862,6 @@ body {
 }
 
 .studio-clone-preview { display: grid; gap: 0.45rem; }
-.studio-clone-preview audio,
 .studio-clone-preview video { width: 100%; border-radius: var(--radius); background: #111; }
 .studio-clone-preview video,
 .studio-media-preview video {
@@ -2918,4 +3041,15 @@ body {
   .access-card input { font-size: 1rem; }
 
   .studio-job { top: 0; border-radius: 0 0 var(--radius) var(--radius); }
+
+  /* The recorder is the primary action on a phone, so it gets full width and
+     a thumb-sized target rather than sitting inline with the import button. */
+  .studio-clone-toolbar { gap: 0.6rem; }
+  .studio-recorder { width: 100%; }
+  .studio-record-btn { min-height: 3.25rem; font-size: 1rem; }
+  .studio-record-bars { height: 3rem; }
+  .studio-record-review-actions .btn { min-height: 3rem; }
+  .audio-transport { padding: 0.55rem 0.75rem; }
+  .audio-transport-toggle { width: 2.75rem; height: 2.75rem; }
+  .audio-transport-seek { height: 2.25rem; }
 }

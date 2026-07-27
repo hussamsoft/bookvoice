@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, Film, Music2 } from 'lucide-react';
 import { saveStudioOutput } from '../utils/api';
 import { useCapabilities } from '../hooks/useCapabilities';
+import AudioPlayer from './AudioPlayer';
 
 function outputLabel(output) {
     if (output.kind === 'REPAIR_VIDEO') return 'Repaired video';
@@ -53,7 +54,7 @@ export default function StudioOutputs({
                             {output.format === 'MP4' ? (
                                 <video controls preload="metadata" src={output.contentUrl} />
                             ) : (
-                                <audio controls preload="metadata" src={output.contentUrl} />
+                                <AudioPlayer src={output.contentUrl} label={outputLabel(output).toLowerCase()} />
                             )}
                             {localFileActions ? (
                                 <button

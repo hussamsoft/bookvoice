@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic2, Play, ShieldCheck, Upload } from 'lucide-react';
 import { createStudioProfile, uploadStudioSource } from '../utils/api';
+import AudioPlayer from './AudioPlayer';
 import StudioRecorder from './StudioRecorder';
 import WaveformRange from './WaveformRange';
 
@@ -169,7 +170,7 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
                                 onTimeUpdate={stopAtSelectionEnd}
                             />
                         ) : (
-                            <audio ref={mediaRef} controls preload="metadata" src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} />
+                            <AudioPlayer ref={mediaRef} src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} label="the voice source" />
                         )}
                         <button className="btn text" type="button" onClick={playSelection} disabled={disabled}>
                             <Play size={15} /> Play selected voice sample
