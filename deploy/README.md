@@ -128,6 +128,25 @@ Override order is argument, then environment, then stored value —
 `BOOKVOICE_TUNNEL_TOKEN`, `BOOKVOICE_TUNNEL_CONFIG`, `BOOKVOICE_CLOUDFLARED`,
 `BOOKVOICE_PORT`.
 
+### If you already use cloudflared for something else
+
+`cloudflared` reads `~/.cloudflared/config.yml` by default, and a `tunnel:`
+entry in it **overrides the tunnel name given on the command line**. Without
+care, BookVoice would start your other tunnel — registering a second connector
+on a service running elsewhere, which Cloudflare then load-balances traffic to.
+
+Two safeguards, both automatic:
+
+- BookVoice passes `--config` pointing at an empty file of its own, so the
+  default config is never picked up. Set `BOOKVOICE_TUNNEL_CONFIG` if you
+  actually want a config file used.
+- If you pass a tunnel **UUID** to `--tunnel-name`, the launcher checks the ID
+  cloudflared reports and refuses to continue if it differs. Passing a *name*
+  cannot be checked — cloudflared resolves names internally and only ever prints
+  a UUID — so prefer the UUID when other tunnels exist on the machine.
+
+`cloudflared tunnel list` shows what is already on this machine.
+
 ### Without a domain
 
 `--tunnel` alone runs a **quick tunnel**: no account, no domain, but Cloudflare

@@ -200,6 +200,86 @@ class DashboardTunnelTests(unittest.TestCase):
         self.assertEqual(later["hostname"], "voice.example.com")
 
 
+class ForeignTunnelTests(unittest.TestCase):
+    """Never adopt a tunnel belonging to something else on this machine.
+
+    cloudflared reads ~/.cloudflared/config.yml by default, and a `tunnel:`
+    entry there overrides the name passed on the command line. Starting an
+    unrelated tunnel registers a second connector on a service running
+    elsewhere, and Cloudflare load-balances live traffic onto this machine.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_a_config_of_our_own_replaces_the_users_default(self):
+        command = tunnel.build_command({"name": "voice2"}, 8002, "cloudflared", self.temp.name)
+        self.assertIn("--config", command)
+        config = Path(command[command.index("--config") + 1])
+        self.assertTrue(config.is_file())
+        # Empty: the tunnel and origin are given on the command line.
+        self.assertNotIn("tunnel:", config.read_text(encoding="utf-8"))
+
+    def test_an_explicit_config_still_wins(self):
+        command = tunnel.build_command(
+            {"name": "voice2", "config": "C:/mine.yml"}, 8002, "cloudflared", self.temp.name
+        )
+        self.assertEqual(command[command.index("--config") + 1], "C:/mine.yml")
+
+    def test_starting_the_wrong_tunnel_aborts_instead_of_connecting(self):
+        # Exactly the parking-monitor case: voice2 requested, another started.
+        requested = "f456382f-f4ee-461f-8fed-f944f64da791"
+        foreign = "187851f0-704b-4286-96e7-a82678b5e6e9"
+        process = MagicMock()
+        process.stdout = iter([f"INF Starting tunnel tunnelID={foreign}\n"])
+        process.poll.return_value = None
+
+        with patch.object(tunnel, "find_cloudflared", return_value="cloudflared"), \
+                patch.object(subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(tunnel.TunnelError, foreign):
+                tunnel.start_tunnel(
+                    {"mode": "cloudflare", "name": requested, "hostname": "voice.example.com"},
+                    8002,
+                    self.temp.name,
+                )
+        process.terminate.assert_called_once()
+
+    def test_the_requested_tunnel_starts_normally(self):
+        requested = "f456382f-f4ee-461f-8fed-f944f64da791"
+        process = MagicMock()
+        process.stdout = iter([f"INF Starting tunnel tunnelID={requested}\n"])
+        process.poll.return_value = None
+
+        with patch.object(tunnel, "find_cloudflared", return_value="cloudflared"), \
+                patch.object(subprocess, "Popen", return_value=process):
+            started = tunnel.start_tunnel(
+                {"mode": "cloudflare", "name": requested, "hostname": "voice.example.com"},
+                8002,
+                self.temp.name,
+            )
+        self.assertEqual(started.started_tunnel_id, requested)
+        self.assertEqual(started.url, "https://voice.example.com")
+        process.terminate.assert_not_called()
+
+    def test_a_name_cannot_be_checked_so_it_is_left_alone(self):
+        # cloudflared resolves names internally and only ever prints a UUID.
+        process = MagicMock()
+        process.stdout = iter(["INF Starting tunnel tunnelID=187851f0-704b-4286-96e7-a82678b5e6e9\n"])
+        process.poll.return_value = None
+
+        with patch.object(tunnel, "find_cloudflared", return_value="cloudflared"), \
+                patch.object(subprocess, "Popen", return_value=process):
+            started = tunnel.start_tunnel(
+                {"mode": "cloudflare", "name": "voice2", "hostname": "voice.example.com"},
+                8002,
+                self.temp.name,
+            )
+        self.assertEqual(started.wrong_tunnel, "")
+
+
 class PinnedPortTests(unittest.TestCase):
     def test_no_pin_means_scan_as_before(self):
         with patch.dict(os.environ, {"BOOKVOICE_PORT": ""}):

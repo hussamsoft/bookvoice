@@ -27,7 +27,10 @@ from pathlib import Path
 
 SETTINGS_FILE = "tunnel.json"
 QUICK_URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.IGNORECASE)
+STARTED_TUNNEL_PATTERN = re.compile(r"tunnelID=([0-9a-f-]{36})", re.IGNORECASE)
+UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 QUICK_URL_TIMEOUT_S = 60
+IDENTIFY_TIMEOUT_S = 20
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -141,7 +144,29 @@ def find_cloudflared(explicit: str = "") -> str:
     )
 
 
-def build_command(settings: dict, port: int, binary: str) -> list[str]:
+def isolated_config_path(runtime_dir: str) -> Path:
+    """A config file BookVoice owns, written next to its own runtime state.
+
+    cloudflared reads ``~/.cloudflared/config.yml`` by default, and a ``tunnel:``
+    entry there silently overrides the tunnel named on the command line. Someone
+    with an unrelated tunnel already configured would otherwise have BookVoice
+    start *that* one — registering a second connector on a service that is
+    running elsewhere. Pointing --config at an empty file of our own removes the
+    default from the picture entirely.
+    """
+    target = Path(runtime_dir) / "cloudflared-empty.yml"
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "# Intentionally empty. BookVoice passes the tunnel and origin on the\n"
+            "# command line; this file exists only so cloudflared does not fall\n"
+            "# back to ~/.cloudflared/config.yml and adopt an unrelated tunnel.\n",
+            encoding="utf-8",
+        )
+    return target
+
+
+def build_command(settings: dict, port: int, binary: str, runtime_dir: str = "") -> list[str]:
     """Build the cloudflared invocation for this run.
 
     For locally-managed tunnels the port is passed on the command line rather
@@ -157,6 +182,8 @@ def build_command(settings: dict, port: int, binary: str) -> list[str]:
         return command + ["run", "--token", str(settings["token"])]
     if settings.get("config"):
         command += ["--config", str(settings["config"])]
+    elif runtime_dir:
+        command += ["--config", str(isolated_config_path(runtime_dir))]
     command += ["--url", f"http://127.0.0.1:{int(port)}"]
     if settings.get("name"):
         command += ["run", str(settings["name"])]
@@ -193,13 +220,17 @@ def public_origin(settings: dict) -> str:
 class CloudflareTunnel:
     """A cloudflared child process tied to the lifetime of the app."""
 
-    def __init__(self, settings: dict, port: int, log=None):
+    def __init__(self, settings: dict, port: int, log=None, runtime_dir: str = ""):
         self.settings = dict(settings)
         self.port = int(port)
         self.log = log
+        self.runtime_dir = runtime_dir
         self.process: subprocess.Popen | None = None
         self.url = public_origin(settings)
+        self.started_tunnel_id = ""
+        self.wrong_tunnel = ""
         self._quick_url_seen = threading.Event()
+        self._identified = threading.Event()
 
     def _write(self, message: str) -> None:
         if self.log is not None:
@@ -210,7 +241,7 @@ class CloudflareTunnel:
 
     def start(self) -> str:
         binary = find_cloudflared(self.settings.get("binary", ""))
-        command = build_command(self.settings, self.port, binary)
+        command = build_command(self.settings, self.port, binary, self.runtime_dir)
         self._write(f"tunnel: {redact_command(command)}")
         creation = 0
         if os.name == "nt":
@@ -229,6 +260,17 @@ class CloudflareTunnel:
             raise TunnelError(f"cloudflared could not be started: {exc}") from exc
 
         threading.Thread(target=self._drain_output, name="cloudflared-log", daemon=True).start()
+
+        # Refuse to keep running a tunnel that is not the one asked for.
+        # Adopting somebody else's tunnel registers an extra connector on a
+        # service running elsewhere, and Cloudflare will load-balance real
+        # traffic onto this machine.
+        if UUID_PATTERN.match(str(self.settings.get("name") or "")):
+            self._identified.wait(IDENTIFY_TIMEOUT_S)
+            if self.wrong_tunnel:
+                self.stop()
+                raise TunnelError(self.wrong_tunnel)
+
         if not self.url and not is_remote_managed(self.settings):
             # Quick tunnel: the hostname only exists once Cloudflare announces it.
             # A dashboard tunnel never prints one — its hostname lives in
@@ -251,6 +293,24 @@ class CloudflareTunnel:
                 if match:
                     self.url = match.group(0)
                     self._quick_url_seen.set()
+            if not self.started_tunnel_id:
+                started = STARTED_TUNNEL_PATTERN.search(text)
+                if started:
+                    self.started_tunnel_id = started.group(1).lower()
+                    requested = str(self.settings.get("name") or "")
+                    # Only a UUID can be compared: a name is resolved by
+                    # cloudflared and never appears in its output.
+                    if (
+                        UUID_PATTERN.match(requested)
+                        and requested.lower() != self.started_tunnel_id
+                    ):
+                        self.wrong_tunnel = (
+                            f"cloudflared started tunnel {self.started_tunnel_id} but "
+                            f"{requested} was requested. A tunnel: entry in a "
+                            f"cloudflared config file overrides the name given on the "
+                            f"command line."
+                        )
+                    self._identified.set()
 
     def stop(self) -> None:
         process, self.process = self.process, None
@@ -268,7 +328,7 @@ class CloudflareTunnel:
 
 def start_tunnel(settings: dict, port: int, runtime_dir: str, log=None) -> CloudflareTunnel:
     """Start a tunnel and persist the settings that produced it."""
-    tunnel = CloudflareTunnel(settings, port, log=log)
+    tunnel = CloudflareTunnel(settings, port, log=log, runtime_dir=runtime_dir)
     tunnel.start()
     persisted = {key: value for key, value in settings.items() if value}
     persisted["lastUrl"] = tunnel.url
