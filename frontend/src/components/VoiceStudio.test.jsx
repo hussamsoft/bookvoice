@@ -5,6 +5,7 @@ import { ToastProvider } from './Toast';
 import VoiceStudio from './VoiceStudio';
 import * as api from '../utils/api';
 import { resetCapabilities } from '../utils/capabilities';
+import * as studioSession from '../utils/studioSession';
 
 vi.mock('../utils/api', () => ({
     cancelStudioJob: vi.fn(),
@@ -48,6 +49,10 @@ describe('VoiceStudio', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resetCapabilities();
+        // These exercise an already-open project; a device with no session
+        // deliberately lands on the start screen instead.
+        studioSession.clearSession();
+        studioSession.setActiveProjectId(project.id);
         // Desktop capabilities by default: local file actions available.
         api.getUserConfig.mockResolvedValue({ version: '0', config: {} });
         api.listStudioProjects.mockResolvedValue([project]);
@@ -160,13 +165,17 @@ describe('VoiceStudio', () => {
         }));
     }, 15_000);
 
-    it('switches the saved project workflow to Convert Voice', async () => {
+    it('keeps the chosen tab on this device rather than on the server', async () => {
         renderStudio();
         await screen.findByDisplayValue('The corrected sentence.');
 
         fireEvent.click(screen.getByRole('tab', { name: /Convert voice/i }));
 
-        await waitFor(() => expect(api.updateStudioProject).toHaveBeenCalledWith(project.id, { activeWorkflow: 'CONVERSION' }));
+        // A tab picked at the desk must not decide what a phone opens on.
+        expect(api.updateStudioProject).not.toHaveBeenCalledWith(
+            project.id, expect.objectContaining({ activeWorkflow: expect.anything() }),
+        );
+        expect(studioSession.getWorkflow(project.id)).toBe('CONVERSION');
         expect(await screen.findByRole('heading', { name: /Convert a recording into another voice/i })).toBeInTheDocument();
     }, 15_000);
 
@@ -186,6 +195,7 @@ describe('VoiceStudio', () => {
                 audioUrl: '/api/studio/assets/audio',
             }],
         };
+        studioSession.setWorkflow(project.id, 'CONVERSION');
         api.listStudioProjects.mockResolvedValue([conversionProject]);
         api.getStudioProject.mockResolvedValue(conversionProject);
         api.getVoices.mockResolvedValue([{ id: 'interview_voice', name: 'Interview Voice', isLegacy: false }]);
@@ -231,6 +241,7 @@ describe('VoiceStudio', () => {
             activeWorkflow: 'CONVERSION',
             sources: [media(sourceId, 'interview.wav'), media(targetId, 'target-speaker.wav')],
         };
+        studioSession.setWorkflow(project.id, 'CONVERSION');
         api.listStudioProjects.mockResolvedValue([conversionProject]);
         api.getStudioProject.mockResolvedValue(conversionProject);
         api.getVoices.mockResolvedValue([]);
@@ -271,6 +282,7 @@ describe('VoiceStudio', () => {
                 audioUrl: '/api/studio/assets/audio',
             }],
         };
+        studioSession.setWorkflow(project.id, 'CONVERSION');
         api.listStudioProjects.mockResolvedValue([conversionProject]);
         api.getStudioProject.mockResolvedValue(conversionProject);
         api.getVoices.mockResolvedValue([]);
@@ -308,6 +320,7 @@ describe('VoiceStudio', () => {
             sources: [media(firstId, 'first.wav'), media(secondId, 'second.wav')],
         };
 
+        studioSession.setWorkflow(project.id, 'CONVERSION');
         api.listStudioProjects.mockResolvedValue([before]);
         api.getStudioProject.mockResolvedValueOnce(before).mockResolvedValue(after);
         api.getVoices.mockResolvedValue([]);
@@ -330,24 +343,63 @@ describe('VoiceStudio', () => {
         await waitFor(() => expect(screen.getByLabelText('Recording to convert')).toHaveValue(secondId));
     }, 15_000);
 
-    it('switches the saved project workflow to Repair Media', async () => {
+    it('switches to Repair Media on this device only', async () => {
         renderStudio();
         await screen.findByDisplayValue('The corrected sentence.');
 
         fireEvent.click(screen.getByRole('tab', { name: /Repair media/i }));
 
-        await waitFor(() => expect(api.updateStudioProject).toHaveBeenCalledWith(project.id, { activeWorkflow: 'REPAIR' }));
         expect(await screen.findByRole('heading', { name: 'Media source' })).toBeInTheDocument();
+        expect(studioSession.getWorkflow(project.id)).toBe('REPAIR');
+        expect(api.updateStudioProject).not.toHaveBeenCalledWith(
+            project.id, expect.objectContaining({ activeWorkflow: expect.anything() }),
+        );
     }, 15_000);
 
-    it('flushes an edited script when focus leaves the editor', async () => {
+    it('keeps the draft script on this device', async () => {
         renderStudio();
         const editor = await screen.findByDisplayValue('The corrected sentence.');
 
         fireEvent.change(editor, { target: { value: 'Saved before switching.' } });
         fireEvent.blur(editor);
 
-        await waitFor(() => expect(api.updateStudioProject).toHaveBeenCalledWith(project.id, { script: 'Saved before switching.' }));
+        // Typing on a phone must not overwrite what is on screen at the desk.
+        expect(api.updateStudioProject).not.toHaveBeenCalledWith(
+            project.id, expect.objectContaining({ script: expect.anything() }),
+        );
+        await waitFor(() => expect(studioSession.getScript(project.id)).toBe('Saved before switching.'));
+    }, 15_000);
+
+    it('lands on a start screen when this device has no session', async () => {
+        studioSession.clearSession();
+
+        renderStudio();
+
+        expect(await screen.findByRole('heading', { name: /What would you like to do/i })).toBeInTheDocument();
+        // Projects are still all reachable — only the auto-open is gone.
+        expect(screen.getByRole('button', { name: 'Open Demo voice project' })).toBeInTheDocument();
+        expect(screen.queryByRole('tab', { name: /Create narration/i })).not.toBeInTheDocument();
+    }, 15_000);
+
+    it('opens a project chosen from the start screen and remembers it', async () => {
+        studioSession.clearSession();
+
+        renderStudio();
+        fireEvent.click(await screen.findByRole('button', { name: 'Open Demo voice project' }));
+
+        expect(await screen.findByDisplayValue('The corrected sentence.')).toBeInTheDocument();
+        expect(studioSession.getActiveProjectId()).toBe(project.id);
+    }, 15_000);
+
+    it('returns to the start screen without touching the project', async () => {
+        renderStudio();
+        await screen.findByDisplayValue('The corrected sentence.');
+
+        fireEvent.click(screen.getByRole('button', { name: /All projects/i }));
+
+        expect(await screen.findByRole('heading', { name: /What would you like to do/i })).toBeInTheDocument();
+        expect(studioSession.getActiveProjectId()).toBe('');
+        expect(api.deleteStudioProject).not.toHaveBeenCalled();
     }, 15_000);
 
     it('reconnects to a persistent running job after reopening', async () => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, Repeat2, RotateCw, Scissors, X } from 'lucide-react';
+import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors, X } from 'lucide-react';
 import {
     cancelStudioJob,
     createStudioProject,
@@ -16,7 +16,9 @@ import { useToast } from './Toast';
 import StudioConversion from './StudioConversion';
 import StudioNarration from './StudioNarration';
 import StudioProjectSidebar from './StudioProjectSidebar';
+import StudioStart from './StudioStart';
 import StudioRepair from './StudioRepair';
+import * as studioSession from '../utils/studioSession';
 
 export default function VoiceStudio() {
     const toast = useToast();
@@ -28,6 +30,7 @@ export default function VoiceStudio() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeJob, setActiveJob] = useState(null);
+    const [workflow, setWorkflowState] = useState('NARRATION');
 
     const openProject = useCallback(async (projectId) => {
         if (!projectId) {
@@ -37,7 +40,8 @@ export default function VoiceStudio() {
         const opened = await getStudioProject(projectId);
         if (mountedRef.current) {
             setProject(opened);
-            localStorage.setItem('bookvoice.studio.activeProject', opened.id);
+            setWorkflowState(studioSession.getWorkflow(opened.id));
+            studioSession.setActiveProjectId(opened.id);
         }
         return opened;
     }, []);
@@ -50,8 +54,10 @@ export default function VoiceStudio() {
         if (!mountedRef.current) return null;
         setProjects(nextProjects);
         if (nextVoices) setVoices(nextVoices);
-        const savedId = preferredId || project?.id || localStorage.getItem('bookvoice.studio.activeProject');
-        const nextId = nextProjects.some((item) => item.id === savedId) ? savedId : nextProjects[0]?.id;
+        const savedId = preferredId || project?.id || studioSession.getActiveProjectId();
+        // Falling back to 'some other project' is how a device ends up somewhere
+        // it never chose to be; without a match, return to the start screen.
+        const nextId = nextProjects.some((item) => item.id === savedId) ? savedId : '';
         return openProject(nextId);
     }, [openProject, project?.id]);
 
@@ -63,9 +69,15 @@ export default function VoiceStudio() {
                 if (!mountedRef.current) return;
                 setProjects(nextProjects);
                 setVoices(nextVoices);
-                const savedId = localStorage.getItem('bookvoice.studio.activeProject');
-                const nextId = nextProjects.some((item) => item.id === savedId) ? savedId : nextProjects[0]?.id;
-                if (nextId) await openProject(nextId);
+                // Only reopen what *this device* had open. A project another
+                // device left mid-flow is not this device's business.
+                const savedId = studioSession.migrateLegacySession().activeProjectId;
+                if (savedId && nextProjects.some((item) => item.id === savedId)) {
+                    await openProject(savedId);
+                } else {
+                    // No session on this device: land on the start screen.
+                    studioSession.setActiveProjectId('');
+                }
             } catch (loadError) {
                 if (mountedRef.current) setError(loadError.message || 'Voice Studio could not be opened.');
             } finally {
@@ -78,6 +90,13 @@ export default function VoiceStudio() {
             pollControllerRef.current?.abort();
         };
     }, [openProject]);
+
+    // The workflow tab is device state: it never reaches the server, so a tab
+    // chosen at the desk does not decide what a phone opens on.
+    const setWorkflow = useCallback((next) => {
+        setWorkflowState(next);
+        if (project?.id) studioSession.setWorkflow(project.id, next);
+    }, [project?.id]);
 
     const patchProject = useCallback(async (changes) => {
         if (!project) return null;
@@ -125,7 +144,7 @@ export default function VoiceStudio() {
         if (!confirmed) return;
         try {
             await deleteStudioProject(target.id);
-            localStorage.removeItem('bookvoice.studio.activeProject');
+            studioSession.forgetProject(target.id);
             setProject(null);
             await refresh(null);
             toast.success('Voice Studio project deleted');
@@ -230,11 +249,12 @@ export default function VoiceStudio() {
 
             <section className="studio-main" aria-label="Active Voice Studio project">
                 {!project ? (
-                    <div className="studio-empty hero">
-                        <AudioLines size={38} />
-                        <h1>Create your first voice project</h1>
-                        <p>Write narration, build a reusable voice profile, or repair a phrase in an audio or video file. Everything stays on this computer.</p>
-                    </div>
+                    <StudioStart
+                        projects={projects}
+                        onOpen={openProject}
+                        onCreate={createProject}
+                        disabled={Boolean(activeJob)}
+                    />
                 ) : <>
                     <header className="studio-project-header">
                         <div>
@@ -252,36 +272,49 @@ export default function VoiceStudio() {
                                 disabled={Boolean(activeJob)}
                             />
                         </div>
-                        <span className="studio-local-badge">Local only</span>
+                        <div className="studio-project-header-actions">
+                            <button
+                                className="btn text"
+                                type="button"
+                                onClick={() => {
+                                    studioSession.setActiveProjectId('');
+                                    setProject(null);
+                                }}
+                                disabled={Boolean(activeJob)}
+                            >
+                                <LayoutGrid size={15} /> All projects
+                            </button>
+                            <span className="studio-local-badge">Local only</span>
+                        </div>
                     </header>
 
                     <div className="studio-workflow-tabs" role="tablist" aria-label="Voice Studio workflow">
                         <button
                             role="tab"
-                            aria-selected={(project.activeWorkflow || 'NARRATION') === 'NARRATION'}
-                            aria-pressed={(project.activeWorkflow || 'NARRATION') === 'NARRATION'}
-                            className={(project.activeWorkflow || 'NARRATION') === 'NARRATION' ? 'is-active' : ''}
-                            onClick={() => patchProject({ activeWorkflow: 'NARRATION' })}
+                            aria-selected={workflow === 'NARRATION'}
+                            aria-pressed={workflow === 'NARRATION'}
+                            className={workflow === 'NARRATION' ? 'is-active' : ''}
+                            onClick={() => setWorkflow('NARRATION')}
                             disabled={Boolean(activeJob)}
                         >
                             <AudioLines size={18} /> <span><strong>Create narration</strong><small>Type and generate speech</small></span>
                         </button>
                         <button
                             role="tab"
-                            aria-selected={project.activeWorkflow === 'CONVERSION'}
-                            aria-pressed={project.activeWorkflow === 'CONVERSION'}
-                            className={project.activeWorkflow === 'CONVERSION' ? 'is-active' : ''}
-                            onClick={() => patchProject({ activeWorkflow: 'CONVERSION' })}
+                            aria-selected={workflow === 'CONVERSION'}
+                            aria-pressed={workflow === 'CONVERSION'}
+                            className={workflow === 'CONVERSION' ? 'is-active' : ''}
+                            onClick={() => setWorkflow('CONVERSION')}
                             disabled={Boolean(activeJob)}
                         >
                             <Repeat2 size={18} /> <span><strong>Convert voice</strong><small>Re-voice an existing recording</small></span>
                         </button>
                         <button
                             role="tab"
-                            aria-selected={project.activeWorkflow === 'REPAIR'}
-                            aria-pressed={project.activeWorkflow === 'REPAIR'}
-                            className={project.activeWorkflow === 'REPAIR' ? 'is-active' : ''}
-                            onClick={() => patchProject({ activeWorkflow: 'REPAIR' })}
+                            aria-selected={workflow === 'REPAIR'}
+                            aria-pressed={workflow === 'REPAIR'}
+                            className={workflow === 'REPAIR' ? 'is-active' : ''}
+                            onClick={() => setWorkflow('REPAIR')}
                             disabled={Boolean(activeJob)}
                         >
                             <Scissors size={18} /> <span><strong>Repair media</strong><small>Replace a selected phrase</small></span>
@@ -304,25 +337,23 @@ export default function VoiceStudio() {
                             </div>
                             <button
                                 className="btn secondary"
-                                onClick={() => patchProject({
-                                    activeWorkflow: {
-                                        NARRATION: 'NARRATION',
-                                        VOICE_CONVERSION: 'CONVERSION',
-                                    }[retryableJob.kind] || 'REPAIR',
-                                })}
+                                onClick={() => setWorkflow({
+                                    NARRATION: 'NARRATION',
+                                    VOICE_CONVERSION: 'CONVERSION',
+                                }[retryableJob.kind] || 'REPAIR')}
                             >
                                 Review and retry
                             </button>
                         </div>
                     )}
 
-                    {project.activeWorkflow === 'REPAIR' && (
+                    {workflow === 'REPAIR' && (
                         <StudioRepair project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
                     )}
-                    {project.activeWorkflow === 'CONVERSION' && (
+                    {workflow === 'CONVERSION' && (
                         <StudioConversion project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
                     )}
-                    {!['REPAIR', 'CONVERSION'].includes(project.activeWorkflow) && (
+                    {!['REPAIR', 'CONVERSION'].includes(workflow) && (
                         <StudioNarration project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
                     )}
                 </>}

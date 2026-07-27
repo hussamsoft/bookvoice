@@ -1055,8 +1055,21 @@ textarea:focus-visible,
     display: none;
   }
 
-  .mode-switcher {
+  /* The desktop rule indents the tabs to sit under the brand lockup. On a
+     phone the brand is flush left, so the indent left them visibly offset
+     from everything above and below. The .app-shell selector is repeated
+     because the desktop rule that sets it is more specific than a bare
+     .mode-switcher. */
+  .mode-switcher,
+  .app-shell .mode-switcher {
     padding-left: 0;
+  }
+
+  /* 1rem matches the title bar's own padding-left, so the tabs line up with
+     the brand above them instead of sitting 1.5rem further in. */
+  .app-shell .mode-switcher {
+    margin-left: 1rem;
+    margin-right: 1rem;
   }
 
   .mode-button {
@@ -2607,6 +2620,84 @@ body {
 .access-card .btn { width: 100%; justify-content: center; }
 .access-error { color: var(--danger, #d14343); font-size: 0.8rem; }
 
+/* Start screen — where a device with no session of its own lands. */
+.studio-start {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 0;
+}
+
+.studio-start-hero { display: grid; gap: 0.5rem; justify-items: start; }
+.studio-start-hero h1 { margin: 0; font-size: 1.5rem; }
+.studio-start-hero p { margin: 0; color: var(--text-muted); max-width: 34rem; }
+
+.studio-start-create { display: grid; gap: 0.4rem; }
+.studio-start-create label { font-size: 0.78rem; color: var(--text-muted); }
+.studio-start-create > div { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.studio-start-create input {
+  flex: 1 1 14rem;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: inherit;
+}
+
+.studio-start-recent h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.studio-start-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+}
+
+.studio-start-project {
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.studio-start-project:hover { border-color: var(--primary); }
+.studio-start-project span {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.studio-start-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.studio-project-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 /* Audio transport ---------------------------------------------------------
    Drawn in-app rather than left to the browser: Safari renders native audio
    controls as an opaque dark slab that ignores the page theme entirely. */
@@ -3041,6 +3132,13 @@ body {
   .access-card input { font-size: 1rem; }
 
   .studio-job { top: 0; border-radius: 0 0 var(--radius) var(--radius); }
+
+  .studio-start { padding: 0.5rem 0 1.5rem; gap: 1.25rem; }
+  .studio-start-list { grid-template-columns: minmax(0, 1fr); }
+  .studio-start-project { min-height: 3.25rem; }
+  .studio-start-create input { min-height: 2.9rem; font-size: 1rem; }
+  .studio-start-create .btn { flex: 1 1 100%; justify-content: center; min-height: 2.9rem; }
+  .studio-project-header-actions { width: 100%; justify-content: space-between; }
 
   /* The recorder is the primary action on a phone, so it gets full width and
      a thumb-sized target rather than sitting inline with the import button. */

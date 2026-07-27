@@ -2,22 +2,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { PencilLine, Sparkles } from 'lucide-react';
 import { createStudioNarration, createStudioRepair } from '../utils/api';
 import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
+import * as studioSession from '../utils/studioSession';
 import AudioPlayer from './AudioPlayer';
 import StudioOutputs from './StudioOutputs';
 import StudioSettings from './StudioSettings';
 import StudioVoiceCloner from './StudioVoiceCloner';
 
 export default function StudioNarration({ project, voices, onPatch, onRunJob, disabled }) {
-    const [script, setScript] = useState(project.script || '');
+    // The draft is this device's own: typing on a phone must not overwrite
+    // what is on screen at the desk. It falls back to the project's last
+    // generated script the first time a device opens it.
+    const [script, setScript] = useState(
+        () => studioSession.getScript(project.id) ?? project.script ?? '',
+    );
     const [correction, setCorrection] = useState(null);
     const settings = { ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) };
 
-    useEffect(() => setScript(project.script || ''), [project.id, project.script]);
     useEffect(() => {
-        if (script === (project.script || '')) return undefined;
-        const timer = setTimeout(() => onPatch({ script }), 600);
+        setScript(studioSession.getScript(project.id) ?? project.script ?? '');
+    }, [project.id, project.script]);
+    useEffect(() => {
+        const timer = setTimeout(() => studioSession.setScript(project.id, script), 400);
         return () => clearTimeout(timer);
-    }, [script, project.script, onPatch]);
+    }, [script, project.id]);
 
     const narrations = useMemo(
         () => (project.outputs || []).filter((output) => output.kind === 'NARRATION'),
@@ -93,9 +100,7 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                     id="studio-script"
                     value={script}
                     onChange={(event) => setScript(event.target.value)}
-                    onBlur={() => {
-                        if (script !== (project.script || '')) onPatch({ script });
-                    }}
+                    onBlur={() => studioSession.setScript(project.id, script)}
                     placeholder="Write the words you want this voice to narrate…"
                     dir={(project.languageId || 'en') === 'ar' ? 'rtl' : 'ltr'}
                     maxLength={200000}
