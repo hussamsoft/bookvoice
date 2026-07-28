@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import io
 import os
+import struct
 import sys
 import tempfile
 import threading
@@ -32,6 +33,31 @@ def wav_bytes(seconds: float = 1.0, rate: int = 24_000) -> bytes:
         frames = int(seconds * rate)
         output.writeframes(b"\x00\x10" * frames)
     return payload.getvalue()
+
+
+def extensible_wav_bytes(seconds: float = 1.0, rate: int = 24_000) -> bytes:
+    frames = int(seconds * rate)
+    audio = b"\x00\x10" * frames
+    channels = 1
+    block_align = channels * 2
+    byte_rate = rate * block_align
+    pcm_guid = b"\x01\x00\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71"
+    fmt = struct.pack(
+        "<HHIIHHHHI16s",
+        0xFFFE,
+        channels,
+        rate,
+        byte_rate,
+        block_align,
+        16,
+        22,
+        16,
+        0x4,
+        pcm_guid,
+    )
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    body += b"data" + struct.pack("<I", len(audio)) + audio
+    return b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
 
 
 class StudioProjectTests(unittest.TestCase):
@@ -232,6 +258,15 @@ class StudioProjectTests(unittest.TestCase):
         self.assertTrue(studio.asset_path(project["id"], source["id"], "original").is_file())
         self.assertTrue(studio.asset_path(project["id"], source["id"], "audio").is_file())
         self.assertGreater(len(source["waveformPeaks"]), 10)
+
+    def test_waveform_accepts_phone_pcm_in_wave_format_extensible(self):
+        path = Path(self.temp.name) / "phone.wav"
+        path.write_bytes(extensible_wav_bytes())
+
+        peaks = studio._waveform_peaks(path, buckets=20)
+
+        self.assertEqual(len(peaks), 20)
+        self.assertTrue(all(0.12 < peak < 0.13 for peak in peaks))
 
     def test_expired_microphone_recording_is_erased_without_touching_imports_or_voices(self):
         project = studio.create_project("Recording retention")

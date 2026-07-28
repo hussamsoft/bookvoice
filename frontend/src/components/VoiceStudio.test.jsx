@@ -459,6 +459,36 @@ describe('VoiceStudio', () => {
         ));
     }, 15_000);
 
+    it('does not keep showing an old error after a newer job succeeds', async () => {
+        const recoveredProject = {
+            ...project,
+            jobs: [
+                {
+                    id: 'b'.repeat(32),
+                    kind: 'MEDIA_IMPORT',
+                    status: 'FAILED',
+                    canRetry: true,
+                    message: 'Old phone format error',
+                },
+                {
+                    id: 'c'.repeat(32),
+                    kind: 'MEDIA_IMPORT',
+                    status: 'COMPLETED',
+                    canRetry: false,
+                    message: 'Completed',
+                },
+            ],
+        };
+        api.listStudioProjects.mockResolvedValue([recoveredProject]);
+        api.getStudioProject.mockResolvedValue(recoveredProject);
+
+        renderStudio();
+        await screen.findByDisplayValue('The corrected sentence.');
+
+        expect(screen.queryByText('Old phone format error')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Review and retry/i })).not.toBeInTheDocument();
+    }, 15_000);
+
     it('explains what increasing and decreasing every delivery control does', async () => {
         renderStudio();
 

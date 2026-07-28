@@ -60,7 +60,7 @@ print(f"[main] MODEL_DIR={MODEL_DIR}")
 print(f"[main] APP_DIR={APP_DIR}")
 
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
-VOICES_DIR = os.path.join(DATA_DIR, "voices")
+VOICES_DIR = os.environ.get("VOICE_DATA_DIR", "").strip() or os.path.join(DATA_DIR, "voices")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
 

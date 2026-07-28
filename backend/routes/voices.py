@@ -25,6 +25,10 @@ _ALLOWED_CONTENT_TYPES = {
 
 def _voices_dir() -> str:
     """Resolve at call time so launcher env vars are always honored."""
+    configured = os.environ.get("VOICE_DATA_DIR", "").strip()
+    if configured:
+        os.makedirs(configured, exist_ok=True)
+        return configured
     data_dir = os.environ.get("DATA_DIR", "data")
     path = os.path.join(data_dir, "voices")
     os.makedirs(path, exist_ok=True)

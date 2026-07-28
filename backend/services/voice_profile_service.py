@@ -18,7 +18,8 @@ from services.storage_utils import replace_file_with_retry
 
 
 def voices_dir() -> Path:
-    root = Path(os.environ.get("DATA_DIR", "data")) / "voices"
+    configured = os.environ.get("VOICE_DATA_DIR", "").strip()
+    root = Path(configured) if configured else Path(os.environ.get("DATA_DIR", "data")) / "voices"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

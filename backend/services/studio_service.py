@@ -814,22 +814,89 @@ def _create_video_preview(source: Path, target: Path) -> None:
 
 
 def _waveform_peaks(path: Path, buckets: int = 800) -> list[float]:
-    with wave.open(str(path), "rb") as source:
-        channels = source.getnchannels()
-        width = source.getsampwidth()
-        frames = source.getnframes()
-        if width != 2 or frames <= 0:
-            raise ValueError("Studio edit audio must be 16-bit PCM WAV.")
+    try:
+        with wave.open(str(path), "rb") as source:
+            channels = source.getnchannels()
+            width = source.getsampwidth()
+            frames = source.getnframes()
+            if width != 2 or frames <= 0:
+                raise ValueError("Studio edit audio must be 16-bit PCM WAV.")
+            frames_per_bucket = max(1, frames // buckets)
+            peaks = []
+            while len(peaks) < buckets:
+                raw = source.readframes(frames_per_bucket)
+                if not raw:
+                    break
+                samples = struct.iter_unpack("<h", raw)
+                peak = max((abs(value[0]) for value in samples), default=0) / 32768.0
+                peaks.append(round(min(1.0, peak), 4))
+            return peaks
+    except wave.Error as exc:
+        # Python 3.11 rejects WAVE_FORMAT_EXTENSIBLE (65534), which is a
+        # perfectly valid PCM format emitted by some phone/browser recorders
+        # and FFmpeg channel layouts. Parse that narrow PCM variant directly.
+        try:
+            return _waveform_peaks_extensible(path, buckets=buckets)
+        except ValueError:
+            raise ValueError(f"Studio edit audio is not readable PCM WAV: {exc}") from exc
+
+
+def _waveform_peaks_extensible(path: Path, *, buckets: int = 800) -> list[float]:
+    with Path(path).open("rb") as source:
+        header = source.read(12)
+        if len(header) != 12 or header[:4] != b"RIFF" or header[8:] != b"WAVE":
+            raise ValueError("Not a RIFF WAVE file.")
+        format_info = None
+        data_offset = None
+        data_size = 0
+        while True:
+            chunk_header = source.read(8)
+            if len(chunk_header) < 8:
+                break
+            chunk_id, chunk_size = struct.unpack("<4sI", chunk_header)
+            chunk_start = source.tell()
+            if chunk_id == b"fmt ":
+                payload = source.read(chunk_size)
+                if len(payload) < 16:
+                    raise ValueError("Invalid WAVE format chunk.")
+                tag, channels, _rate, _byte_rate, block_align, bits = struct.unpack(
+                    "<HHIIHH", payload[:16]
+                )
+                if tag == 0xFFFE:
+                    if len(payload) < 40:
+                        raise ValueError("Invalid extensible WAVE format chunk.")
+                    tag = struct.unpack("<H", payload[24:26])[0]
+                format_info = (tag, channels, block_align, bits)
+            elif chunk_id == b"data":
+                data_offset = chunk_start
+                data_size = chunk_size
+            source.seek(chunk_start + chunk_size + (chunk_size % 2))
+            if format_info is not None and data_offset is not None:
+                break
+
+        if format_info is None or data_offset is None:
+            raise ValueError("WAVE format or data chunk is missing.")
+        tag, channels, block_align, bits = format_info
+        if tag != 1 or bits != 16 or channels < 1 or block_align != channels * 2:
+            raise ValueError("Extensible WAVE is not 16-bit PCM.")
+        frames = data_size // block_align
+        if frames <= 0:
+            raise ValueError("WAVE data is empty.")
         frames_per_bucket = max(1, frames // buckets)
+        source.seek(data_offset)
+        remaining = data_size
         peaks = []
-        while len(peaks) < buckets:
-            raw = source.readframes(frames_per_bucket)
+        while remaining > 0 and len(peaks) < buckets:
+            read_size = min(remaining, frames_per_bucket * block_align)
+            raw = source.read(read_size)
             if not raw:
                 break
-            samples = struct.iter_unpack("<h", raw)
+            remaining -= len(raw)
+            usable = len(raw) - (len(raw) % 2)
+            samples = struct.iter_unpack("<h", raw[:usable])
             peak = max((abs(value[0]) for value in samples), default=0) / 32768.0
             peaks.append(round(min(1.0, peak), 4))
-    return peaks
+        return peaks
 
 
 def _sha256_file(path: Path) -> str:

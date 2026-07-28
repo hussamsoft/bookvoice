@@ -13,6 +13,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -221,9 +222,236 @@ def validate_package(app_dir: str) -> str | None:
     return None
 
 
-def seed_voices(app_dir: str, data_dir: str) -> None:
+def resolve_voices_dir(app_dir: str, runtime_dir: str) -> str:
+    """Return the stable voice library shared by every install on this machine."""
+    portable = os.environ.get("BOOKVOICE_PORTABLE", "").strip().lower()
+    if portable in ("1", "true", "yes"):
+        return os.path.join(runtime_dir, "data", "voices")
+    return os.path.join(legacy_runtime_dir(), "voices")
+
+
+def _sha256_path(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _voice_metadata(path: str) -> dict | None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _voice_created_at(wav_path: str, metadata: dict | None) -> float:
+    try:
+        created = float((metadata or {}).get("createdAt") or 0)
+    except (TypeError, ValueError):
+        created = 0
+    if created > 0:
+        return created
+    try:
+        return os.path.getmtime(wav_path)
+    except OSError:
+        return 0
+
+
+def _safe_voice_stem(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "")).strip("_")
+    return (cleaned or "recovered_voice")[:96]
+
+
+def _copy_voice_file(source: str, target: str) -> None:
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    temp = os.path.join(
+        os.path.dirname(target),
+        f".{os.path.basename(target)}-{os.getpid()}.migrating",
+    )
+    try:
+        shutil.copy2(source, temp)
+        os.replace(temp, target)
+    finally:
+        try:
+            os.remove(temp)
+        except FileNotFoundError:
+            pass
+
+
+def migrate_voice_library(
+    app_dir: str,
+    runtime_dir: str,
+    voices_dir: str,
+    log: Logger,
+) -> int:
+    """Merge install-scoped voice libraries without overwriting same-name voices.
+
+    Older launchers stored voices below an install/version identity. A rebuild
+    therefore made the profiles appear deleted even though the WAV files still
+    existed. The oldest profile keeps its original id; later, different WAVs
+    with that id are retained under a dated id so no recording is discarded.
+    """
+    destination = os.path.abspath(voices_dir)
+    os.makedirs(destination, exist_ok=True)
+    marker_path = os.path.join(destination, ".install-library-migration-v1.json")
+    marker = _voice_metadata(marker_path) or {}
+    seen_profiles = {
+        str(value)
+        for value in (marker.get("seenProfiles") or [])
+        if isinstance(value, str)
+    }
+    marker_changed = False
+    bookvoice_root = legacy_runtime_dir()
+    portable = os.environ.get("BOOKVOICE_PORTABLE", "").strip().lower()
+    source_dirs = [os.path.join(runtime_dir, "data", "voices")]
+    if portable not in ("1", "true", "yes"):
+        source_dirs.append(os.path.join(bookvoice_root, "data", "voices"))
+        installs_root = os.path.join(bookvoice_root, "installs")
+        if os.path.isdir(installs_root):
+            for entry in os.scandir(installs_root):
+                if entry.is_dir():
+                    source_dirs.append(os.path.join(entry.path, "data", "voices"))
+
+    unique_sources = []
+    seen_sources = set()
+    for source_dir in source_dirs:
+        absolute = os.path.abspath(source_dir)
+        if absolute == destination or absolute in seen_sources or not os.path.isdir(absolute):
+            continue
+        seen_sources.add(absolute)
+        unique_sources.append(absolute)
+
+    default_names = set()
+    defaults_dir = os.path.join(app_dir, "data", "default_voices")
+    if os.path.isdir(defaults_dir):
+        default_names = {
+            os.path.splitext(name)[0].lower()
+            for name in os.listdir(defaults_dir)
+            if name.lower().endswith(".wav")
+        }
+
+    candidates = []
+    for source_dir in unique_sources:
+        for name in os.listdir(source_dir):
+            if not name.lower().endswith(".wav"):
+                continue
+            wav_path = os.path.join(source_dir, name)
+            if not os.path.isfile(wav_path):
+                continue
+            metadata_path = os.path.splitext(wav_path)[0] + ".json"
+            metadata = _voice_metadata(metadata_path)
+            candidates.append(
+                (
+                    _voice_created_at(wav_path, metadata),
+                    name.lower(),
+                    wav_path,
+                    metadata_path if os.path.isfile(metadata_path) else None,
+                    metadata,
+                )
+            )
+
+    migrated = 0
+    for created_at, _name_key, wav_path, metadata_path, metadata in sorted(candidates):
+        source_stem = _safe_voice_stem(os.path.splitext(os.path.basename(wav_path))[0])
+        source_hash = _sha256_path(wav_path)
+        source_key = f"{source_stem.lower()}:{source_hash}"
+        if source_key in seen_profiles:
+            continue
+        target_stem = source_stem
+        target_wav = os.path.join(destination, f"{target_stem}.wav")
+
+        if os.path.isfile(target_wav):
+            if _sha256_path(target_wav) == source_hash:
+                target_json = os.path.join(destination, f"{target_stem}.json")
+                if metadata_path and not os.path.isfile(target_json):
+                    _copy_voice_file(metadata_path, target_json)
+                    migrated += 1
+                seen_profiles.add(source_key)
+                marker_changed = True
+                continue
+            # Packaged defaults are replaced by the current package, not
+            # multiplied into dated variants on every historical install.
+            if metadata is None and source_stem.lower() in default_names:
+                seen_profiles.add(source_key)
+                marker_changed = True
+                continue
+            date_key = datetime.fromtimestamp(created_at or time.time()).strftime("%Y%m%d")
+            base_stem = _safe_voice_stem(f"{source_stem}_{date_key}")
+            target_stem = base_stem
+            suffix = 2
+            while True:
+                target_wav = os.path.join(destination, f"{target_stem}.wav")
+                if not os.path.isfile(target_wav):
+                    break
+                if _sha256_path(target_wav) == source_hash:
+                    target_wav = ""
+                    break
+                target_stem = _safe_voice_stem(f"{base_stem}_{suffix}")
+                suffix += 1
+            if not target_wav:
+                seen_profiles.add(source_key)
+                marker_changed = True
+                continue
+
+        _copy_voice_file(wav_path, target_wav)
+        if metadata is not None:
+            recovered = dict(metadata)
+            original_id = str(recovered.get("id") or source_stem)
+            if target_stem != source_stem:
+                label = datetime.fromtimestamp(created_at or time.time()).strftime("%b %d, %Y")
+                original_name = str(recovered.get("name") or original_id.replace("_", " ").title())
+                recovered["name"] = f"{original_name} ({label})"
+            recovered["id"] = target_stem
+            recovered["referenceSha256"] = source_hash
+            target_json = os.path.join(destination, f"{target_stem}.json")
+            temp_json = os.path.join(destination, f".{target_stem}-{os.getpid()}.json.tmp")
+            try:
+                with open(temp_json, "w", encoding="utf-8", newline="\n") as handle:
+                    json.dump(recovered, handle, ensure_ascii=False, indent=2)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_json, target_json)
+            finally:
+                try:
+                    os.remove(temp_json)
+                except FileNotFoundError:
+                    pass
+        migrated += 1
+        seen_profiles.add(source_key)
+        marker_changed = True
+        log.write(f"recovered voice {source_stem} -> {target_stem}")
+    if marker_changed:
+        temp_marker = os.path.join(destination, f".migration-{os.getpid()}.json.tmp")
+        try:
+            with open(temp_marker, "w", encoding="utf-8", newline="\n") as handle:
+                json.dump(
+                    {
+                        "schemaVersion": 1,
+                        "seenProfiles": sorted(seen_profiles),
+                    },
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_marker, marker_path)
+        finally:
+            try:
+                os.remove(temp_marker)
+            except FileNotFoundError:
+                pass
+    return migrated
+
+
+def seed_voices(app_dir: str, voices_dir: str) -> None:
     src = os.path.join(app_dir, "data", "default_voices")
-    dst = os.path.join(data_dir, "voices")
+    dst = voices_dir
     os.makedirs(dst, exist_ok=True)
     if not os.path.isdir(src):
         return
@@ -502,10 +730,12 @@ def import_prepared_book(base_url: str, archive_path: str) -> str:
 
 def build_env(app_dir: str, runtime_dir: str) -> dict:
     data_dir = os.path.join(runtime_dir, "data")
-    os.makedirs(os.path.join(data_dir, "voices"), exist_ok=True)
     os.makedirs(os.path.join(data_dir, "sessions"), exist_ok=True)
+    voices_dir = resolve_voices_dir(app_dir, runtime_dir)
+    os.makedirs(voices_dir, exist_ok=True)
     env = os.environ.copy()
     env["DATA_DIR"] = data_dir
+    env["VOICE_DATA_DIR"] = voices_dir
     env["DEFAULT_VOICES_DIR"] = os.path.join(app_dir, "data", "default_voices")
     env["MODEL_DIR"] = os.path.join(app_dir, "data", "models")
     env["APP_DIR"] = app_dir
@@ -718,8 +948,17 @@ def main(argv: list[str] | None = None) -> int:
         show_error(None, err, log.path)
         return 1
 
+    voices_dir = resolve_voices_dir(app_dir, runtime_dir)
+    try:
+        migrated_voices = migrate_voice_library(app_dir, runtime_dir, voices_dir, log)
+        if migrated_voices:
+            log.write(f"recovered {migrated_voices} voice library file(s)")
+    except OSError as exc:
+        # One locked/corrupt historical file must never prevent BookVoice from
+        # opening; later launches can retry the idempotent migration.
+        log.write(f"voice library recovery will retry later: {exc}")
     clear_pycache(app_dir)
-    seed_voices(app_dir, os.path.join(runtime_dir, "data"))
+    seed_voices(app_dir, voices_dir)
     os.chdir(app_dir)
 
     use_webview = webview is not None and not args.browser and not args.no_window
@@ -758,6 +997,7 @@ def main(argv: list[str] | None = None) -> int:
             port = pick_port(log, bind_host, resolve_pinned_port(args.port))
             env = apply_network_env(build_env(app_dir, runtime_dir), bind_host)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
+            log.write(f"env VOICE_DATA_DIR={env['VOICE_DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
             log.write(f"venv={py}")
             log.write(f"port={port}")

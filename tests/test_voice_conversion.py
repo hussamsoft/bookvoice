@@ -80,6 +80,15 @@ class SpeechWindowTests(unittest.TestCase):
         self.assertEqual(tts._speech_windows(silence(1.0), 16_000), [(0, 16_000)])
         self.assertEqual(tts._speech_windows(np.zeros(0, dtype=np.float32), 16_000), [])
 
+    def test_target_reference_uses_the_densest_ten_seconds(self):
+        reference = np.concatenate([silence(6.0, 24_000), tone(12.0, 24_000)])
+
+        selected, start = tts._speech_dense_reference(reference, 24_000)
+
+        self.assertEqual(selected.shape[-1], 10 * 24_000)
+        self.assertGreaterEqual(start, 5.5)
+        self.assertGreater(float(np.sqrt(np.mean(np.square(selected)))), 0.2)
+
 
 class VoiceConverterLoadingTests(unittest.TestCase):
     """Conversion needs only S3Gen, never the ~2 GB autoregressive T3 decoder."""
@@ -191,6 +200,8 @@ class ConvertVoiceAudioTests(unittest.TestCase):
         converter.device = "cpu"
         converter.ref_dict = {"ref": 1}
         converter.watermarker = None
+        converter.s3gen.embed_ref.return_value = {"target": "strongest-speech"}
+        converter.s3gen.flow.decoder.inference_cfg_rate = 0.7
         converter.s3gen.tokenizer.return_value = ("tokens", None)
         converter.s3gen.inference.return_value = (
             torch.zeros(1, int(rendered_seconds * 24_000)),
@@ -216,12 +227,17 @@ class ConvertVoiceAudioTests(unittest.TestCase):
         result = self._run(audio, converter)
 
         self.assertEqual(converter.s3gen.inference.call_count, 2)
-        converter.set_target_voice.assert_called_once_with(str(self.target))
+        converter.s3gen.embed_ref.assert_called_once()
+        self.assertEqual(
+            converter.s3gen.inference.call_args.kwargs["ref_dict"],
+            {"target": "strongest-speech"},
+        )
         # Two 2s windows plus the ~1s pause carried over from the source.
         self.assertGreater(result["duration_s"], 4.5)
         self.assertLess(result["duration_s"], 5.6)
         self.assertEqual(result["windows"], 2)
         self.assertEqual(result["audio_url"], "/sessions/studio-session/converted.wav")
+        self.assertEqual(converter.s3gen.flow.decoder.inference_cfg_rate, 0.7)
 
         written = Path(self.temp.name) / "sessions" / "studio-session" / "converted.wav"
         self.assertTrue(written.is_file())
@@ -238,6 +254,22 @@ class ConvertVoiceAudioTests(unittest.TestCase):
         self.assertEqual(len(seen), 3)
         self.assertAlmostEqual(seen[-1], 1.0)
         self.assertEqual(seen, sorted(seen))
+
+    def test_conversion_strengthens_target_guidance_while_rendering(self):
+        converter = self._converter()
+        seen = []
+        rendered = converter.s3gen.inference.return_value
+
+        def capture_guidance(**_kwargs):
+            seen.append(converter.s3gen.flow.decoder.inference_cfg_rate)
+            return rendered
+
+        converter.s3gen.inference.side_effect = capture_guidance
+
+        self._run(tone(2.0), converter)
+
+        self.assertEqual(seen, [tts.VC_TARGET_GUIDANCE])
+        self.assertEqual(converter.s3gen.flow.decoder.inference_cfg_rate, 0.7)
 
     def test_conversion_stops_when_the_job_is_cancelled(self):
         audio = np.concatenate([tone(2.0), silence(1.0), tone(2.0)])

@@ -257,9 +257,13 @@ export default function VoiceStudio() {
     if (loading) return <div className="studio-loading" role="status"><RotateCw size={20} className="spin" /> Opening Voice Studio…</div>;
     if (error) return <div className="studio-fatal" role="alert"><h2>Voice Studio is unavailable</h2><p>{error}</p><button className="btn secondary" onClick={() => window.location.reload()}>Reload</button></div>;
 
-    const retryableJob = project ? [...(project.jobs || [])].reverse().find(
-        (job) => job.canRetry && ['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(job.status),
-    ) : null;
+    // A recovered failure is historical once a newer job completes. Looking
+    // for any old failed job made the same error banner persist forever.
+    const latestJob = project?.jobs?.at(-1) || null;
+    const retryableJob = latestJob?.canRetry
+        && ['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(latestJob.status)
+        ? latestJob
+        : null;
 
     return (
         <div className="voice-studio">

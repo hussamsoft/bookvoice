@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import json
 import os
 import shutil
 import sys
@@ -977,6 +978,83 @@ class LauncherRuntimeTests(unittest.TestCase):
                 runtime = self.launch.resolve_runtime_dir(temp_dir)
         expected = os.path.join(temp_dir, ".bookvoice")
         self.assertEqual(os.path.normcase(runtime), os.path.normcase(expected))
+
+    def test_voice_migration_recovers_old_profiles_and_preserves_name_collisions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            app_dir = root / "app"
+            current_runtime = root / "installs" / "current"
+            old_voices = root / "installs" / "old" / "data" / "voices"
+            current_voices = current_runtime / "data" / "voices"
+            shared = root / "voices"
+            old_voices.mkdir(parents=True)
+            current_voices.mkdir(parents=True)
+            app_dir.mkdir()
+            (old_voices / "future.wav").write_bytes(b"original-future")
+            (old_voices / "future.json").write_text(
+                json.dumps({
+                    "id": "future",
+                    "name": "Future",
+                    "createdAt": 100.0,
+                    "referenceSha256": "old",
+                }),
+                encoding="utf-8",
+            )
+            (current_voices / "future.wav").write_bytes(b"new-attempt")
+            (current_voices / "future.json").write_text(
+                json.dumps({
+                    "id": "future",
+                    "name": "Future",
+                    "createdAt": 200.0,
+                    "referenceSha256": "new",
+                }),
+                encoding="utf-8",
+            )
+            log = MagicMock()
+
+            with patch.object(self.launch, "legacy_runtime_dir", return_value=str(root)):
+                migrated = self.launch.migrate_voice_library(
+                    str(app_dir),
+                    str(current_runtime),
+                    str(shared),
+                    log,
+                )
+
+            self.assertGreaterEqual(migrated, 2)
+            self.assertEqual((shared / "future.wav").read_bytes(), b"original-future")
+            variants = [
+                path for path in shared.glob("future_*.wav")
+                if path.read_bytes() == b"new-attempt"
+            ]
+            self.assertEqual(len(variants), 1)
+            variant_metadata = json.loads(variants[0].with_suffix(".json").read_text("utf-8"))
+            self.assertEqual(variant_metadata["id"], variants[0].stem)
+            self.assertIn("Future (", variant_metadata["name"])
+            (shared / "future.wav").unlink()
+            (shared / "future.json").unlink()
+
+            with patch.object(self.launch, "legacy_runtime_dir", return_value=str(root)):
+                migrated_again = self.launch.migrate_voice_library(
+                    str(app_dir),
+                    str(current_runtime),
+                    str(shared),
+                    log,
+                )
+
+            self.assertEqual(migrated_again, 0)
+            self.assertFalse((shared / "future.wav").exists())
+
+    def test_nonportable_voice_directory_is_stable_across_install_versions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with patch.dict(os.environ, {"BOOKVOICE_PORTABLE": ""}, clear=False), patch.object(
+                self.launch, "legacy_runtime_dir", return_value=str(root)
+            ):
+                first = self.launch.resolve_voices_dir("app-a", str(root / "installs" / "one"))
+                second = self.launch.resolve_voices_dir("app-b", str(root / "installs" / "two"))
+
+        self.assertEqual(first, second)
+        self.assertEqual(first, str(root / "voices"))
 
     def test_bundled_python_points_at_runtime_python(self):
         with tempfile.TemporaryDirectory() as temp_dir:

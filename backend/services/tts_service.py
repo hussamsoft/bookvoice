@@ -114,7 +114,7 @@ _last_voice_exaggeration: float | None = None
 # bypasses this because silence inside a splice would create an audible gap.
 STUDIO_LEADING_SILENCE_S = 0.30
 STUDIO_TRAILING_SILENCE_S = 0.40
-STUDIO_GENERATION_PIPELINE_VERSION = "studio-dry-voice-v2"
+STUDIO_GENERATION_PIPELINE_VERSION = "studio-dry-voice-v3"
 
 # Cooperative generation cancellation: bumped on page change / voice switch /
 # document close so an in-flight multi-chunk synthesis can abort at the next
@@ -215,7 +215,7 @@ def _chunk_limits():
 
 def _data_dirs():
     data_dir = os.environ.get("DATA_DIR", "data")
-    voices_dir = os.path.join(data_dir, "voices")
+    voices_dir = os.environ.get("VOICE_DATA_DIR", "").strip() or os.path.join(data_dir, "voices")
     sessions_dir = os.path.join(data_dir, "sessions")
     os.makedirs(voices_dir, exist_ok=True)
     os.makedirs(sessions_dir, exist_ok=True)
@@ -1121,6 +1121,10 @@ VC_MIN_SPEECH_S = 0.12
 VC_MERGE_GAP_S = 0.30
 VC_EDGE_PAD_S = 0.06
 VC_FRAME_S = 0.02
+VC_REFERENCE_MAX_S = 10.0
+# Chatterbox defaults to 0.7. A modest increase gives the target reference
+# more influence over speaker identity without destabilizing the decoder.
+VC_TARGET_GUIDANCE = 1.0
 
 
 def _decode_pcm_mono(path: str, sample_rate: int) -> "np.ndarray":
@@ -1228,6 +1232,61 @@ def _speech_windows(
     return windows or [(0, total)]
 
 
+def _speech_dense_reference(
+    audio: "np.ndarray",
+    sample_rate: int,
+    *,
+    max_seconds: float = VC_REFERENCE_MAX_S,
+) -> tuple["np.ndarray", float]:
+    """Select the most speech-dense target window instead of the first seconds.
+
+    Chatterbox only consumes ten seconds of target audio. Phone/video clips
+    often begin with silence, music, or an intro; always taking the beginning
+    weakens the target speaker embedding and lets source identity leak through.
+    """
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    cap = max(1, int(round(float(sample_rate) * max_seconds)))
+    if samples.size <= cap:
+        return samples, 0.0
+
+    frame = max(1, int(round(float(sample_rate) * VC_FRAME_S)))
+    frame_count = samples.size // frame
+    frames = samples[: frame_count * frame].reshape(frame_count, frame)
+    rms = np.sqrt(np.mean(np.square(frames, dtype=np.float64), axis=1))
+    loud = float(np.percentile(rms, 95)) if rms.size else 0.0
+    threshold = max(1e-4, loud * 0.10)
+    window_frames = min(frame_count, max(1, int(round(max_seconds / VC_FRAME_S))))
+    step_frames = max(1, int(round(0.5 / VC_FRAME_S)))
+    best_start = 0
+    best_score = (-1.0, -1.0)
+    final_start = max(0, frame_count - window_frames)
+    starts = list(range(0, final_start + 1, step_frames))
+    if not starts or starts[-1] != final_start:
+        starts.append(final_start)
+    for start in starts:
+        window = rms[start : start + window_frames]
+        score = (
+            float(np.mean(window >= threshold)),
+            float(np.mean(window)),
+        )
+        if score > best_score:
+            best_score = score
+            best_start = start
+    start_sample = best_start * frame
+    return samples[start_sample : start_sample + cap], start_sample / float(sample_rate)
+
+
+def _set_conversion_target(converter, target_voice_path: str, device: str, sample_rate: int) -> float:
+    target_audio = _decode_pcm_mono(target_voice_path, sample_rate)
+    reference, start_seconds = _speech_dense_reference(target_audio, sample_rate)
+    converter.ref_dict = converter.s3gen.embed_ref(
+        reference,
+        sample_rate,
+        device=device,
+    )
+    return start_seconds
+
+
 def get_voice_converter():
     """Return a ChatterboxVC, reusing resident weights when there are any.
 
@@ -1333,41 +1392,59 @@ def convert_voice_audio(
         started_token = _current_generation()
         pieces: list[torch.Tensor] = []
         try:
-            converter.set_target_voice(target_voice_path)
+            reference_start = _set_conversion_target(
+                converter,
+                target_voice_path,
+                device,
+                out_sr,
+            )
+            _log(
+                f"[vc] target reference start={reference_start:.2f}s "
+                f"duration={VC_REFERENCE_MAX_S:.1f}s guidance={VC_TARGET_GUIDANCE:.2f}"
+            )
+            decoder = getattr(getattr(converter.s3gen, "flow", None), "decoder", None)
+            previous_guidance = getattr(decoder, "inference_cfg_rate", None)
+            guidance_changed = isinstance(previous_guidance, (int, float))
+            if guidance_changed:
+                decoder.inference_cfg_rate = max(float(previous_guidance), VC_TARGET_GUIDANCE)
             cursor = 0
-            for index, (start, end) in enumerate(windows):
-                _raise_if_cancelled(cancel_event, started_token)
-                _model_state["detail"] = (
-                    f"Converting voice {index + 1}/{total_windows} on {str(device).upper()}"
-                )
-                gap = start - cursor
-                if gap > 0:
-                    silence = int(round(gap * out_sr / VC_INPUT_SR))
-                    if silence > 0:
-                        pieces.append(torch.zeros(1, silence))
-                window = audio[start:end]
-                with torch.inference_mode():
-                    tensor = torch.from_numpy(window).float().to(device)[None,]
-                    tokens, _ = converter.s3gen.tokenizer(tensor)
-                    wav, _ = converter.s3gen.inference(
-                        speech_tokens=tokens,
-                        ref_dict=converter.ref_dict,
+            try:
+                for index, (start, end) in enumerate(windows):
+                    _raise_if_cancelled(cancel_event, started_token)
+                    _model_state["detail"] = (
+                        f"Converting voice {index + 1}/{total_windows} on {str(device).upper()}"
                     )
-                    rendered = wav.squeeze(0).detach().cpu().float().numpy()
-                if _is_cuda_build() and getattr(converter, "watermarker", None) is not None:
-                    try:
-                        rendered = converter.watermarker.apply_watermark(
-                            rendered, sample_rate=out_sr
+                    gap = start - cursor
+                    if gap > 0:
+                        silence = int(round(gap * out_sr / VC_INPUT_SR))
+                        if silence > 0:
+                            pieces.append(torch.zeros(1, silence))
+                    window = audio[start:end]
+                    with torch.inference_mode():
+                        tensor = torch.from_numpy(window).float().to(device)[None,]
+                        tokens, _ = converter.s3gen.tokenizer(tensor)
+                        wav, _ = converter.s3gen.inference(
+                            speech_tokens=tokens,
+                            ref_dict=converter.ref_dict,
                         )
-                    except Exception as exc:  # noqa: BLE001 - watermark is optional
-                        _log(f"Watermark skipped: {exc}")
-                pieces.append(torch.from_numpy(np.asarray(rendered)).float().unsqueeze(0))
-                cursor = end
-                if progress is not None:
-                    try:
-                        progress((index + 1) / max(1, total_windows))
-                    except Exception:  # noqa: BLE001 - progress is advisory
-                        pass
+                        rendered = wav.squeeze(0).detach().cpu().float().numpy()
+                    if _is_cuda_build() and getattr(converter, "watermarker", None) is not None:
+                        try:
+                            rendered = converter.watermarker.apply_watermark(
+                                rendered, sample_rate=out_sr
+                            )
+                        except Exception as exc:  # noqa: BLE001 - watermark is optional
+                            _log(f"Watermark skipped: {exc}")
+                    pieces.append(torch.from_numpy(np.asarray(rendered)).float().unsqueeze(0))
+                    cursor = end
+                    if progress is not None:
+                        try:
+                            progress((index + 1) / max(1, total_windows))
+                        except Exception:  # noqa: BLE001 - progress is advisory
+                            pass
+            finally:
+                if guidance_changed:
+                    decoder.inference_cfg_rate = previous_guidance
             trailing = int(audio.shape[-1]) - cursor
             if trailing > 0:
                 silence = int(round(trailing * out_sr / VC_INPUT_SR))

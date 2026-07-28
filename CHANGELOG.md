@@ -7,12 +7,23 @@
 - Saved voice profiles are explicitly global to the BookVoice host and remain
   available to every connected device, while Voice Studio projects and their
   media stay isolated to the device that owns them.
+- Voice conversion now conditions on the most speech-dense target segment and
+  gives the target speaker stronger decoder guidance, reducing leakage from the
+  source speaker's vocal tone without changing the recording's timing.
 - Microphone recordings created in Voice Studio now carry a 30-day expiration
   and are erased automatically. Imported media, generated outputs, and saved
   voice profiles are not part of this cleanup.
 
 ### Fixed
 
+- Voice profiles stranded by older install/version-scoped data directories are
+  recovered into one stable machine library. Same-name recordings are preserved
+  as dated variants instead of being overwritten; the original `Future` profile
+  is restored while the newer attempt remains available separately.
+- A failed Studio job no longer leaves its error banner visible after a newer
+  job completes successfully.
+- Phone recordings encoded as PCM WAVE_FORMAT_EXTENSIBLE no longer fail during
+  waveform creation with `unknown format: 65534`.
 - Studio and voice-profile atomic file commits now retry brief Windows sharing
   violations. This prevents otherwise successful conversions, including
   conversions to the preloaded Natasha voice, from being reported as failed
