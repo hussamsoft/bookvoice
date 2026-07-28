@@ -2,7 +2,7 @@
  * Encode Float32 mono PCM samples into a standard PCM WAV Blob.
  * Used so microphone recordings are real .wav files Chatterbox can load.
  */
-export function encodeWav(samples, sampleRate = 22050) {
+export function encodeWav(samples, sampleRate = 48000) {
     const numChannels = 1;
     const bitsPerSample = 16;
     const blockAlign = (numChannels * bitsPerSample) / 8;
@@ -47,7 +47,10 @@ function writeString(view, offset, str) {
  */
 export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {}) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioContext = new AudioCtx();
+    const audioContext = new AudioCtx({ latencyHint: 'interactive' });
+    if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+    }
     const source = audioContext.createMediaStreamSource(stream);
     const sampleRate = audioContext.sampleRate;
 
@@ -106,24 +109,12 @@ export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {
             merged.set(c, offset);
             offset += c.length;
         }
-        // Downsample to 22050 if needed for smaller files
-        const targetRate = 22050;
-        const resampled =
-            sampleRate === targetRate ? merged : downsample(merged, sampleRate, targetRate);
-        return encodeWav(resampled, targetRate);
+        // Preserve the AudioContext's native rate. The previous nearest-neighbor
+        // downsample to 22.05 kHz discarded voice detail and introduced audible
+        // aliasing. The server performs any model-specific resampling with
+        // FFmpeg's proper band-limited filters after the original is preserved.
+        return encodeWav(merged, sampleRate);
     }
 
     return { stop, sampleRate };
-}
-
-function downsample(buffer, fromRate, toRate) {
-    if (toRate === fromRate) return buffer;
-    const ratio = fromRate / toRate;
-    const newLength = Math.round(buffer.length / ratio);
-    const result = new Float32Array(newLength);
-    for (let i = 0; i < newLength; i++) {
-        const idx = Math.floor(i * ratio);
-        result[i] = buffer[idx];
-    }
-    return result;
 }

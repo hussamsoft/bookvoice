@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Mic, Square, Trash2 } from 'lucide-react';
 import { recordStreamToWav } from '../utils/wav';
-import { canRecord } from '../utils/media';
+import { canRecord, STUDIO_MIC_CONSTRAINTS } from '../utils/media';
 import AudioPlayer from './AudioPlayer';
 
 const MAX_SECONDS = 300;
@@ -73,7 +73,9 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
         setError('');
         setTake(null);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: STUDIO_MIC_CONSTRAINTS,
+            });
             streamRef.current = stream;
             recorderRef.current = await recordStreamToWav(stream, {
                 maxSeconds: MAX_SECONDS,
@@ -83,6 +85,7 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
             setElapsed(0);
             setRecording(true);
         } catch {
+            releaseMicrophone();
             setError('Could not use the microphone. Check that permission is allowed.');
         }
     };

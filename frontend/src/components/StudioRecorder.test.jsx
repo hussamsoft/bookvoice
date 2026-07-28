@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StudioRecorder from './StudioRecorder';
-import { canRecord } from '../utils/media';
+import { canRecord, STUDIO_MIC_CONSTRAINTS } from '../utils/media';
 
 vi.mock('../utils/wav', () => ({
     recordStreamToWav: vi.fn(),
@@ -70,6 +70,31 @@ describe('StudioRecorder', () => {
         expect(screen.getByRole('button', { name: /Delete/i })).toBeInTheDocument();
         // The microphone must be released, or the browser keeps showing it as live.
         expect(track.stop).toHaveBeenCalled();
+    });
+
+    it('requests a high-fidelity mono microphone signal without making it mandatory', async () => {
+        const getUserMedia = vi.fn().mockResolvedValue({
+            getTracks: () => [{ stop: vi.fn() }],
+        });
+        setMediaDevices({ getUserMedia });
+        recordStreamToWav.mockResolvedValue({
+            stop: vi.fn().mockResolvedValue(new Blob([new Uint8Array(4096)])),
+        });
+
+        render(<StudioRecorder onRecorded={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button'));
+        await screen.findByRole('button', { name: 'Stop recording' });
+
+        expect(getUserMedia).toHaveBeenCalledWith({
+            audio: STUDIO_MIC_CONSTRAINTS,
+        });
+        expect(STUDIO_MIC_CONSTRAINTS).toMatchObject({
+            channelCount: { ideal: 1 },
+            sampleRate: { ideal: 48000 },
+            echoCancellation: { ideal: false },
+            noiseSuppression: { ideal: false },
+            autoGainControl: { ideal: false },
+        });
     });
 
     it('hands the take over once accepted', async () => {

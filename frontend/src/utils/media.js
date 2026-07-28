@@ -1,3 +1,15 @@
+export const STUDIO_MIC_CONSTRAINTS = Object.freeze({
+    channelCount: { ideal: 1 },
+    sampleRate: { ideal: 48000 },
+    sampleSize: { ideal: 16 },
+    // Voice cloning benefits from the microphone signal, not the browser's
+    // conference-call processing. These are preferences rather than exact
+    // requirements, so browsers that cannot disable them still record.
+    echoCancellation: { ideal: false },
+    noiseSuppression: { ideal: false },
+    autoGainControl: { ideal: false },
+});
+
 /**
  * Whether the browser will hand over a microphone.
  *
