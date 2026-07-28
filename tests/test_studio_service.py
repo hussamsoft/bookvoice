@@ -91,6 +91,77 @@ class StudioProjectTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             studio.get_project("not-a-project")
 
+    def test_project_access_is_enforced_by_the_current_device_scope(self):
+        device_a = "a" * 32
+        device_b = "b" * 32
+        with studio.device_scope(device_a):
+            project = studio.create_project("Private to device A")
+            self.assertEqual(studio.list_projects()[0]["id"], project["id"])
+            self.assertNotIn("deviceId", project)
+
+        with studio.device_scope(device_b):
+            self.assertEqual(studio.list_projects(), [])
+            with self.assertRaises(FileNotFoundError):
+                studio.get_project(project["id"])
+            with self.assertRaises(FileNotFoundError):
+                studio.delete_project(project["id"])
+            with self.assertRaises(FileNotFoundError):
+                studio.open_project_folder(project["id"])
+
+        with studio.device_scope(device_a):
+            self.assertEqual(
+                studio.get_project(project["id"])["name"],
+                "Private to device A",
+            )
+
+    def test_background_jobs_keep_the_submitting_device_scope(self):
+        device_a = "a" * 32
+        device_b = "b" * 32
+        observed_devices = []
+        with studio.device_scope(device_a):
+            project = studio.create_project("Device job")
+
+            def work(*, job_id, cancel_event):
+                observed_devices.append(studio.current_device_id())
+                studio.update_job_progress(project["id"], job_id, 0.5, "Scoped")
+                return {"device": studio.current_device_id()}
+
+            submitted = studio.submit_job(project["id"], "TEST", work)
+
+        with studio.device_scope(device_b):
+            with self.assertRaises(FileNotFoundError):
+                studio.get_job(submitted["id"])
+
+        deadline = time.time() + 3
+        with studio.device_scope(device_a):
+            job = studio.get_job(submitted["id"])
+            while job["status"] not in {"COMPLETED", "FAILED"} and time.time() < deadline:
+                time.sleep(0.01)
+                job = studio.get_job(submitted["id"])
+
+        self.assertEqual(job["status"], "COMPLETED")
+        self.assertEqual(job["result"], {"device": device_a})
+        self.assertEqual(observed_devices, [device_a])
+
+    def test_manifest_read_retries_a_transient_windows_sharing_violation(self):
+        project = studio.create_project("Concurrent manifest")
+        manifest_path = studio.project_dir(project["id"]) / "manifest.json"
+        real_read = manifest_path.read_text
+        attempts = 0
+
+        def flaky_read(_path, *args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise PermissionError("sharing violation")
+            return real_read(*args, **kwargs)
+
+        with patch.object(type(manifest_path), "read_text", new=flaky_read):
+            reopened = studio.get_project(project["id"])
+
+        self.assertEqual(reopened["id"], project["id"])
+        self.assertEqual(attempts, 2)
+
     def test_interrupted_running_jobs_become_retryable_after_restart(self):
         project = studio.create_project("Interrupted work")
         manifest_path = studio.project_dir(project["id"]) / "manifest.json"

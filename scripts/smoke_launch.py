@@ -48,9 +48,10 @@ def wait_for_health(base_url: str, timeout_s: int = 60) -> bool:
     return False
 
 
-def fetch_ok(url: str, timeout_s: int = 10) -> bool:
+def fetch_ok(url: str, timeout_s: int = 10, headers: dict[str, str] | None = None) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=timeout_s) as response:
+        request = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
             return 200 <= response.status < 300
     except (OSError, urllib.error.URLError):
         return False
@@ -119,7 +120,10 @@ def main() -> int:
                     "/api/voices/",
                     "/api/studio/projects",
                 ):
-                    if not fetch_ok(base + path):
+                    if not fetch_ok(
+                        base + path,
+                        headers={"X-BookVoice-Device-ID": "5" * 32},
+                    ):
                         print(f"[smoke] ERROR: {path} failed")
                         print(server_log_path.read_text(encoding="utf-8", errors="replace")[-2000:])
                         return 1

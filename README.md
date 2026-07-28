@@ -144,7 +144,12 @@ and therefore sends the selected page text to that external service; narration,
 OCR, PDF viewing, voice profiling, and Voice Studio media processing otherwise
 run locally from the bundled runtime. Voice Studio projects are stored under the
 BookVoice user-data directory and keep copied sources and immutable output
-versions until the project is explicitly deleted.
+versions until the project is explicitly deleted. Each project belongs to the
+browser device that created or claimed it, so another computer or phone using the
+same server cannot list, open, change, download, or delete it. Projects created
+before version 2.2.0 remain preserved but must be claimed from the Voice Studio
+start screen. Clearing all site data creates a new device identity; it does not
+delete the earlier device's projects.
 
 
 ## Packaging (Windows installers)

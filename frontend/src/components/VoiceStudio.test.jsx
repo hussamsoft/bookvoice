@@ -9,6 +9,7 @@ import * as studioSession from '../utils/studioSession';
 
 vi.mock('../utils/api', () => ({
     cancelStudioJob: vi.fn(),
+    claimLegacyStudioProjects: vi.fn(),
     createStudioConversion: vi.fn(),
     createStudioProfile: vi.fn(),
     createStudioProject: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('../utils/api', () => ({
     duplicateStudioProject: vi.fn(),
     getAccess: vi.fn(),
     getStudioProject: vi.fn(),
+    getStudioWorkspace: vi.fn(),
     getUserConfig: vi.fn(),
     getVoices: vi.fn(),
     listStudioProjects: vi.fn(),
@@ -56,6 +58,10 @@ describe('VoiceStudio', () => {
         // Desktop capabilities by default: local file actions available.
         api.getUserConfig.mockResolvedValue({ version: '0', config: {} });
         api.listStudioProjects.mockResolvedValue([project]);
+        api.getStudioWorkspace.mockImplementation(async () => ({
+            projects: await api.listStudioProjects(),
+            legacyProjectsAvailable: false,
+        }));
         api.getStudioProject.mockResolvedValue(project);
         api.getVoices.mockResolvedValue([]);
         api.updateStudioProject.mockImplementation(async (_id, changes) => ({ ...project, ...changes }));
@@ -389,6 +395,33 @@ describe('VoiceStudio', () => {
 
         expect(await screen.findByDisplayValue('The corrected sentence.')).toBeInTheDocument();
         expect(studioSession.getActiveProjectId()).toBe(project.id);
+    }, 15_000);
+
+    it('claims pre-isolation projects for this device instead of sharing them', async () => {
+        studioSession.clearSession();
+        api.getStudioWorkspace.mockResolvedValue({
+            projects: [],
+            legacyProjectsAvailable: true,
+        });
+        api.claimLegacyStudioProjects.mockResolvedValue({
+            claimed: 1,
+            projects: [project],
+            legacyProjectsAvailable: false,
+        });
+
+        renderStudio();
+        const claim = await screen.findByRole('button', {
+            name: /Keep earlier projects on this device/i,
+        });
+        fireEvent.click(claim);
+
+        await waitFor(() => expect(api.claimLegacyStudioProjects).toHaveBeenCalledTimes(1));
+        expect(await screen.findByRole('button', {
+            name: 'Open Demo voice project',
+        })).toBeInTheDocument();
+        expect(screen.queryByRole('button', {
+            name: /Keep earlier projects on this device/i,
+        })).not.toBeInTheDocument();
     }, 15_000);
 
     it('returns to the start screen without touching the project', async () => {

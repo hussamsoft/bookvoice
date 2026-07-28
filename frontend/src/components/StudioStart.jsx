@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AudioLines, FolderOpen, FolderPlus, HardDrive, Repeat2 } from 'lucide-react';
+import { AudioLines, FolderOpen, FolderPlus, HardDrive, ShieldCheck } from 'lucide-react';
 
 function diskLabel(bytes = 0) {
     if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`;
@@ -12,9 +12,16 @@ function diskLabel(bytes = 0) {
  *
  * Opening straight into someone else's half-finished work — or your own, from
  * another device, on a tab you did not pick — is the confusing case this
- * replaces. Projects are all still here; you just choose one deliberately.
+ * replaces. Only projects owned by this device are shown here.
  */
-export default function StudioStart({ projects = [], onOpen, onCreate, disabled }) {
+export default function StudioStart({
+    projects = [],
+    onOpen,
+    onCreate,
+    legacyProjectsAvailable = false,
+    onClaimLegacy,
+    disabled,
+}) {
     const [name, setName] = useState('');
     const recent = [...projects]
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
@@ -33,9 +40,32 @@ export default function StudioStart({ projects = [], onOpen, onCreate, disabled 
                 <h1>What would you like to do?</h1>
                 <p>
                     Write narration in a cloned voice, or re-voice a recording you already have.
-                    Your projects are shared across devices; where you are in them is not.
+                    Projects, source media, and outputs stay private to this browser on this device.
                 </p>
             </div>
+
+            {legacyProjectsAvailable && (
+                <section className="studio-legacy-claim" aria-labelledby="studio-legacy-heading">
+                    <div>
+                        <ShieldCheck size={22} aria-hidden="true" />
+                        <div>
+                            <h2 id="studio-legacy-heading">Earlier projects need a device</h2>
+                            <p>
+                                Projects made before device isolation are preserved but unassigned.
+                                Move them here once; other devices will not be able to open them.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        className="btn secondary"
+                        type="button"
+                        onClick={onClaimLegacy}
+                        disabled={disabled}
+                    >
+                        Keep earlier projects on this device
+                    </button>
+                </section>
+            )}
 
             <form className="studio-start-create" onSubmit={create}>
                 <label htmlFor="studio-start-name">Start something new</label>
@@ -83,9 +113,8 @@ export default function StudioStart({ projects = [], onOpen, onCreate, disabled 
             )}
 
             <p className="studio-start-hint">
-                <Repeat2 size={14} aria-hidden="true" />
-                This device remembers the project, workflow, and draft you choose here. Other
-                devices keep their own place.
+                <ShieldCheck size={14} aria-hidden="true" />
+                Only projects created or claimed in this browser appear here.
             </p>
         </div>
     );

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -27,9 +28,13 @@ class StudioRouteContractTests(unittest.TestCase):
         self.previous = os.environ.get("DATA_DIR")
         os.environ["DATA_DIR"] = self.temp.name
         studio.reset_runtime_state_for_tests()
-        app = FastAPI()
-        app.include_router(studio_routes.router, prefix="/api/studio")
-        self.client = TestClient(app)
+        self.app = FastAPI()
+        self.app.include_router(studio_routes.router, prefix="/api/studio")
+        self.client = TestClient(self.app)
+        self.client.cookies.set(
+            studio_routes.DEVICE_COOKIE_NAME,
+            studio.DEFAULT_DEVICE_ID,
+        )
 
     def tearDown(self):
         self.client.close()
@@ -58,6 +63,145 @@ class StudioRouteContractTests(unittest.TestCase):
         listing = self.client.get("/api/studio/projects")
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.json()["projects"][0]["script"], "مرحبا")
+        self.assertNotIn("deviceId", listing.json()["projects"][0])
+
+    def test_fresh_browser_receives_a_persistent_opaque_device_cookie(self):
+        with TestClient(self.app) as fresh:
+            response = fresh.get("/api/studio/projects")
+
+            self.assertEqual(response.status_code, 200)
+            device_id = fresh.cookies.get(studio_routes.DEVICE_COOKIE_NAME)
+            self.assertRegex(device_id or "", r"^[0-9a-f]{32}$")
+            self.assertIn("httponly", response.headers["set-cookie"].lower())
+            self.assertIn("samesite=strict", response.headers["set-cookie"].lower())
+
+    def test_devices_cannot_list_open_modify_or_delete_each_others_projects(self):
+        device_a = "a" * 32
+        device_b = "b" * 32
+        with TestClient(self.app) as client_a, TestClient(self.app) as client_b:
+            client_a.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_a)
+            client_b.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_b)
+
+            created = client_a.post(
+                "/api/studio/projects",
+                json={"name": "Device A private project"},
+            )
+            self.assertEqual(created.status_code, 201)
+            project_id = created.json()["id"]
+
+            self.assertEqual(client_b.get("/api/studio/projects").json()["projects"], [])
+            self.assertEqual(
+                client_b.get(f"/api/studio/projects/{project_id}").status_code,
+                404,
+            )
+            self.assertEqual(
+                client_b.patch(
+                    f"/api/studio/projects/{project_id}",
+                    json={"name": "Stolen"},
+                ).status_code,
+                404,
+            )
+            self.assertEqual(
+                client_b.delete(f"/api/studio/projects/{project_id}").status_code,
+                404,
+            )
+
+            reopened = client_a.get(f"/api/studio/projects/{project_id}")
+            self.assertEqual(reopened.status_code, 200)
+            self.assertEqual(reopened.json()["name"], "Device A private project")
+
+    def test_project_assets_require_the_owning_device_cookie(self):
+        device_a = "a" * 32
+        device_b = "b" * 32
+        output_id = "c" * 32
+        with studio.device_scope(device_a):
+            project = studio.create_project("Private media")
+            root = studio.project_dir(project["id"])
+            output = root / "outputs" / f"{output_id}.wav"
+            output.write_bytes(b"device-audio")
+            manifest_path = root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["outputs"] = [{
+                "id": output_id,
+                "kind": "NARRATION",
+                "path": f"outputs/{output_id}.wav",
+            }]
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        asset_url = (
+            f"/api/studio/projects/{project['id']}/assets/{output_id}/content"
+        )
+        with TestClient(self.app) as client_a, TestClient(self.app) as client_b:
+            client_a.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_a)
+            client_b.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_b)
+
+            self.assertEqual(client_b.get(asset_url).status_code, 404)
+            owned = client_a.get(asset_url)
+            self.assertEqual(owned.status_code, 200)
+            self.assertEqual(owned.content, b"device-audio")
+
+    def test_legacy_projects_are_hidden_until_one_device_claims_them(self):
+        project = studio.create_project("Before device isolation")
+        manifest_path = studio.project_dir(project["id"]) / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.pop("deviceId")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        device_a = "a" * 32
+        device_b = "b" * 32
+        with TestClient(self.app) as client_a, TestClient(self.app) as client_b:
+            client_a.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_a)
+            client_b.cookies.set(studio_routes.DEVICE_COOKIE_NAME, device_b)
+
+            before = client_a.get("/api/studio/projects").json()
+            self.assertEqual(before["projects"], [])
+            self.assertTrue(before["legacyProjectsAvailable"])
+
+            claimed = client_b.post("/api/studio/legacy-projects/claim")
+            self.assertEqual(claimed.status_code, 200)
+            self.assertEqual(claimed.json()["claimed"], 1)
+            self.assertEqual(claimed.json()["projects"][0]["id"], project["id"])
+            self.assertFalse(claimed.json()["legacyProjectsAvailable"])
+
+            self.assertEqual(
+                client_a.get(f"/api/studio/projects/{project['id']}").status_code,
+                404,
+            )
+            self.assertEqual(
+                client_b.get(f"/api/studio/projects/{project['id']}").status_code,
+                200,
+            )
+
+    def test_invalid_device_cookie_uses_the_studio_error_contract(self):
+        with TestClient(self.app) as invalid:
+            invalid.cookies.set(studio_routes.DEVICE_COOKIE_NAME, "not-a-device")
+            response = invalid.get("/api/studio/projects")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["code"], "INVALID_DEVICE_ID")
+
+    def test_device_header_repairs_a_stale_asset_cookie(self):
+        device_a = "a" * 32
+        device_b = "b" * 32
+        with TestClient(self.app) as browser:
+            browser.cookies.set(
+                studio_routes.DEVICE_COOKIE_NAME,
+                device_b,
+                domain="testserver.local",
+            )
+            response = browser.get(
+                "/api/studio/projects",
+                headers={"X-BookVoice-Device-ID": device_a},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                browser.cookies.get(
+                    studio_routes.DEVICE_COOKIE_NAME,
+                    domain="testserver.local",
+                ),
+                device_a,
+            )
 
     def test_consent_error_uses_studio_detail_contract(self):
         project = studio.create_project("Consent")

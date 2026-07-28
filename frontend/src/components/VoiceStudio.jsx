@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors, X } from 'lucide-react';
 import {
     cancelStudioJob,
+    claimLegacyStudioProjects,
     createStudioProject,
     deleteStudioProject,
     duplicateStudioProject,
     getStudioProject,
+    getStudioWorkspace,
     getVoices,
     listStudioProjects,
     openStudioProjectFolder,
@@ -31,6 +33,7 @@ export default function VoiceStudio() {
     const [error, setError] = useState('');
     const [activeJob, setActiveJob] = useState(null);
     const [workflow, setWorkflowState] = useState('NARRATION');
+    const [legacyProjectsAvailable, setLegacyProjectsAvailable] = useState(false);
 
     const openProject = useCallback(async (projectId) => {
         if (!projectId) {
@@ -47,12 +50,14 @@ export default function VoiceStudio() {
     }, []);
 
     const refresh = useCallback(async (preferredId = null, refreshVoices = false) => {
-        const [nextProjects, nextVoices] = await Promise.all([
-            listStudioProjects(),
+        const [workspace, nextVoices] = await Promise.all([
+            getStudioWorkspace(),
             refreshVoices ? getVoices() : Promise.resolve(null),
         ]);
         if (!mountedRef.current) return null;
+        const nextProjects = workspace.projects;
         setProjects(nextProjects);
+        setLegacyProjectsAvailable(workspace.legacyProjectsAvailable);
         if (nextVoices) setVoices(nextVoices);
         const savedId = preferredId || project?.id || studioSession.getActiveProjectId();
         // Falling back to 'some other project' is how a device ends up somewhere
@@ -65,9 +70,11 @@ export default function VoiceStudio() {
         mountedRef.current = true;
         const load = async () => {
             try {
-                const [nextProjects, nextVoices] = await Promise.all([listStudioProjects(), getVoices()]);
+                const [workspace, nextVoices] = await Promise.all([getStudioWorkspace(), getVoices()]);
                 if (!mountedRef.current) return;
+                const nextProjects = workspace.projects;
                 setProjects(nextProjects);
+                setLegacyProjectsAvailable(workspace.legacyProjectsAvailable);
                 setVoices(nextVoices);
                 // Only reopen what *this device* had open. A project another
                 // device left mid-flow is not this device's business.
@@ -115,6 +122,26 @@ export default function VoiceStudio() {
             toast.success(`Project “${created.name}” created`);
         } catch (createError) {
             toast.error(createError.message);
+        }
+    };
+
+    const claimEarlierProjects = async () => {
+        try {
+            const workspace = await claimLegacyStudioProjects();
+            if (!mountedRef.current) return;
+            setProjects(workspace.projects);
+            setLegacyProjectsAvailable(workspace.legacyProjectsAvailable);
+            if (workspace.claimed === 0) {
+                toast.info('Those earlier projects were already claimed on another device');
+            } else {
+                toast.success(
+                    workspace.claimed === 1
+                        ? 'Moved 1 earlier project to this device'
+                        : `Moved ${workspace.claimed} earlier projects to this device`,
+                );
+            }
+        } catch (claimError) {
+            toast.error(claimError.message);
         }
     };
 
@@ -253,6 +280,8 @@ export default function VoiceStudio() {
                         projects={projects}
                         onOpen={openProject}
                         onCreate={createProject}
+                        legacyProjectsAvailable={legacyProjectsAvailable}
+                        onClaimLegacy={claimEarlierProjects}
                         disabled={Boolean(activeJob)}
                     />
                 ) : <>
@@ -284,7 +313,7 @@ export default function VoiceStudio() {
                             >
                                 <LayoutGrid size={15} /> All projects
                             </button>
-                            <span className="studio-local-badge">Local only</span>
+                            <span className="studio-local-badge">This device only</span>
                         </div>
                     </header>
 

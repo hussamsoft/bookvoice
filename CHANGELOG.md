@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 - 2026-07-28
+
+### Changed
+
+- Voice Studio projects now belong to the browser device that created them. Project metadata, copied source media, generated output, repair versions, downloads, and background jobs are hidden from every other device connected to the same BookVoice server.
+- Projects created before device isolation remain on disk but start unassigned. Voice Studio offers an explicit one-time action to keep those earlier projects on the current device; once claimed, other devices cannot list or open them.
+
+### Security
+
+- Every Voice Studio project, job, and asset route now enforces an opaque per-device owner. Requests for another device's project return the same `404` response as an unknown project ID, and background media jobs retain the submitting device's scope.
+- The browser's stable device identity is mirrored into a secure, HTTP-only asset cookie. Studio API requests repair a missing or stale cookie without putting the identity in media URLs.
+
 ## 2.1.3 - 2026-07-27
 
 ### Added

@@ -1,11 +1,10 @@
 /**
  * Per-device Voice Studio session.
  *
- * Projects, voices, sources and outputs live on the server and are shared —
- * they are the work. What you happen to be *doing* is not: landing on a phone
- * halfway through something started at the desk, on a tab you did not choose,
- * is disorienting rather than helpful. So the open project, the selected
- * workflow and the draft script are kept here, in this browser, on this device.
+ * The server enforces which projects belong to this browser's opaque device
+ * cookie. What you happen to be doing inside those projects is kept here too:
+ * the open project, selected workflow, and draft script never follow another
+ * browser or device.
  *
  * Everything degrades to defaults if storage is unavailable (private windows,
  * blocked storage), because none of it is worth failing a page load over.

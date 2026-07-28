@@ -33,11 +33,14 @@ SETTINGS = {
     "guidance": None,
     "seed": 917,
 }
+DEVICE_HEADERS = {"X-BookVoice-Device-ID": "5" * 32}
 
 
 def request(base: str, method: str, path: str, payload: dict | None = None) -> dict:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"} if data is not None else {}
+    headers = dict(DEVICE_HEADERS)
+    if data is not None:
+        headers["Content-Type"] = "application/json"
     call = urllib.request.Request(base + path, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(call, timeout=30) as response:
@@ -62,7 +65,10 @@ def upload(base: str, path: str, source: Path) -> dict:
     call = urllib.request.Request(
         base + path,
         data=bytes(body),
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={
+            **DEVICE_HEADERS,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
         method="POST",
     )
     try:
@@ -71,6 +77,16 @@ def upload(base: str, path: str, source: Path) -> dict:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"upload {path} failed ({exc.code}): {detail}") from exc
+
+
+def download(base: str, path: str, target: Path) -> None:
+    call = urllib.request.Request(base + path, headers=DEVICE_HEADERS)
+    try:
+        with urllib.request.urlopen(call, timeout=60) as response:
+            target.write_bytes(response.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"download {path} failed ({exc.code}): {detail}") from exc
 
 
 def wait_job(base: str, job: dict, timeout_s: int = 600) -> dict:
@@ -214,7 +230,7 @@ def main() -> int:
                 if not video_source.get("previewUrl"):
                     raise RuntimeError("Packaged video import did not publish a browser preview URL.")
                 preview_path = runtime / "video-preview.mp4"
-                urllib.request.urlretrieve(base + video_source["previewUrl"], preview_path)
+                download(base, video_source["previewUrl"], preview_path)
                 preview_probe = subprocess.run(
                     [
                         str(ffprobe), "-v", "error", "-show_entries",
@@ -297,7 +313,7 @@ def main() -> int:
                 downloaded = {}
                 for output in outputs:
                     target = runtime / output["fileName"]
-                    urllib.request.urlretrieve(base + output["contentUrl"], target)
+                    download(base, output["contentUrl"], target)
                     downloaded[output["id"]] = target
                     subprocess.run(
                         [str(ffprobe), "-v", "error", "-show_entries", "format=duration", "-of", "json", str(target)],

@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  claimLegacyStudioProjects,
   createStudioNarration,
   createStudioProject,
   exportCachedAudio,
   getPreparedBook,
+  getStudioWorkspace,
   narrateTextStream,
   openStudioProjectFolder,
   pronounceText,
@@ -117,6 +119,49 @@ describe('Voice Studio API', () => {
 
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/studio\/projects$/);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: 'Voice work' });
+    expect(fetchMock.mock.calls[0][1].headers['X-BookVoice-Device-ID'])
+      .toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('reports only this device workspace and whether earlier projects can be claimed', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        projects: [{ id: 'project-1' }],
+        legacyProjectsAvailable: true,
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getStudioWorkspace()).resolves.toEqual({
+      projects: [{ id: 'project-1' }],
+      legacyProjectsAvailable: true,
+    });
+  });
+
+  it('claims earlier shared projects for the current device once', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        claimed: 2,
+        projects: [{ id: 'project-1' }, { id: 'project-2' }],
+        legacyProjectsAvailable: false,
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await claimLegacyStudioProjects();
+
+    expect(result.claimed).toBe(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/studio\/legacy-projects\/claim$/),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'X-BookVoice-Device-ID': expect.stringMatching(/^[0-9a-f]{32}$/),
+        }),
+      }),
+    );
   });
 
   it('submits typed narration with the full advanced-settings contract', async () => {
@@ -160,7 +205,12 @@ describe('Voice Studio API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/studio\/projects\/project-1\/outputs\/output-1\/download$/),
-      { method: 'POST' },
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'X-BookVoice-Device-ID': expect.stringMatching(/^[0-9a-f]{32}$/),
+        }),
+      }),
     );
   });
 
@@ -175,7 +225,12 @@ describe('Voice Studio API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/studio\/projects\/project-1\/open-folder$/),
-      { method: 'POST' },
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'X-BookVoice-Device-ID': expect.stringMatching(/^[0-9a-f]{32}$/),
+        }),
+      }),
     );
   });
 });

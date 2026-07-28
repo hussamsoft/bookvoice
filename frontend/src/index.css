@@ -2626,6 +2626,33 @@ body {
 .studio-start-hero h1 { margin: 0; font-size: 1.5rem; }
 .studio-start-hero p { margin: 0; color: var(--text-muted); max-width: 34rem; }
 
+.studio-legacy-claim {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+.studio-legacy-claim > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+.studio-legacy-claim h2 {
+  margin: 0 0 0.2rem;
+  font-size: 0.92rem;
+}
+.studio-legacy-claim p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.studio-legacy-claim .btn { flex: 0 0 auto; }
+
 .studio-start-create { display: grid; gap: 0.4rem; }
 .studio-start-create label { font-size: 0.78rem; color: var(--text-muted); }
 .studio-start-create > div { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -3200,6 +3227,8 @@ body {
   .studio-start-project { min-height: 3.25rem; }
   .studio-start-create input { min-height: 2.9rem; font-size: 1rem; }
   .studio-start-create .btn { flex: 1 1 100%; justify-content: center; min-height: 2.9rem; }
+  .studio-legacy-claim { align-items: stretch; flex-direction: column; }
+  .studio-legacy-claim .btn { width: 100%; justify-content: center; }
   .studio-project-header {
     flex-direction: column;
     align-items: stretch;

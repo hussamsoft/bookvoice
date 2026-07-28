@@ -1,3 +1,5 @@
+import { withDeviceIdentity } from './deviceIdentity';
+
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`;
 export const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || `${window.location.origin}`;
 
@@ -431,7 +433,10 @@ export async function createBookArchive(bookId, profileId) {
 }
 
 async function studioRequest(path, options = {}, fallback = 'Voice Studio request failed') {
-    const response = await fetch(`${API_BASE_URL}/studio${path}`, options);
+    const response = await fetch(
+        `${API_BASE_URL}/studio${path}`,
+        withDeviceIdentity(options),
+    );
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(detailMessage(error, fallback));
@@ -441,8 +446,26 @@ async function studioRequest(path, options = {}, fallback = 'Voice Studio reques
 }
 
 export async function listStudioProjects() {
+    return (await getStudioWorkspace()).projects;
+}
+
+export async function getStudioWorkspace() {
     const data = await studioRequest('/projects', {}, 'Could not load Voice Studio projects.');
-    return Array.isArray(data.projects) ? data.projects : [];
+    return {
+        projects: Array.isArray(data.projects) ? data.projects : [],
+        legacyProjectsAvailable: data.legacyProjectsAvailable === true,
+    };
+}
+
+export async function claimLegacyStudioProjects() {
+    const data = await studioRequest('/legacy-projects/claim', {
+        method: 'POST',
+    }, 'Could not move the earlier Studio projects to this device.');
+    return {
+        claimed: Number(data.claimed || 0),
+        projects: Array.isArray(data.projects) ? data.projects : [],
+        legacyProjectsAvailable: data.legacyProjectsAvailable === true,
+    };
 }
 
 export function createStudioProject(name) {
