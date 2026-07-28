@@ -75,7 +75,11 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
     const importRecording = async (blob, name) => {
         await onRunJob(
             'Importing recording',
-            () => uploadStudioSource(project.id, new File([blob], name, { type: blob.type || 'audio/wav' })),
+            () => uploadStudioSource(
+                project.id,
+                new File([blob], name, { type: blob.type || 'audio/wav' }),
+                { captureMethod: 'recording' },
+            ),
             { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
         );
     };
@@ -145,6 +149,9 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         disabled={disabled}
                         label="Record something to convert"
                     />
+                    <small className="studio-record-retention">
+                        Microphone recordings are deleted after 30 days.
+                    </small>
                 </div>
 
                 {sources.length > 0 && (

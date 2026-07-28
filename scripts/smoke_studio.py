@@ -273,6 +273,22 @@ def main() -> int:
                 ]
                 if [item.get("voiceId") for item in narration_outputs] != profile_ids:
                     raise RuntimeError("Packaged narration did not retain its imported voice profiles.")
+
+                # Natasha was the reported failing preloaded conversion voice.
+                # Keep it in the release smoke so both the bundled reference and
+                # the Windows manifest commit path are exercised end to end.
+                natasha_conversion = wait_job(base, request(
+                    base,
+                    "POST",
+                    project_path + "/conversions",
+                    {
+                        "sourceId": audio_source["id"],
+                        "startSec": 0,
+                        "endSec": min(5, float(audio_source["durationSec"])),
+                        "targetVoiceId": "Natasha",
+                        "consentConfirmed": True,
+                    },
+                ))
                 # Standalone narrations include a 0.3 s head and 0.4 s tail safety bed.
                 # Repair synthesis intentionally does not, so size each repair range from
                 # its matching voice's speech duration instead of reusing another voice.
@@ -306,9 +322,17 @@ def main() -> int:
                     audio_repair["result"]["outputId"],
                     video_repair["result"]["outputId"],
                     export["result"]["outputId"],
+                    natasha_conversion["result"]["outputId"],
                 }
                 outputs = [item for item in final_project["outputs"] if item["id"] in output_ids]
-                if len(outputs) != 5 or len(final_project["sources"]) != 2:
+                conversion_output = next(
+                    item
+                    for item in outputs
+                    if item["id"] == natasha_conversion["result"]["outputId"]
+                )
+                if conversion_output.get("voiceId") != "Natasha":
+                    raise RuntimeError("Packaged Natasha conversion did not retain its target voice.")
+                if len(outputs) != 6 or len(final_project["sources"]) != 2:
                     raise RuntimeError("Packaged Studio output history is incomplete.")
                 downloaded = {}
                 for output in outputs:
@@ -328,6 +352,7 @@ def main() -> int:
                     "projectId": project["id"],
                     "profiles": 2,
                     "narrationVoices": profile_ids,
+                    "conversionVoice": conversion_output["voiceId"],
                     "outputs": [item["format"] for item in outputs],
                     "videoPreviewCodecs": sorted(f"{kind}:{codec}" for kind, codec in preview_codecs),
                     "mediaTools": str(ffmpeg),

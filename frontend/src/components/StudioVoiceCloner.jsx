@@ -58,7 +58,11 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
     const importRecording = async (blob, name) => {
         await onRunJob(
             'Importing voice media',
-            () => uploadStudioSource(project.id, new File([blob], name, { type: blob.type || 'audio/wav' })),
+            () => uploadStudioSource(
+                project.id,
+                new File([blob], name, { type: blob.type || 'audio/wav' }),
+                { captureMethod: 'recording' },
+            ),
             { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
         );
     };
@@ -137,6 +141,9 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
                     disabled={disabled}
                     label="Record this voice"
                 />
+                <small className="studio-record-retention">
+                    Microphone recordings are deleted after 30 days. Saved voices are shared across your devices.
+                </small>
                 {selectedVoice && (
                     <div className="studio-active-clone" role="status">
                         <span>Selected narration voice</span>

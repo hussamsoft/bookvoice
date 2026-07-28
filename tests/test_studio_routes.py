@@ -246,6 +246,35 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"]["code"], "VOICE_CONSENT_REQUIRED")
 
+    def test_microphone_upload_marks_the_source_for_retention(self):
+        project = studio.create_project("Recorded on phone")
+        queued = {
+            "id": "7" * 32,
+            "projectId": project["id"],
+            "kind": "MEDIA_IMPORT",
+            "status": "QUEUED",
+            "progress": 0,
+            "canRetry": False,
+        }
+        with patch.object(studio_routes.studio, "submit_job", return_value=queued) as submit:
+            response = self.client.post(
+                f"/api/studio/projects/{project['id']}/sources",
+                files={"file": ("recording.wav", b"phone recording", "audio/wav")},
+                data={"captureMethod": "recording"},
+            )
+
+        self.assertEqual(response.status_code, 202)
+        work = submit.call_args.args[2]
+        with patch.object(
+            studio_routes.studio,
+            "import_source_path",
+            return_value={"id": "8" * 32},
+        ) as import_source, patch.object(studio_routes.studio, "update_job_progress"):
+            result = work(job_id="7" * 32, cancel_event=threading.Event())
+
+        self.assertEqual(result, {"sourceId": "8" * 32})
+        self.assertEqual(import_source.call_args.kwargs["capture_method"], "recording")
+
     def test_long_narration_request_returns_a_202_job_resource(self):
         project = studio.create_project("Narration route")
         queued = {

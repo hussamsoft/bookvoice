@@ -10,7 +10,7 @@ if not exist "%BOOKVOICE_EXE%" (
   echo ERROR: The packaged BookVoice app has not been built.
   echo.
   echo Run this from a terminal first:
-  echo   python build.py --msi --per-user
+  echo   python build.py
   echo.
   pause
   exit /b 1

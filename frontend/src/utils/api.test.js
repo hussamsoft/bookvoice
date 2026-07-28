@@ -10,6 +10,7 @@ import {
   openStudioProjectFolder,
   pronounceText,
   saveStudioOutput,
+  uploadStudioSource,
   waitForStudioJob,
 } from './api';
 
@@ -179,6 +180,21 @@ describe('Voice Studio API', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.text).toBe('Written in the app.');
     expect(body.generationSettings).toEqual(settings);
+  });
+
+  it('marks microphone recordings so the server can enforce 30-day retention', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'job-1', status: 'QUEUED' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['recording'], 'recording.wav', { type: 'audio/wav' });
+
+    await uploadStudioSource('project-1', file, { captureMethod: 'recording' });
+
+    const form = fetchMock.mock.calls[0][1].body;
+    expect(form.get('captureMethod')).toBe('recording');
+    expect(form.get('file').name).toBe('recording.wav');
   });
 
   it('returns a completed job without unnecessary polling', async () => {

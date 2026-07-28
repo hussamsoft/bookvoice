@@ -2872,6 +2872,12 @@ body {
 
 .studio-recorder { display: grid; gap: 0.4rem; }
 .studio-recorder .btn { width: 100%; justify-content: center; }
+.studio-record-retention {
+  color: var(--text-muted);
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
 
 .studio-record-level {
   display: grid;

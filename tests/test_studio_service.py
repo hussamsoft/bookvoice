@@ -20,6 +20,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from services import studio_service as studio  # noqa: E402
+from services import storage_utils, voice_profile_service  # noqa: E402
 
 
 def wav_bytes(seconds: float = 1.0, rate: int = 24_000) -> bytes:
@@ -162,6 +163,26 @@ class StudioProjectTests(unittest.TestCase):
         self.assertEqual(reopened["id"], project["id"])
         self.assertEqual(attempts, 2)
 
+    def test_manifest_write_retries_a_transient_windows_sharing_violation(self):
+        target = Path(self.temp.name) / "manifest.json"
+        real_replace = storage_utils.os.replace
+        attempts = 0
+
+        def flaky_replace(source, destination):
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise PermissionError("access denied")
+            return real_replace(source, destination)
+
+        with patch.object(storage_utils.os, "replace", side_effect=flaky_replace), patch.object(
+            storage_utils.time, "sleep"
+        ):
+            studio._write_json_atomic(target, {"ok": True})
+
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"ok": True})
+        self.assertEqual(attempts, 3)
+
     def test_interrupted_running_jobs_become_retryable_after_restart(self):
         project = studio.create_project("Interrupted work")
         manifest_path = studio.project_dir(project["id"]) / "manifest.json"
@@ -211,6 +232,89 @@ class StudioProjectTests(unittest.TestCase):
         self.assertTrue(studio.asset_path(project["id"], source["id"], "original").is_file())
         self.assertTrue(studio.asset_path(project["id"], source["id"], "audio").is_file())
         self.assertGreater(len(source["waveformPeaks"]), 10)
+
+    def test_expired_microphone_recording_is_erased_without_touching_imports_or_voices(self):
+        project = studio.create_project("Recording retention")
+        staged = Path(self.temp.name) / "outside.wav"
+        staged.write_bytes(wav_bytes())
+        metadata = {
+            "durationSec": 1.0,
+            "hasVideo": False,
+            "sampleRate": 24_000,
+            "channels": 1,
+            "formatName": "wav",
+        }
+        with patch.object(studio, "_probe_media", return_value=metadata), patch.object(
+            studio, "_extract_edit_audio"
+        ) as extract:
+            extract.side_effect = lambda source, target, **_: target.write_bytes(source.read_bytes())
+            recorded = studio.import_source_path(
+                project["id"],
+                staged,
+                "recording-2026-07-28T18-10-51.wav",
+                capture_method="recording",
+            )
+            uploaded = studio.import_source_path(
+                project["id"],
+                staged,
+                "kept-forever.wav",
+                capture_method="upload",
+            )
+
+        self.assertEqual(recorded["captureMethod"], "recording")
+        self.assertAlmostEqual(
+            recorded["expiresAt"] - recorded["createdAt"],
+            studio.RECORDING_RETENTION_SEC,
+            places=3,
+        )
+        self.assertEqual(uploaded["captureMethod"], "upload")
+        self.assertNotIn("expiresAt", uploaded)
+        root = studio.project_dir(project["id"])
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        recorded_paths = []
+        for source in manifest["sources"]:
+            if source["id"] == recorded["id"]:
+                source["expiresAt"] = time.time() - 1
+                recorded_paths = [root / source[key] for key in ("path", "audioPath", "waveformPath")]
+            elif source["id"] == uploaded["id"]:
+                source["createdAt"] = 1
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        shared_voice = Path(self.temp.name) / "voices" / "shared_voice.wav"
+        shared_voice.parent.mkdir(parents=True, exist_ok=True)
+        shared_voice.write_bytes(wav_bytes(6))
+
+        reopened = studio.get_project(project["id"])
+
+        self.assertEqual([source["id"] for source in reopened["sources"]], [uploaded["id"]])
+        self.assertTrue(all(not path.exists() for path in recorded_paths))
+        self.assertTrue(studio.asset_path(project["id"], uploaded["id"], "original").is_file())
+        self.assertTrue(shared_voice.is_file())
+
+    def test_legacy_bookvoice_microphone_filename_receives_retention_policy(self):
+        project = studio.create_project("Legacy microphone recording")
+        source_id = "f" * 32
+        root = studio.project_dir(project["id"])
+        source_path = root / "sources" / f"{source_id}.wav"
+        audio_path = root / "derived" / f"{source_id}.wav"
+        source_path.write_bytes(wav_bytes())
+        audio_path.write_bytes(wav_bytes())
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sources"] = [{
+            "id": source_id,
+            "fileName": "recording-2026-01-01T12-30-45.wav",
+            "mediaType": "AUDIO",
+            "durationSec": 1,
+            "path": f"sources/{source_id}.wav",
+            "audioPath": f"derived/{source_id}.wav",
+            "createdAt": time.time() - studio.RECORDING_RETENTION_SEC - 1,
+        }]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        self.assertEqual(studio.get_project(project["id"])["sources"], [])
+        self.assertFalse(source_path.exists())
+        self.assertFalse(audio_path.exists())
 
     def test_video_import_creates_a_browser_compatible_preview_asset(self):
         project = studio.create_project("Video preview")
@@ -414,6 +518,10 @@ class StudioProjectTests(unittest.TestCase):
 
         self.assertEqual(profile["id"], "my_voice")
         self.assertTrue((Path(self.temp.name) / "voices" / "my_voice.wav").is_file())
+        with studio.device_scope("b" * 32):
+            self.assertIn("my_voice", {item["id"] for item in voice_profile_service.list_profiles()})
+            with self.assertRaises(FileNotFoundError):
+                studio.get_project(project["id"])
 
     def test_profile_clip_must_be_between_five_and_thirty_seconds(self):
         project = studio.create_project("Profile bounds")

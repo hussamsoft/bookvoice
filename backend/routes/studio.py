@@ -11,6 +11,7 @@ from fastapi import (
     Cookie,
     Depends,
     File,
+    Form,
     Header,
     HTTPException,
     Request,
@@ -235,7 +236,14 @@ async def _stage_upload(file: UploadFile) -> Path:
 
 
 @router.post("/projects/{project_id}/sources", status_code=202)
-async def import_source(project_id: str, file: UploadFile = File(...)):
+async def import_source(
+    project_id: str,
+    file: UploadFile = File(...),
+    capture_method: str = Form("upload", alias="captureMethod"),
+):
+    capture_method = str(capture_method or "").strip().lower()
+    if capture_method not in studio.CAPTURE_METHODS:
+        _error("INVALID_MEDIA", "Invalid Studio capture method.", 400)
     try:
         studio.get_project(project_id)
         staged = await _stage_upload(file)
@@ -251,7 +259,12 @@ async def import_source(project_id: str, file: UploadFile = File(...)):
             studio.update_job_progress(project_id, job_id, 0.15, "Inspecting media")
             if cancel_event.is_set():
                 return None
-            source = studio.import_source_path(project_id, staged, filename)
+            source = studio.import_source_path(
+                project_id,
+                staged,
+                filename,
+                capture_method=capture_method,
+            )
             studio.update_job_progress(project_id, job_id, 0.9, "Building waveform")
             return {"sourceId": source["id"]}
         finally:

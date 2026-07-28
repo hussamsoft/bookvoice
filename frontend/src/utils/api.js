@@ -506,9 +506,10 @@ export function openStudioProjectFolder(projectId) {
     }, 'Could not open the Studio project folder.');
 }
 
-export function uploadStudioSource(projectId, file) {
+export function uploadStudioSource(projectId, file, { captureMethod = 'upload' } = {}) {
     const form = new FormData();
     form.append('file', file, file.name);
+    form.append('captureMethod', captureMethod);
     return studioRequest(`/projects/${encodeURIComponent(projectId)}/sources`, {
         method: 'POST',
         body: form,

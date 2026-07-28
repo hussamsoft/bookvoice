@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Saved voice profiles are explicitly global to the BookVoice host and remain
+  available to every connected device, while Voice Studio projects and their
+  media stay isolated to the device that owns them.
+- Microphone recordings created in Voice Studio now carry a 30-day expiration
+  and are erased automatically. Imported media, generated outputs, and saved
+  voice profiles are not part of this cleanup.
+
+### Fixed
+
+- Studio and voice-profile atomic file commits now retry brief Windows sharing
+  violations. This prevents otherwise successful conversions, including
+  conversions to the preloaded Natasha voice, from being reported as failed
+  when Windows momentarily holds `manifest.json`.
+- The packaged Studio smoke now performs a real Natasha voice conversion and
+  verifies the resulting output.
+
 ## 2.2.1 - 2026-07-28
 
 ### Fixed

@@ -539,6 +539,7 @@ def validate():
         "services/config_service.py",
         "services/media_tools.py",
         "services/path_utils.py",
+        "services/storage_utils.py",
         "services/studio_service.py",
         "services/voice_profile_service.py",
         "tools/ffmpeg/ffmpeg.exe",

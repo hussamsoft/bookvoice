@@ -24,7 +24,7 @@ except Exception:
 load_dotenv()
 
 from routes import access, books, config, ocr, studio, translation, tts, voices
-from services import access_service
+from services import access_service, studio_service
 from services.path_utils import safe_join
 from services.security import is_allowed_browser_origin, public_origins
 from services.tts_service import TtsPriority, preload_model, submit_tts
@@ -66,6 +66,12 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        removed = studio_service.purge_expired_recordings()
+        if removed:
+            print(f"[main] removed {removed} expired Voice Studio recording(s).")
+    except Exception as cleanup_error:
+        print(f"[main] expired recording cleanup skipped: {cleanup_error}")
     # Preload on the dedicated TTS thread — the same thread that serves
     # narration — so CUDA is only ever touched from one thread.
     submit_tts(TtsPriority.CURRENT, preload_model, "en")

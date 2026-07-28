@@ -14,6 +14,7 @@ import wave
 from pathlib import Path
 
 from services.path_utils import validate_voice_id
+from services.storage_utils import replace_file_with_retry
 
 
 def voices_dir() -> Path:
@@ -49,7 +50,7 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp, path)
+        replace_file_with_retry(temp, path)
     except Exception:
         temp.unlink(missing_ok=True)
         raise
@@ -229,7 +230,7 @@ def create_profile(
             shutil.copyfileobj(input_handle, output, length=1024 * 1024)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temp, target)
+        replace_file_with_retry(temp, target)
     except Exception:
         temp.unlink(missing_ok=True)
         raise
@@ -289,4 +290,3 @@ def delete_profile(voice_id: str) -> None:
     (voices_dir() / f"{safe_id}.json").unlink(missing_ok=True)
     for cache in voices_dir().glob(f"{safe_id}.*.conds.pt"):
         cache.unlink(missing_ok=True)
-

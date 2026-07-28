@@ -25,6 +25,7 @@ from services.path_utils import (
     validate_voice_id,
 )
 from services import media_tools
+from services.storage_utils import replace_file_with_retry
 
 
 SCHEMA_VERSION = 1
@@ -52,6 +53,13 @@ WORKFLOWS = {"NARRATION", "CONVERSION", "REPAIR"}
 # has to be long enough for the decoder to lock onto the target timbre.
 CONVERSION_MIN_SOURCE_SEC = 0.5
 CONVERSION_MAX_SOURCE_SEC = 60 * 60
+RECORDING_RETENTION_DAYS = 30
+RECORDING_RETENTION_SEC = RECORDING_RETENTION_DAYS * 24 * 60 * 60
+CAPTURE_METHODS = {"upload", "recording"}
+LEGACY_RECORDING_RE = re.compile(
+    r"^recording-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.wav$",
+    re.IGNORECASE,
+)
 
 _locks_guard = threading.Lock()
 _project_locks: dict[str, threading.RLock] = {}
@@ -148,7 +156,7 @@ def _write_json_atomic(path: Path, payload: dict | list) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_path, path)
+        replace_file_with_retry(temp_path, path)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
@@ -191,6 +199,106 @@ def _normalize_interrupted_jobs(manifest: dict) -> bool:
     return changed
 
 
+def _is_managed_recording(source: dict) -> bool:
+    capture_method = str(source.get("captureMethod") or "").strip().lower()
+    if capture_method:
+        return capture_method == "recording"
+    # BookVoice microphone takes used this exact filename contract before
+    # captureMethod/expiresAt were written to manifests.
+    return bool(
+        source.get("mediaType") == "AUDIO"
+        and LEGACY_RECORDING_RE.fullmatch(str(source.get("fileName") or ""))
+    )
+
+
+def _source_expiry(source: dict) -> float:
+    try:
+        expires_at = float(source.get("expiresAt"))
+    except (TypeError, ValueError):
+        expires_at = 0.0
+    if expires_at > 0:
+        return expires_at
+    try:
+        created_at = float(source.get("createdAt"))
+    except (TypeError, ValueError):
+        created_at = 0.0
+    return created_at + RECORDING_RETENTION_SEC if created_at > 0 else 0.0
+
+
+def _delete_source_files(project_id: str, source: dict) -> bool:
+    root = project_dir(project_id).resolve()
+    deleted = True
+    for key in ("path", "audioPath", "waveformPath", "previewPath"):
+        relative = str(source.get(key) or "").strip()
+        if not relative:
+            continue
+        candidate = (root / relative).resolve()
+        if root not in candidate.parents:
+            continue
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError as exc:
+            deleted = False
+            print(f"[studio] could not delete expired recording asset {candidate.name}: {exc}")
+    return deleted
+
+
+def _purge_manifest_recordings(
+    project_id: str,
+    manifest: dict,
+    *,
+    now: float | None = None,
+) -> tuple[bool, int]:
+    checked_at = time.time() if now is None else float(now)
+    changed = False
+    removed = 0
+    retained = []
+    for source in manifest.get("sources") or []:
+        if not isinstance(source, dict) or not _is_managed_recording(source):
+            retained.append(source)
+            continue
+        expiry = _source_expiry(source)
+        if source.get("captureMethod") != "recording":
+            source["captureMethod"] = "recording"
+            changed = True
+        if expiry > 0 and source.get("expiresAt") != expiry:
+            source["expiresAt"] = expiry
+            changed = True
+        if expiry > 0 and expiry <= checked_at:
+            if not _delete_source_files(project_id, source):
+                retained.append(source)
+                continue
+            removed += 1
+            changed = True
+            continue
+        retained.append(source)
+    if removed:
+        manifest["sources"] = retained
+    return changed, removed
+
+
+def purge_expired_recordings(*, now: float | None = None) -> int:
+    """Erase expired microphone takes across all device-owned projects."""
+    removed = 0
+    for candidate in (studio_root() / "projects").iterdir():
+        if not candidate.is_dir() or not PROJECT_ID_RE.fullmatch(candidate.name):
+            continue
+        with _project_lock(candidate.name):
+            try:
+                manifest = _read_manifest_unscoped(candidate.name)
+            except (FileNotFoundError, RuntimeError, ValueError):
+                continue
+            changed, project_removed = _purge_manifest_recordings(
+                candidate.name,
+                manifest,
+                now=now,
+            )
+            if changed:
+                _write_json_atomic(candidate / "manifest.json", manifest)
+            removed += project_removed
+    return removed
+
+
 def _read_manifest_unscoped(project_id: str) -> dict:
     path = _manifest_path(project_id)
     for attempt in range(5):
@@ -220,16 +328,21 @@ def _read_manifest_unscoped(project_id: str) -> dict:
 
 
 def _load_manifest(project_id: str, *, normalize_jobs: bool = True) -> dict:
-    path = _manifest_path(project_id)
-    raw = _read_manifest_unscoped(project_id)
-    if raw.get("deviceId") != current_device_id():
-        # A project owned by another device is deliberately indistinguishable
-        # from an unknown id. This prevents list filtering from being bypassed
-        # by copying or guessing a project URL.
-        raise FileNotFoundError("Studio project was not found.")
-    if normalize_jobs and _normalize_interrupted_jobs(raw):
-        _write_json_atomic(path, raw)
-    return raw
+    safe_id = _validate_project_id(project_id)
+    path = _manifest_path(safe_id)
+    with _project_lock(safe_id):
+        raw = _read_manifest_unscoped(safe_id)
+        if raw.get("deviceId") != current_device_id():
+            # A project owned by another device is deliberately indistinguishable
+            # from an unknown id. This prevents list filtering from being bypassed
+            # by copying or guessing a project URL.
+            raise FileNotFoundError("Studio project was not found.")
+        changed, _removed = _purge_manifest_recordings(safe_id, raw)
+        if normalize_jobs:
+            changed = _normalize_interrupted_jobs(raw) or changed
+        if changed:
+            _write_json_atomic(path, raw)
+        return raw
 
 
 def _public_project(manifest: dict) -> dict:
@@ -727,9 +840,18 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def import_source_path(project_id: str, staged: Path, filename: str) -> dict:
+def import_source_path(
+    project_id: str,
+    staged: Path,
+    filename: str,
+    *,
+    capture_method: str = "upload",
+) -> dict:
     safe_id = _validate_project_id(project_id)
     staged = Path(staged)
+    capture_method = str(capture_method or "").strip().lower()
+    if capture_method not in CAPTURE_METHODS:
+        raise ValueError("Invalid Studio capture method.")
     if not staged.is_file() or staged.stat().st_size <= 0:
         raise ValueError("Uploaded media is empty.")
     if staged.stat().st_size > MAX_SOURCE_BYTES:
@@ -770,9 +892,11 @@ def import_source_path(project_id: str, staged: Path, filename: str) -> dict:
             preview.unlink(missing_ok=True)
         raise
 
+    created_at = time.time()
     record = {
         "id": source_id,
         "fileName": Path(filename).name,
+        "captureMethod": capture_method,
         "mediaType": "VIDEO" if metadata["hasVideo"] else "AUDIO",
         "durationSec": metadata["durationSec"],
         "sampleRate": metadata["sampleRate"],
@@ -784,8 +908,10 @@ def import_source_path(project_id: str, staged: Path, filename: str) -> dict:
         "path": str(target.relative_to(target_root)).replace("\\", "/"),
         "audioPath": str(audio.relative_to(target_root)).replace("\\", "/"),
         "waveformPath": str(waveform_path.relative_to(target_root)).replace("\\", "/"),
-        "createdAt": time.time(),
+        "createdAt": created_at,
     }
+    if capture_method == "recording":
+        record["expiresAt"] = created_at + RECORDING_RETENTION_SEC
     if preview is not None:
         record["previewPath"] = str(preview.relative_to(target_root)).replace("\\", "/")
     with _project_lock(safe_id):
