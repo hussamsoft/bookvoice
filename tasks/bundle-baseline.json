@@ -1,22 +1,22 @@
 {
-  "measured_on": "2026-07-27",
+  "measured_on": "2026-07-28",
   "baseline_pre_split_kib": 672.16,
   "budget_kib": 350.0,
-  "initial_entry_kib": 261.51,
+  "initial_entry_kib": 263.16,
   "pdf_worker_kib": 1021.69,
   "chunks_kib": {
-    "BookSession-DzANDIs_.js": 13.24,
-    "index-BGVPFfDl.css": 51.87,
-    "index-C_d_-k4c.js": 209.64,
-    "media-BN8S7puL.js": 1.28,
+    "BookSession-DBFvBG3l.js": 13.24,
+    "index-Cg-xHzBE.js": 210.65,
+    "index-DzNlD3L6.css": 52.51,
+    "media-Bu9n_xAX.js": 1.28,
     "pdf.worker.min-qwK7q_zL.mjs": 1021.69,
-    "PdfViewer-MuTkwHpN.js": 460.67,
+    "PdfViewer-DOUtd9tm.js": 460.66,
     "PdfViewer-rptWOpCb.css": 8.88,
-    "SettingsPanel-BFKUL0AJ.js": 2.31,
-    "square-y42S_p0h.js": 0.41,
-    "useTtsStatus-Cll54SbD.js": 14.26,
-    "useUserConfig-DWVBLwwU.js": 5.98,
-    "VoiceStudio-DeDfYByn.js": 54.31,
-    "wav-C7gZVE_p.js": 2.16
+    "SettingsPanel-CUIteIqU.js": 2.31,
+    "square-D7r8uP_V.js": 0.41,
+    "useTtsStatus-B2FnJb-J.js": 14.26,
+    "useUserConfig-UuhKjOF1.js": 5.98,
+    "VoiceStudio-Dug0k2K7.js": 55.41,
+    "wav-DoPPDzVD.js": 2.16
   }
 }

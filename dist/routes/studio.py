@@ -3,17 +3,66 @@ from __future__ import annotations
 
 import os
 import tempfile
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from services import studio_service as studio
 
 
-router = APIRouter()
+DEVICE_COOKIE_NAME = "bookvoice_studio_device"
+DEVICE_COOKIE_MAX_AGE = 10 * 365 * 24 * 60 * 60
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def _studio_device_scope(
+    request: Request,
+    response: Response,
+    device_header: str | None = Header(None, alias="X-BookVoice-Device-ID"),
+    device_cookie: str | None = Cookie(None, alias=DEVICE_COOKIE_NAME),
+):
+    device_id = device_header or device_cookie or uuid.uuid4().hex
+    try:
+        token = studio.activate_device(device_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_DEVICE_ID", "message": str(exc)},
+        ) from exc
+    # The explicit browser header is authoritative and repairs a missing/stale
+    # asset cookie. This lets a device recover if only its cookies were cleared
+    # while keeping the opaque id out of media URLs.
+    if device_cookie != studio.current_device_id():
+        forwarded_scheme = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        response.set_cookie(
+            DEVICE_COOKIE_NAME,
+            studio.current_device_id(),
+            max_age=DEVICE_COOKIE_MAX_AGE,
+            path="/",
+            secure=request.url.scheme == "https" or forwarded_scheme == "https",
+            httponly=True,
+            samesite="strict",
+        )
+    try:
+        yield studio.current_device_id()
+    finally:
+        studio.deactivate_device(token)
+
+
+router = APIRouter(dependencies=[Depends(_studio_device_scope)])
 
 
 class ProjectCreate(BaseModel):
@@ -79,7 +128,20 @@ def _error(code: str, message: str, status: int = 400):
 
 @router.get("/projects")
 async def list_projects():
-    return {"projects": studio.list_projects()}
+    return {
+        "projects": studio.list_projects(),
+        "legacyProjectsAvailable": studio.legacy_projects_available(),
+    }
+
+
+@router.post("/legacy-projects/claim")
+async def claim_legacy_projects():
+    claimed = studio.claim_legacy_projects()
+    return {
+        "claimed": claimed,
+        "projects": studio.list_projects(),
+        "legacyProjectsAvailable": studio.legacy_projects_available(),
+    }
 
 
 @router.post("/projects", status_code=201)

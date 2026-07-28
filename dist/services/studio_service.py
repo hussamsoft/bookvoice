@@ -15,6 +15,8 @@ import time
 import uuid
 import wave
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar, Token, copy_context
 from pathlib import Path
 
 from services.path_utils import (
@@ -28,6 +30,8 @@ from services import media_tools
 SCHEMA_VERSION = 1
 PROJECT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+DEVICE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+DEFAULT_DEVICE_ID = "0" * 32
 PROJECT_NAME_MAX = 100
 SCRIPT_MAX_CHARS = 200_000
 MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024
@@ -55,6 +59,39 @@ _jobs_guard = threading.Lock()
 _job_cancellations: dict[str, threading.Event] = {}
 _active_job_ids: set[str] = set()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bookvoice-studio-media")
+_device_id: ContextVar[str] = ContextVar(
+    "bookvoice_studio_device_id",
+    default=DEFAULT_DEVICE_ID,
+)
+_legacy_claim_lock = threading.Lock()
+
+
+def validate_device_id(device_id: str) -> str:
+    value = str(device_id or "").strip().lower()
+    if not DEVICE_ID_RE.fullmatch(value):
+        raise ValueError("Invalid BookVoice device id.")
+    return value
+
+
+def current_device_id() -> str:
+    return validate_device_id(_device_id.get())
+
+
+def activate_device(device_id: str) -> Token:
+    return _device_id.set(validate_device_id(device_id))
+
+
+def deactivate_device(token: Token) -> None:
+    _device_id.reset(token)
+
+
+@contextmanager
+def device_scope(device_id: str):
+    token = activate_device(device_id)
+    try:
+        yield current_device_id()
+    finally:
+        deactivate_device(token)
 
 
 def studio_root() -> Path:
@@ -122,6 +159,7 @@ def _new_manifest(project_id: str, name: str) -> dict:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "id": project_id,
+        "deviceId": current_device_id(),
         "name": _clean_name(name),
         "createdAt": now,
         "updatedAt": now,
@@ -153,18 +191,42 @@ def _normalize_interrupted_jobs(manifest: dict) -> bool:
     return changed
 
 
-def _load_manifest(project_id: str, *, normalize_jobs: bool = True) -> dict:
+def _read_manifest_unscoped(project_id: str) -> dict:
     path = _manifest_path(project_id)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise FileNotFoundError("Studio project was not found.") from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Studio project metadata is unavailable.") from exc
+    for attempt in range(5):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except FileNotFoundError as exc:
+            raise FileNotFoundError("Studio project was not found.") from exc
+        except PermissionError as exc:
+            # On Windows, a reader can briefly collide with os.replace while a
+            # background job commits an updated manifest. Retrying this narrow
+            # sharing violation keeps UI polling from reporting a false
+            # metadata failure without masking persistent storage errors.
+            if attempt == 4:
+                raise RuntimeError("Studio project metadata is unavailable.") from exc
+            time.sleep(0.01 * (attempt + 1))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Studio project metadata is unavailable.") from exc
     if not isinstance(raw, dict) or raw.get("id") != project_id:
         raise RuntimeError("Studio project metadata is invalid.")
     if int(raw.get("schemaVersion") or 0) != SCHEMA_VERSION:
         raise RuntimeError("Studio project uses an unsupported schema version.")
+    owner = str(raw.get("deviceId") or "")
+    if owner and not DEVICE_ID_RE.fullmatch(owner):
+        raise RuntimeError("Studio project metadata has an invalid device owner.")
+    return raw
+
+
+def _load_manifest(project_id: str, *, normalize_jobs: bool = True) -> dict:
+    path = _manifest_path(project_id)
+    raw = _read_manifest_unscoped(project_id)
+    if raw.get("deviceId") != current_device_id():
+        # A project owned by another device is deliberately indistinguishable
+        # from an unknown id. This prevents list filtering from being bypassed
+        # by copying or guessing a project URL.
+        raise FileNotFoundError("Studio project was not found.")
     if normalize_jobs and _normalize_interrupted_jobs(raw):
         _write_json_atomic(path, raw)
     return raw
@@ -172,6 +234,7 @@ def _load_manifest(project_id: str, *, normalize_jobs: bool = True) -> dict:
 
 def _public_project(manifest: dict) -> dict:
     result = copy.deepcopy(manifest)
+    result.pop("deviceId", None)
     for source in result.get("sources") or []:
         if isinstance(source, dict):
             source.pop("path", None)
@@ -231,6 +294,41 @@ def list_projects() -> list[dict]:
             continue
     projects.sort(key=lambda item: float(item.get("updatedAt") or 0), reverse=True)
     return projects
+
+
+def legacy_projects_available() -> bool:
+    """Return whether projects from the pre-device release still need an owner."""
+    for candidate in (studio_root() / "projects").iterdir():
+        if not candidate.is_dir() or not PROJECT_ID_RE.fullmatch(candidate.name):
+            continue
+        try:
+            manifest = _read_manifest_unscoped(candidate.name)
+        except (FileNotFoundError, RuntimeError, ValueError):
+            continue
+        if not manifest.get("deviceId"):
+            return True
+    return False
+
+
+def claim_legacy_projects() -> int:
+    """Assign every unowned pre-device project to the current device once."""
+    owner = current_device_id()
+    claimed = 0
+    with _legacy_claim_lock:
+        for candidate in (studio_root() / "projects").iterdir():
+            if not candidate.is_dir() or not PROJECT_ID_RE.fullmatch(candidate.name):
+                continue
+            with _project_lock(candidate.name):
+                try:
+                    manifest = _read_manifest_unscoped(candidate.name)
+                except (FileNotFoundError, RuntimeError, ValueError):
+                    continue
+                if manifest.get("deviceId"):
+                    continue
+                manifest["deviceId"] = owner
+                _write_json_atomic(candidate / "manifest.json", manifest)
+                claimed += 1
+    return claimed
 
 
 def get_project(project_id: str) -> dict:
@@ -302,6 +400,7 @@ def duplicate_project(project_id: str) -> dict:
 
 def delete_project(project_id: str) -> None:
     safe_id = _validate_project_id(project_id)
+    _load_manifest(safe_id)
     target = project_dir(safe_id)
     if not target.is_dir():
         raise FileNotFoundError("Studio project was not found.")
@@ -316,6 +415,7 @@ def delete_project(project_id: str) -> None:
 
 
 def reset_runtime_state_for_tests() -> None:
+    _device_id.set(DEFAULT_DEVICE_ID)
     with _jobs_guard:
         for event in _job_cancellations.values():
             event.set()
@@ -431,7 +531,11 @@ def submit_job(project_id: str, kind: str, function, *args, **kwargs) -> dict:
                 _active_job_ids.discard(job_id)
                 _job_cancellations.pop(job_id, None)
 
-    _executor.submit(run)
+    # ThreadPoolExecutor does not propagate ContextVars by itself. Carry the
+    # request's device owner into every background media job so later manifest
+    # and asset writes remain inside the same device boundary.
+    context = copy_context()
+    _executor.submit(context.run, run)
     return copy.deepcopy(job)
 
 
@@ -846,6 +950,7 @@ def _open_directory(path: Path) -> None:
 
 def open_project_folder(project_id: str) -> dict:
     safe_id = _validate_project_id(project_id)
+    _load_manifest(safe_id)
     root = project_dir(safe_id).resolve()
     managed_root = (studio_root() / "projects").resolve()
     if root.parent != managed_root or not root.is_dir():
