@@ -1,7 +1,7 @@
 {
-  "version": "2.2.0",
-  "source_sha256": "01a883a111453eaf186740456a6a5a61bf04304d9ee1760ab318a1dc82b29760",
-  "static_sha256": "3d6a4a298afaf6bdfca7628ddb0a56845c6f75dcc6c3a51757bf1f24cd016280",
+  "version": "2.2.1",
+  "source_sha256": "8b61db4155e5bb2b51a5247b77418eb00cd9a69b45a0c8e2be33349d15566d84",
+  "static_sha256": "3fe648dba62e7be4a653fe5a796d91582c26e6b4b83c0ce63f3797882dba9614",
   "media_tools": {
     "version": "8.1.1",
     "provider": "Gyan FFmpeg full build",

@@ -257,6 +257,9 @@ def _public_project(manifest: dict) -> dict:
             output["contentUrl"] = (
                 f'/api/studio/projects/{manifest["id"]}/assets/{output.get("id")}/content'
             )
+            output["downloadUrl"] = (
+                f'/api/studio/projects/{manifest["id"]}/outputs/{output.get("id")}/download'
+            )
     result["diskBytes"] = _directory_size(project_dir(manifest["id"]))
     return result
 
@@ -855,6 +858,27 @@ def _download_file_name(value: str, output_id: str) -> str:
     supplied = Path(str(value or "")).name
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", supplied).strip(" .")
     return cleaned or f"bookvoice-{output_id[:8]}.wav"
+
+
+def output_download(project_id: str, output_id: str) -> tuple[Path, str]:
+    """Resolve one device-owned output and its browser download filename."""
+    safe_id = _validate_project_id(project_id)
+    if not PROJECT_ID_RE.fullmatch(str(output_id or "")):
+        raise ValueError("Invalid Studio output id.")
+    with _project_lock(safe_id):
+        manifest = _load_manifest(safe_id, normalize_jobs=False)
+        output = next(
+            (
+                copy.deepcopy(item)
+                for item in manifest.get("outputs") or []
+                if isinstance(item, dict) and item.get("id") == output_id
+            ),
+            None,
+        )
+    if output is None:
+        raise FileNotFoundError("Studio output was not found.")
+    path = asset_path(safe_id, output_id, "content")
+    return path, _download_file_name(output.get("fileName"), output_id)
 
 
 def _is_cancelled(event: threading.Event | None) -> bool:

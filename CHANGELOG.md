@@ -12,6 +12,9 @@
   user-facing filename. **Download to this device** now transfers the file to
   the phone or computer using BookVoice instead of writing it into the host
   machine's Windows Downloads folder.
+- Voice Studio's one-column phone layout now constrains media, output, and
+  custom audio-player rows to the viewport. Generated output no longer creates
+  horizontal overflow or lets adjacent review controls intercept download taps.
 - Origin validation still rejects unrelated websites and records rejected
   origin/host pairs in the server log for diagnosis.
 

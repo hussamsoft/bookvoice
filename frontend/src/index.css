@@ -2384,9 +2384,12 @@ body {
 
 .studio-workflow {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   max-width: 72rem;
 }
+
+.studio-workflow > * { min-width: 0; }
 
 .studio-editor,
 .studio-settings,
@@ -3033,10 +3036,15 @@ body {
 .studio-ab-preview > div > span { color: var(--studio-ink); font-size: 0.76rem; font-weight: 750; }
 .studio-ab-preview > button { grid-column: 1 / -1; justify-self: end; }
 
-.studio-output-list { display: grid; gap: 0.55rem; }
+.studio-output-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+}
 .studio-output-row {
   display: grid;
   grid-template-columns: minmax(11rem, 0.8fr) minmax(12rem, 1.4fr) auto;
+  min-width: 0;
   align-items: center;
   gap: 0.7rem;
   padding: 0.65rem;
@@ -3080,6 +3088,7 @@ body {
   .studio-clone-toolbar { align-items: stretch; flex-direction: column; }
   .studio-active-clone { justify-items: start; }
   .studio-output-row { grid-template-columns: 1fr auto; }
+  .studio-output-row .audio-transport,
   .studio-output-row audio,
   .studio-output-row video { grid-column: 1 / -1; grid-row: 2; }
 }
@@ -3184,6 +3193,20 @@ body {
     line-height: 1.15;
   }
   .studio-workflow-tabs small { display: none; }
+
+  .studio-output-row { grid-template-columns: minmax(0, 1fr); }
+  .studio-output-row .audio-transport,
+  .studio-output-row audio,
+  .studio-output-row video {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+  }
+  .studio-save-output {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
 
   .studio-select-row,
   .studio-settings-grid,
