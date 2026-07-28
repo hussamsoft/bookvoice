@@ -84,8 +84,8 @@ export default function StudioStart({ projects = [], onOpen, onCreate, disabled 
 
             <p className="studio-start-hint">
                 <Repeat2 size={14} aria-hidden="true" />
-                Every project opens on Create narration. Switch to Convert voice to re-voice an
-                existing recording.
+                This device remembers the project, workflow, and draft you choose here. Other
+                devices keep their own place.
             </p>
         </div>
     );

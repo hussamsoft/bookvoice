@@ -11,6 +11,7 @@ remote side has to resolve them in a different process.
 """
 from __future__ import annotations
 
+from pathlib import PurePath
 from typing import Any, Callable
 
 from services import remote_execution
@@ -19,6 +20,11 @@ from services import remote_execution
 NARRATE = "narrate_studio"
 NARRATE_REPAIR = "narrate_studio_repair"
 CONVERT = "convert_voice"
+
+
+def _payload_path(path: str | PurePath) -> str:
+    """Serialize a filesystem path without leaking the caller OS's separators."""
+    return path.as_posix() if isinstance(path, PurePath) else str(path)
 
 
 def _run_local(kind: str, payload: dict[str, Any], cancellation, progress):
@@ -119,8 +125,8 @@ def convert(session_id: str, source_path: str, target_voice_path: str, filename:
     return dispatch(
         CONVERT,
         {
-            "sourcePath": str(source_path),
-            "targetVoicePath": str(target_voice_path),
+            "sourcePath": _payload_path(source_path),
+            "targetVoicePath": _payload_path(target_voice_path),
             "sessionId": session_id,
             "filename": filename,
         },

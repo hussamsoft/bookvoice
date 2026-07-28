@@ -1077,14 +1077,6 @@ textarea:focus-visible,
     min-width: 0;
   }
 
-  .mode-button small {
-    display: block;
-    flex-basis: 100%;
-    margin-left: 1.45rem;
-    color: inherit;
-    font-size: 0.7rem;
-    opacity: 0.76;
-  }
 }
 
 /* PDF Viewer Enhancements */
@@ -2329,7 +2321,8 @@ body {
 }
 
 @media (max-width: 60rem) {
-  .studio-workflow-tabs { grid-template-columns: minmax(0, 1fr); }
+  .studio-workflow-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .studio-workflow-tabs small { display: none; }
 }
 
 .studio-workflow-tabs button {
@@ -3067,7 +3060,56 @@ body {
 @media (max-width: 680px) {
   /* One scroll container, not three. The page scrolls; nothing inside does,
      so the phone's address bar hide/show cannot fight a nested scroller. */
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #root { min-height: 100dvh; }
   .app-shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .app-shell .reading-stage {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding: 0 0.75rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  /* Compact, thumb-friendly workspace tabs. Desktop helper copy made these
+     three controls wrap into narrow text columns on a phone. */
+  .app-shell .mode-switcher {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.3rem;
+    margin: 0.45rem 0.75rem 0;
+    padding-left: 0;
+  }
+  .mode-button {
+    min-height: 3.45rem;
+    min-width: 0;
+    flex: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.18rem;
+    padding: 0.42rem 0.25rem;
+    border-radius: var(--radius) var(--radius) 0 0;
+    text-align: center;
+    touch-action: manipulation;
+  }
+  .mode-button span {
+    font-size: 0.78rem;
+    line-height: 1.15;
+  }
+  .mode-button small { display: none; }
+  .mode-button::after {
+    right: 0.45rem;
+    left: 0.45rem;
+  }
+
   .voice-studio {
     display: block;
     overflow: visible;
@@ -3094,7 +3136,28 @@ body {
   .studio-sidebar.is-expanded .studio-project-list { display: flex; max-height: 55dvh; overflow-y: auto; }
   .studio-sidebar.is-expanded .studio-sidebar-toggle svg { transform: rotate(180deg); }
 
-  .studio-workflow-tabs,
+  .studio-workflow-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+  .studio-workflow-tabs button {
+    min-width: 0;
+    min-height: 3.75rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.6rem 0.25rem;
+    text-align: center;
+    touch-action: manipulation;
+  }
+  .studio-workflow-tabs button > span { min-width: 0; }
+  .studio-workflow-tabs strong {
+    display: block;
+    font-size: 0.76rem;
+    line-height: 1.15;
+  }
+  .studio-workflow-tabs small { display: none; }
+
   .studio-select-row,
   .studio-settings-grid,
   .studio-range-grid,
@@ -3113,7 +3176,6 @@ body {
   .studio-range-note { line-height: 1.55; }
 
   /* Comfortable touch targets. */
-  .studio-workflow-tabs button { padding: 0.95rem 1rem; }
   .btn,
   .studio-target-modes button { min-height: 2.85rem; }
   .icon-btn { min-width: 2.4rem; min-height: 2.4rem; }
@@ -3138,6 +3200,15 @@ body {
   .studio-start-project { min-height: 3.25rem; }
   .studio-start-create input { min-height: 2.9rem; font-size: 1rem; }
   .studio-start-create .btn { flex: 1 1 100%; justify-content: center; min-height: 2.9rem; }
+  .studio-project-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+  .studio-project-header input {
+    width: 100%;
+    max-width: none;
+  }
   .studio-project-header-actions { width: 100%; justify-content: space-between; }
 
   /* The recorder is the primary action on a phone, so it gets full width and

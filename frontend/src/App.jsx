@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import { useToast } from './components/Toast';
 import TitleBar from './components/TitleBar';
+import { getAppMode, setAppMode } from './utils/appSession';
 
 const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
@@ -9,7 +10,7 @@ const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 
 function App() {
     const toast = useToast();
-    const [mode, setMode] = useState('pdf');
+    const [mode, setMode] = useState(getAppMode);
     const [sessionDirty, setSessionDirty] = useState(false);
 
     const requestMode = (next) => {
@@ -22,6 +23,7 @@ function App() {
         }
         setSessionDirty(false);
         setMode(next);
+        setAppMode(next);
         if (next === 'camera') {
             toast.info('Camera mode: capture a page to start.');
         }

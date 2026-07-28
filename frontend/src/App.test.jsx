@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import App from './App';
 import { ToastProvider } from './components/Toast';
 
@@ -25,6 +25,10 @@ function renderApp() {
 }
 
 describe('App Component', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('renders correctly and defaults to PDF Mode', async () => {
     renderApp();
     expect(screen.getByText('BookVoice')).toBeInTheDocument();
@@ -57,6 +61,16 @@ describe('App Component', () => {
     renderApp();
 
     fireEvent.click(screen.getByRole('button', { name: 'Voice Studio' }));
+
+    expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('bookvoice.app.mode')).toBe('studio');
+  });
+
+  it('restores the workspace selected on this device', async () => {
+    localStorage.setItem('bookvoice.app.mode', 'studio');
+
+    renderApp();
 
     expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-pressed', 'true');

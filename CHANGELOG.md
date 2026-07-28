@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.1.3 - 2026-07-27
 
 ### Added
 
@@ -42,6 +42,16 @@
 
 ### Fixed
 
+- Phone layouts now use normal document scrolling instead of leaving the body
+  locked while Voice Studio extends beyond the viewport, so every project,
+  output, and action remains reachable.
+- The app and Voice Studio mode selectors use compact, touch-friendly tabs on
+  phones and tablets instead of wrapping desktop helper text into narrow
+  columns.
+- Each device now remembers its selected BookVoice workspace in addition to
+  its active Voice Studio project, workflow, and draft.
+- Remote voice-conversion jobs now carry portable shared-storage paths when
+  dispatched from Windows, instead of sending backslashes to a Linux worker.
 - Pace is now applied once to the completed narration with FFmpeg's pitch-preserving `atempo` filter, eliminating the phase-vocoder doubling and hall-like echo that could occur on chunked speech.
 - Expression now stays in Chatterbox's safer exaggeration range with an adaptive automatic guidance curve; manually entered guidance remains an exact override.
 - Advanced delivery controls now explain their lower and higher endpoints, show semantic value labels, and provide persistent accessible help.
