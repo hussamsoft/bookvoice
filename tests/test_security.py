@@ -41,6 +41,26 @@ class BrowserOriginTests(unittest.TestCase):
             self.assertFalse(is_allowed_browser_origin("https://bookvoice.example.com:8443"))
             self.assertFalse(is_allowed_browser_origin("https://evil.bookvoice.example.com"))
 
+    def test_same_public_origin_is_trusted_behind_an_https_reverse_proxy(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BOOKVOICE_PUBLIC_ORIGIN", None)
+            self.assertTrue(
+                is_allowed_browser_origin(
+                    "https://voice.example.com",
+                    request_scheme="http",
+                    request_host="voice.example.com",
+                    forwarded_proto="https",
+                )
+            )
+            self.assertFalse(
+                is_allowed_browser_origin(
+                    "https://evil.example.com",
+                    request_scheme="http",
+                    request_host="voice.example.com",
+                    forwarded_proto="https",
+                )
+            )
+
     def test_several_public_origins_can_be_configured(self):
         with patch.dict(
             os.environ,

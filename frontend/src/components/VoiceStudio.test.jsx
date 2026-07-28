@@ -470,7 +470,7 @@ describe('VoiceStudio', () => {
         expect(screen.getByText(/Lower guidance gives the voice more freedom/i)).toBeInTheDocument();
     }, 15_000);
 
-    it('saves generated output automatically and opens the managed project folder', async () => {
+    it('downloads generated output to this device and opens the managed project folder', async () => {
         const outputProject = {
             ...project,
             outputs: [{
@@ -480,31 +480,18 @@ describe('VoiceStudio', () => {
                 format: 'WAV',
                 durationSec: 2,
                 contentUrl: '/api/studio/output.wav',
+                downloadUrl: `/api/studio/projects/${project.id}/outputs/${'f'.repeat(32)}/download`,
             }],
         };
         api.listStudioProjects.mockResolvedValue([outputProject]);
         api.getStudioProject.mockResolvedValue(outputProject);
-        api.saveStudioOutput.mockResolvedValue({
-            id: 'e'.repeat(32),
-            projectId: project.id,
-            kind: 'SAVE_OUTPUT',
-            status: 'QUEUED',
-            progress: 0,
-        });
-        api.waitForStudioJob.mockResolvedValue({
-            id: 'e'.repeat(32),
-            status: 'COMPLETED',
-            progress: 1,
-            result: { fileName: 'Demo voice project.wav', destination: 'Downloads' },
-        });
         api.openStudioProjectFolder.mockResolvedValue({ opened: true });
 
         renderStudio();
-        fireEvent.click(await screen.findByRole('button', { name: /Save narration to Downloads/i }));
-        await waitFor(() => expect(api.saveStudioOutput).toHaveBeenCalledWith(
-            project.id,
-            outputProject.outputs[0].id,
-        ));
+        const download = await screen.findByRole('link', { name: /Download narration to this device/i });
+        expect(download).toHaveAttribute('href', outputProject.outputs[0].downloadUrl);
+        expect(download).toHaveAttribute('download', outputProject.outputs[0].fileName);
+        expect(api.saveStudioOutput).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: /Open Demo voice project folder/i }));
         await waitFor(() => expect(api.openStudioProjectFolder).toHaveBeenCalledWith(project.id));

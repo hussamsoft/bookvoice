@@ -101,7 +101,16 @@ app.add_middleware(
 async def protect_local_api(request: Request, call_next):
     origin = request.headers.get("origin")
     path = request.url.path
-    if path.startswith("/api/") and not is_allowed_browser_origin(origin):
+    if path.startswith("/api/") and not is_allowed_browser_origin(
+        origin,
+        request_scheme=request.url.scheme,
+        request_host=request.headers.get("host", ""),
+        forwarded_proto=request.headers.get("x-forwarded-proto", ""),
+    ):
+        print(
+            "[security] rejected browser origin "
+            f"{origin!r} for host {request.headers.get('host', '')!r}"
+        )
         response = JSONResponse({"detail": "Browser origin is not allowed."}, status_code=403)
     elif access_service.requires_session(path) and not access_service.is_valid_session(
         request.cookies.get(access_service.COOKIE_NAME)

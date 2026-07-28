@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = "hussamsoft/bookvoice"
-RELEASE_VERSION = "2.2.0"
+RELEASE_VERSION = "2.2.1"
 DEFAULT_MANIFEST_URL = (
     f"https://github.com/{REPOSITORY}/releases/download/"
     f"v{RELEASE_VERSION}/release-assets.json"

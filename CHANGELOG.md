@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.1 - 2026-07-28
+
+### Fixed
+
+- Voice Studio now accepts state-changing requests from its own browser-facing
+  Cloudflare Tunnel origin, even when the internal FastAPI connection uses
+  plain HTTP. Creating projects, importing media, cloning voices, and starting
+  generation from a phone no longer fails with `Browser origin is not allowed`.
+- Generated outputs use a real browser attachment download with the
+  user-facing filename. **Download to this device** now transfers the file to
+  the phone or computer using BookVoice instead of writing it into the host
+  machine's Windows Downloads folder.
+- Origin validation still rejects unrelated websites and records rejected
+  origin/host pairs in the server log for diagnosis.
+
 ## 2.2.0 - 2026-07-28
 
 ### Changed

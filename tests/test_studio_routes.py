@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from urllib.parse import unquote
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -139,6 +140,32 @@ class StudioRouteContractTests(unittest.TestCase):
             owned = client_a.get(asset_url)
             self.assertEqual(owned.status_code, 200)
             self.assertEqual(owned.content, b"device-audio")
+
+    def test_output_download_is_an_attachment_for_the_requesting_device(self):
+        project = studio.create_project("Phone download")
+        output_id = "d" * 32
+        root = studio.project_dir(project["id"])
+        output = root / "outputs" / f"{output_id}.wav"
+        output.write_bytes(b"phone-output")
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["outputs"] = [{
+            "id": output_id,
+            "kind": "NARRATION",
+            "path": f"outputs/{output_id}.wav",
+            "fileName": "phone narration.wav",
+        }]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        refreshed = self.client.get(f"/api/studio/projects/{project['id']}")
+        download_url = refreshed.json()["outputs"][0]["downloadUrl"]
+        response = self.client.get(download_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"phone-output")
+        disposition = unquote(response.headers["content-disposition"])
+        self.assertIn("attachment", disposition)
+        self.assertIn("phone narration.wav", disposition)
 
     def test_legacy_projects_are_hidden_until_one_device_claims_them(self):
         project = studio.create_project("Before device isolation")

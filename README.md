@@ -35,12 +35,12 @@ This MVP was built across three development phases:
    - Descriptive pace, expression, temperature, guidance, and optional seed controls for English and Arabic narration. Pace preserves pitch, and the interface explains the result of increasing or decreasing every value.
    - Transcript-guided sentence correction and waveform-guided phrase replacement create new immutable WAV output versions while preserving the source.
    - Repaired video exports use the original video stream when compatible and otherwise produce a broadly compatible H.264/AAC MP4.
-   - Generated outputs save directly to the Windows Downloads folder without overwriting existing files, and each project can open its complete managed folder from the project list.
+   - Generated outputs use real browser attachment downloads, so **Download to this device** transfers the file to the phone or computer currently using BookVoice. The host computer can also open a project's complete managed folder.
 
 ## Hosting
 
-BookVoice is a local desktop app by default: loopback-only, no login, files
-saved to your Downloads folder. It can also run as a private server — see
+BookVoice is a local desktop app by default: loopback-only, no login, with
+generated files downloaded by the browser using it. It can also run as a private server — see
 [`deploy/README.md`](deploy/README.md) for the environment variables, the Modal
 deployment, and the limits (single-tenant, no per-user separation, no quotas).
 

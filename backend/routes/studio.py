@@ -415,7 +415,7 @@ async def export_repair(project_id: str, repair_id: str):
 
 
 @router.post("/projects/{project_id}/outputs/{output_id}/download", status_code=202)
-async def download_output(project_id: str, output_id: str):
+async def save_output_to_downloads(project_id: str, output_id: str):
     try:
         studio.get_project(project_id)
     except ValueError as exc:
@@ -435,6 +435,27 @@ async def download_output(project_id: str, output_id: str):
         )
 
     return studio.submit_job(project_id, "SAVE_OUTPUT", work)
+
+
+@router.get("/projects/{project_id}/outputs/{output_id}/download")
+async def download_output_file(project_id: str, output_id: str):
+    """Send the output to the browser that requested it, not the host PC."""
+    try:
+        path, file_name = studio.output_download(project_id, output_id)
+    except ValueError as exc:
+        _error("INVALID_OUTPUT_ID", str(exc))
+    except FileNotFoundError as exc:
+        _error("OUTPUT_NOT_FOUND", str(exc), 404)
+    media_type = {
+        ".wav": "audio/wav",
+        ".mp4": "video/mp4",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=file_name,
+        content_disposition_type="attachment",
+    )
 
 
 @router.get("/projects/{project_id}/assets/{asset_id}/{variant}")

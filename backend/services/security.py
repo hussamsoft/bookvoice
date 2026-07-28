@@ -66,8 +66,44 @@ def _is_private_host(hostname: str) -> bool:
     return bool(address.is_private or address.is_link_local)
 
 
-def is_allowed_browser_origin(origin: str | None) -> bool:
-    """Allow native/non-browser requests, loopback browsers, and configured origins."""
+def _matches_request_origin(
+    normalized_origin: str,
+    *,
+    request_scheme: str = "",
+    request_host: str = "",
+    forwarded_proto: str = "",
+) -> bool:
+    """Return whether Origin is the same public origin that received the request.
+
+    Reverse proxies such as Cloudflare terminate HTTPS before forwarding to the
+    local HTTP server. The browser's Origin is therefore HTTPS while
+    ``request.url.scheme`` is HTTP. Host remains the public hostname and
+    X-Forwarded-Proto records the browser-facing scheme.
+    """
+    host = str(request_host or "").strip()
+    if not host:
+        return False
+    schemes = []
+    forwarded = str(forwarded_proto or "").split(",", 1)[0].strip().lower()
+    if forwarded in {"http", "https"}:
+        schemes.append(forwarded)
+    direct = str(request_scheme or "").strip().lower()
+    if direct in {"http", "https"} and direct not in schemes:
+        schemes.append(direct)
+    return any(
+        _normalize_origin(f"{scheme}://{host}") == normalized_origin
+        for scheme in schemes
+    )
+
+
+def is_allowed_browser_origin(
+    origin: str | None,
+    *,
+    request_scheme: str = "",
+    request_host: str = "",
+    forwarded_proto: str = "",
+) -> bool:
+    """Allow native requests, same-origin browsers, and configured origins."""
     if origin is None or not origin.strip():
         return True
     normalized = _normalize_origin(origin)
@@ -75,6 +111,13 @@ def is_allowed_browser_origin(origin: str | None) -> bool:
         return False
     parsed = urlparse(normalized)
     if parsed.hostname in LOOPBACK_HOSTS:
+        return True
+    if _matches_request_origin(
+        normalized,
+        request_scheme=request_scheme,
+        request_host=request_host,
+        forwarded_proto=forwarded_proto,
+    ):
         return True
     if normalized in public_origins():
         return True
