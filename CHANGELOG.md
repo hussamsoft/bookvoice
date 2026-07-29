@@ -4,6 +4,9 @@
 
 ### Changed
 
+- The native Windows launcher now has a notification-area icon. Minimizing the
+  window hides it from the taskbar while the backend and configured Cloudflare
+  tunnel continue running; the icon restores BookVoice or shuts it down cleanly.
 - Voice Studio microphone capture now preserves the browser's native sample
   rate instead of using a destructive nearest-neighbor conversion to 22.05 kHz,
   and requests an unprocessed mono 48 kHz signal where the device supports it.

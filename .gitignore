@@ -38,6 +38,7 @@ tools/python-embed/
 
 build/
 *.spec
+!Launcher.spec
 
 # MSI build output (installer/*.msi, WiX intermediates, cabs) — regenerate
 # with build_msi.py / package_msi.bat; too large and derivable to commit.

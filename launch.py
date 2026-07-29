@@ -27,9 +27,10 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path as _Path
 
-# tunnel.py sits beside this file in both the source tree and dist/.
+# Launcher helpers sit beside this file in both the source tree and dist/.
 if str(_Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import system_tray
 import tunnel
 
 try:
@@ -926,6 +927,23 @@ def create_main_window(webview_module):
     )
 
 
+def configure_system_tray(window, app_dir: str, log: Logger):
+    """Attach minimize-to-tray behavior to the native desktop window."""
+    try:
+        controller = system_tray.SystemTray(
+            window,
+            os.path.join(app_dir, "bookvoice.ico"),
+            log,
+        )
+        controller.start()
+    except system_tray.TrayUnavailable as exc:
+        log.write(f"notification-area icon unavailable: {exc}")
+        return None
+    window.events.minimized += controller.minimize_to_tray
+    log.write("notification-area icon ready; minimizing hides the taskbar window")
+    return controller
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     app_dir = resolve_app_dir()
@@ -965,6 +983,7 @@ def main(argv: list[str] | None = None) -> int:
     window = None
     process = None
     log_file = None
+    tray_controller = None
 
     if use_webview:
         configure_webview_gpu()
@@ -974,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
             + os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "(default)")
         )
         window = create_main_window(webview)
+        tray_controller = configure_system_tray(window, app_dir, log)
 
     state = {"error": None}
     tunnel_handle: dict = {}
@@ -1163,6 +1183,8 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 process.kill()
     finally:
+        if tray_controller is not None:
+            tray_controller.stop()
         active_tunnel = tunnel_handle.get("tunnel")
         if active_tunnel is not None:
             try:

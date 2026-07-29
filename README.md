@@ -170,6 +170,9 @@ python build.py --msi --per-user
 
 On first launch, `Launcher.exe` verifies and starts the bundled worker. It never
 creates a venv or invokes pip, and no system Python on PATH is required.
+The native launcher also owns a Windows notification-area icon: minimizing the
+window hides it from the taskbar without stopping the backend or configured
+Cloudflare tunnel, and the icon restores or fully quits BookVoice.
 
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.

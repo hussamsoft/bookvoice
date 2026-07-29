@@ -128,6 +128,7 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `Launcher.exe` | Desktop window entry (Start Menu shortcut target) |
 | `BookVoice.bat` | Browser fallback launcher |
 | `launch.py` | Shared launcher logic |
+| `system_tray.py` | Native notification-area behavior |
 | `runtime/worker/` | Portable Python 3.10 + locked application packages |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
@@ -141,6 +142,9 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 - Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
 - English TTS is offline once `data/models/en` is present.
 - Voice Studio projects, imported media, profiles, and outputs remain local.
+- Minimizing the native window hides it from the taskbar while BookVoice and
+  any configured Cloudflare tunnel keep running. Use the notification-area icon
+  to reopen or quit it.
 """
 
 
@@ -292,10 +296,11 @@ def assemble_dist():
     if launch_src.is_file():
         shutil.copy2(launch_src, DIST / "launch.py")
 
-    # launch.py imports this from beside itself for Cloudflare Tunnel support.
-    tunnel_src = ROOT / "tunnel.py"
-    if tunnel_src.is_file():
-        shutil.copy2(tunnel_src, DIST / "tunnel.py")
+    # launch.py imports these helpers from beside itself.
+    for helper_name in ("tunnel.py", "system_tray.py"):
+        helper_src = ROOT / helper_name
+        if helper_src.is_file():
+            shutil.copy2(helper_src, DIST / helper_name)
 
     stage_embed_python()
     stage_runtime_bundle()
@@ -523,6 +528,7 @@ def validate():
     required = [
         "main.py",
         "launch.py",
+        "system_tray.py",
         "VERSION",
         "release-manifest.json",
         "requirements.txt",

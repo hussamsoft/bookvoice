@@ -22,6 +22,10 @@ BookVoice ships as Windows installers built from the same `dist/` payload.
 - Creates only writable data, session, config, and log directories
 - Uses the packaged CUDA PyTorch build when an NVIDIA GPU is present
 - Opens a desktop window (or browser via `BookVoice.bat --browser`)
+- Shows a BookVoice icon in the Windows notification area. Minimizing the
+  desktop window removes it from the taskbar while the backend and configured
+  Cloudflare tunnel keep running. Click the icon to restore it, use its menu to
+  quit, or close the visible window normally to exit.
 
 ## Logs
 
