@@ -4,6 +4,8 @@ Usage:  python make_icon.py <source_image_path>
 """
 import sys
 import os
+from pathlib import Path
+
 from PIL import Image
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else None
@@ -40,7 +42,7 @@ offset_y = (size - h) // 2
 canvas.paste(img, (offset_x, offset_y), img)
 
 # ---- Output paths ----
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = Path(__file__).resolve().parents[2]
 PUBLIC = os.path.join(ROOT, "frontend", "public")
 os.makedirs(PUBLIC, exist_ok=True)
 

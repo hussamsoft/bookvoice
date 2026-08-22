@@ -7,7 +7,11 @@ import shutil
 # Output directory for the committed, preloaded default voices.
 # build.py copies this into dist/data/default_voices, and the backend seeds
 # them into data/voices on first run.
-DEFAULT_VOICES_DIR = os.path.join(os.path.dirname(__file__), "voices")
+# NOTE: backend/generate_voices.py is the maintained variant; this older copy
+# only regenerates the repo-root voices/ clips via edge-tts + ffmpeg.
+DEFAULT_VOICES_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "voices")
+)
 
 async def generate_voice(voice_id, name, text):
     wav_path = os.path.join(DEFAULT_VOICES_DIR, f"{name}.wav")

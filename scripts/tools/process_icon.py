@@ -1,6 +1,7 @@
 import sys
+from pathlib import Path
+
 from PIL import Image
-import os
 
 try:
     from rembg import remove
@@ -19,17 +20,20 @@ except ImportError:
         img.putdata(new_data)
         return img
 
-img_path = sys.argv[1]
-input_image = Image.open(img_path)
+if len(sys.argv) != 2:
+    print("Usage: python process_icon.py <source_image>")
+    sys.exit(1)
+
+input_image = Image.open(sys.argv[1])
 
 output_image = remove(input_image)
 
-# Resize appropriately for icon
-dist_dir = r"C:\AI Projects\bookvoice\dist"
-public_dir = r"C:\AI Projects\bookvoice\frontend\public"
-os.makedirs(dist_dir, exist_ok=True)
-os.makedirs(public_dir, exist_ok=True)
+root = Path(__file__).resolve().parents[2]
+dist_dir = root / "dist"
+public_dir = root / "frontend" / "public"
+dist_dir.mkdir(parents=True, exist_ok=True)
+public_dir.mkdir(parents=True, exist_ok=True)
 
-output_image.save(os.path.join(dist_dir, "bookvoice.ico"), format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (32, 32)])
-output_image.save(os.path.join(public_dir, "bookvoice.png"), format="PNG")
+output_image.save(dist_dir / "bookvoice.ico", format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (32, 32)])
+output_image.save(public_dir / "bookvoice.png", format="PNG")
 print("Transparent clean icon created.")
