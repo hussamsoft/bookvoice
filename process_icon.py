@@ -25,8 +25,8 @@ input_image = Image.open(img_path)
 output_image = remove(input_image)
 
 # Resize appropriately for icon
-dist_dir = r"C:\AI Projects\Narrator\dist"
-public_dir = r"C:\AI Projects\Narrator\frontend\public"
+dist_dir = r"C:\AI Projects\bookvoice\dist"
+public_dir = r"C:\AI Projects\bookvoice\frontend\public"
 os.makedirs(dist_dir, exist_ok=True)
 os.makedirs(public_dir, exist_ok=True)
 

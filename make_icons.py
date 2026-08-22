@@ -7,8 +7,8 @@ img = Image.open(img_path)
 # Convert to RGBA and make background transparent (optional, but let's just keep the nice background for the icon)
 img = img.convert("RGBA")
 
-frontend_public_dir = r"C:\AI Projects\Narrator\frontend\public"
-dist_dir = r"C:\AI Projects\Narrator\dist"
+frontend_public_dir = r"C:\AI Projects\bookvoice\frontend\public"
+dist_dir = r"C:\AI Projects\bookvoice\dist"
 
 os.makedirs(frontend_public_dir, exist_ok=True)
 
