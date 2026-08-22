@@ -1,10 +1,6 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
-
-function timeLabel(seconds) {
-    const whole = Math.max(0, Math.floor(Number(seconds) || 0));
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
-}
+import { formatClock as timeLabel } from '../utils/format';
 
 /**
  * Audio playback that looks the same everywhere.

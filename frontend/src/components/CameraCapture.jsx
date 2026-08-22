@@ -146,7 +146,8 @@ export default function CameraCapture({ onCapture }) {
                             <button
                                 onClick={toggleTorch}
                                 className={`control-btn ${torchOn ? 'active' : ''}`}
-                                title="Toggle flashlight"
+                                aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+                                aria-pressed={torchOn}
                             >
                                 {torchOn ? <Zap size={20} /> : <ZapOff size={20} />}
                             </button>
@@ -154,14 +155,17 @@ export default function CameraCapture({ onCapture }) {
 
                         {capabilities?.zoom && (
                             <div className="zoom-control">
-                                <ZoomIn size={16} />
+                                <ZoomIn size={16} aria-hidden="true" />
+                                <label className="sr-only" htmlFor="camera-zoom">Zoom level</label>
                                 <input
+                                    id="camera-zoom"
                                     type="range"
                                     min={capabilities.zoom.min}
                                     max={capabilities.zoom.max}
                                     step={capabilities.zoom.step || 0.1}
                                     value={zoom}
                                     onChange={handleZoomChange}
+                                    aria-label="Zoom level"
                                 />
                             </div>
                         )}

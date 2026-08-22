@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import { useToast } from './components/Toast';
 import TitleBar from './components/TitleBar';
+import ConfirmDialog from './components/ui/ConfirmDialog';
 import { getAppMode, setAppMode } from './utils/appSession';
 
 const BookSession = lazy(() => import('./components/BookSession'));
@@ -12,26 +13,39 @@ function App() {
     const toast = useToast();
     const [mode, setMode] = useState(getAppMode);
     const [sessionDirty, setSessionDirty] = useState(false);
+    const [pendingMode, setPendingMode] = useState(null);
+
+    const switchTo = (next) => {
+        setSessionDirty(false);
+        setMode(next);
+        setAppMode(next);
+    };
 
     const requestMode = (next) => {
         if (next === mode) return;
         if (sessionDirty) {
-            const ok = window.confirm(
-                'Switching modes will leave your current reading session. Continue?'
-            );
-            if (!ok) return;
+            setPendingMode(next);
+            return;
         }
-        setSessionDirty(false);
-        setMode(next);
-        setAppMode(next);
+        switchTo(next);
         if (next === 'camera') {
-            toast.info('Camera mode: capture a page to start.');
+            toast.info('Scan a page to start.');
+        }
+    };
+
+    const confirmPendingMode = () => {
+        const next = pendingMode;
+        setPendingMode(null);
+        if (!next) return;
+        switchTo(next);
+        if (next === 'camera') {
+            toast.info('Scan a page to start.');
         }
     };
 
     return (
-        <div className="app-container app-shell">
-            <header className="main-header app-header">
+        <div className="app-shell">
+            <header className="main-header">
                 <TitleBar />
                 <nav className="mode-switcher" aria-label="Reading mode">
                     <button
@@ -78,6 +92,15 @@ function App() {
                     )}
                 </Suspense>
             </main>
+
+            <ConfirmDialog
+                open={pendingMode !== null}
+                title="Leave this session?"
+                message="Switching modes leaves your current reading session. Your book and progress stay saved."
+                confirmLabel="Switch mode"
+                onConfirm={confirmPendingMode}
+                onCancel={() => setPendingMode(null)}
+            />
         </div>
     );
 }

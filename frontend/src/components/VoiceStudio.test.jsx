@@ -71,7 +71,7 @@ describe('VoiceStudio', () => {
         renderStudio();
 
         expect(await screen.findByDisplayValue('The corrected sentence.')).toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: /Create narration/i })).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('tab', { name: /Create narration/i })).toHaveAttribute('aria-selected', 'true');
         expect(screen.getByRole('tab', { name: /Repair media/i })).toBeInTheDocument();
     }, 15_000);
 

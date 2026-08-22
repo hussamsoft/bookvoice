@@ -1,5 +1,5 @@
 /* eslint-disable react/only-export-components */
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
@@ -24,11 +24,17 @@ export function ToastProvider({ children }) {
         return id;
     }, [dismiss]);
 
-    const toast = {
-        info: (msg) => addToast(msg, 'info'),
-        success: (msg) => addToast(msg, 'success'),
-        error: (msg) => addToast(msg, 'error', 7000),
-    };
+    // Stable identity: consumers key effects on this object, so a new toast
+    // must never re-create it (a fresh value re-ran library fetches and
+    // polling loops on every notification).
+    const toast = useMemo(
+        () => ({
+            info: (msg) => addToast(msg, 'info'),
+            success: (msg) => addToast(msg, 'success'),
+            error: (msg) => addToast(msg, 'error', 7000),
+        }),
+        [addToast]
+    );
 
     const icons = {
         info: Info,

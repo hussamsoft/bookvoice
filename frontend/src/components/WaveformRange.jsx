@@ -1,10 +1,5 @@
 import React, { useMemo, useState } from 'react';
-
-function timeLabel(value = 0) {
-    const seconds = Math.max(0, Number(value) || 0);
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
-}
+import { formatClockTenths as timeLabel } from '../utils/format';
 
 export default function WaveformRange({
     peaks = [],

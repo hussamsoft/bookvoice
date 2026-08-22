@@ -19,7 +19,7 @@ describe('TitleBar', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Use dark theme' }));
 
         expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
-        expect(localStorage.getItem('bookvoice:theme')).toBe('dark');
+        expect(localStorage.getItem('bookvoice.theme')).toBe('dark');
         expect(screen.getByRole('button', { name: 'Use light theme' })).toBeVisible();
     });
 

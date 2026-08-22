@@ -15,6 +15,7 @@ import {
     waitForStudioJob,
 } from '../utils/api';
 import { useToast } from './Toast';
+import ConfirmDialog from './ui/ConfirmDialog';
 import StudioConversion from './StudioConversion';
 import StudioNarration from './StudioNarration';
 import StudioProjectSidebar from './StudioProjectSidebar';
@@ -34,6 +35,7 @@ export default function VoiceStudio() {
     const [activeJob, setActiveJob] = useState(null);
     const [workflow, setWorkflowState] = useState('NARRATION');
     const [legacyProjectsAvailable, setLegacyProjectsAvailable] = useState(false);
+    const [projectPendingDelete, setProjectPendingDelete] = useState(null);
 
     const openProject = useCallback(async (projectId) => {
         if (!projectId) {
@@ -165,10 +167,6 @@ export default function VoiceStudio() {
     };
 
     const removeProject = async (target) => {
-        const confirmed = window.confirm(
-            `Delete “${target.name}”? Its copied source media and all output versions will be permanently removed. This cannot be undone.`,
-        );
-        if (!confirmed) return;
         try {
             await deleteStudioProject(target.id);
             studioSession.forgetProject(target.id);
@@ -273,7 +271,7 @@ export default function VoiceStudio() {
                 onOpen={openProject}
                 onCreate={createProject}
                 onDuplicate={duplicateProject}
-                onDelete={removeProject}
+                onDelete={setProjectPendingDelete}
                 onOpenFolder={showProjectFolder}
                 disabled={Boolean(activeJob)}
             />
@@ -325,7 +323,6 @@ export default function VoiceStudio() {
                         <button
                             role="tab"
                             aria-selected={workflow === 'NARRATION'}
-                            aria-pressed={workflow === 'NARRATION'}
                             className={workflow === 'NARRATION' ? 'is-active' : ''}
                             onClick={() => setWorkflow('NARRATION')}
                             disabled={Boolean(activeJob)}
@@ -335,7 +332,6 @@ export default function VoiceStudio() {
                         <button
                             role="tab"
                             aria-selected={workflow === 'CONVERSION'}
-                            aria-pressed={workflow === 'CONVERSION'}
                             className={workflow === 'CONVERSION' ? 'is-active' : ''}
                             onClick={() => setWorkflow('CONVERSION')}
                             disabled={Boolean(activeJob)}
@@ -345,7 +341,6 @@ export default function VoiceStudio() {
                         <button
                             role="tab"
                             aria-selected={workflow === 'REPAIR'}
-                            aria-pressed={workflow === 'REPAIR'}
                             className={workflow === 'REPAIR' ? 'is-active' : ''}
                             onClick={() => setWorkflow('REPAIR')}
                             disabled={Boolean(activeJob)}
@@ -391,6 +386,20 @@ export default function VoiceStudio() {
                     )}
                 </>}
             </section>
+
+            <ConfirmDialog
+                open={Boolean(projectPendingDelete)}
+                title={`Delete “${projectPendingDelete?.name ?? ''}”?`}
+                message="Its copied source media and all output versions will be permanently removed. This cannot be undone."
+                confirmLabel="Delete project"
+                confirmVariant="danger"
+                onConfirm={() => {
+                    const target = projectPendingDelete;
+                    setProjectPendingDelete(null);
+                    if (target) removeProject(target);
+                }}
+                onCancel={() => setProjectPendingDelete(null)}
+            />
         </div>
     );
 }

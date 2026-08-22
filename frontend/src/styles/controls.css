@@ -1,0 +1,284 @@
+/* Interactive controls: buttons, icon buttons, fields, banners, dialogs. */
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* --- Buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.btn.primary {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: transparent;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--ink-secondary);
+}
+
+.btn.secondary {
+  background: var(--surface-raised);
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.btn.text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  padding: 8px 10px;
+}
+
+.btn.text:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.btn.danger,
+.btn.text.danger,
+.btn.primary.danger {
+  color: var(--error);
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.danger {
+  border-color: var(--error-ring);
+}
+
+.btn.danger:hover:not(:disabled),
+.btn.text.danger:hover:not(:disabled) {
+  background: var(--error-bg);
+}
+
+.btn.primary.danger {
+  background: var(--error);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn.primary.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn.compact,
+.btn.btn-compact {
+  padding: 5px 10px;
+  font-size: var(--text-xs);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-secondary);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.icon-btn.danger {
+  color: var(--error);
+}
+
+.control-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.control-btn:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.control-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+textarea {
+  resize: vertical;
+}
+
+label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+/* --- Voice creation (non-compact VoiceSettings) ------------------------- */
+
+.voice-creation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+
+.voice-creation h4 {
+  font-size: var(--text-sm);
+}
+
+.creation-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* --- Status banner -------------------------------------------------------- */
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink-secondary);
+}
+
+.status-banner > span {
+  flex: 1;
+}
+
+.status-banner.loading {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.status-banner.error {
+  border-color: var(--error-ring);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.status-banner.prefetch {
+  color: var(--ink-muted);
+}
+
+/* --- Modal / dialog --------------------------------------------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  padding: var(--space-5);
+}
+
+.modal-panel {
+  width: min(460px, 100%);
+  max-height: min(80vh, 640px);
+  overflow: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (max-width: 720px) {
+  .modal-panel {
+    width: 100%;
+  }
+}

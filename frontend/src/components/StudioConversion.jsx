@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Repeat2, ShieldCheck, Upload, Wand2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Repeat2, ShieldCheck, Wand2 } from 'lucide-react';
 import { createStudioConversion, uploadStudioSource } from '../utils/api';
 import StudioOutputs from './StudioOutputs';
+import MediaWorkbench from './studio/MediaWorkbench';
 import AudioPlayer from './AudioPlayer';
-import StudioRecorder from './StudioRecorder';
 import WaveformRange from './WaveformRange';
 
 const MAX_TARGET_CLIP_SEC = 30;
@@ -11,8 +11,6 @@ const MIN_TARGET_CLIP_SEC = 5;
 
 export default function StudioConversion({ project, voices, onPatch, onRunJob, disabled }) {
     const sources = useMemo(() => project.sources || [], [project.sources]);
-    const mediaRef = useRef(null);
-    const fileRef = useRef(null);
     const [sourceId, setSourceId] = useState(sources.at(-1)?.id || '');
     const [range, setRange] = useState({ start: 0, end: 0 });
     const [targetMode, setTargetMode] = useState('PROFILE');
@@ -61,16 +59,12 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
         if (imported) setSourceId(imported);
     };
 
-    const importMedia = async (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        await onRunJob(
+    const importFile = (file) =>
+        onRunJob(
             'Importing recording',
             () => uploadStudioSource(project.id, file),
             { onComplete: selectImported, successMessage: () => `${file.name} imported and selected` },
         );
-        event.target.value = '';
-    };
 
     const importRecording = async (blob, name) => {
         await onRunJob(
@@ -82,18 +76,6 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
             ),
             { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
         );
-    };
-
-    const playSelection = () => {
-        if (!mediaRef.current) return;
-        mediaRef.current.currentTime = range.start;
-        mediaRef.current.play();
-    };
-
-    const stopAtSelectionEnd = () => {
-        if (mediaRef.current && mediaRef.current.currentTime >= range.end) {
-            mediaRef.current.pause();
-        }
     };
 
     const sourceSpan = range.end - range.start;
@@ -124,7 +106,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         <span className="studio-kicker">Step 1 · Choose the recording to re-voice</span>
                         <h2 id="studio-convert-heading">Convert a recording into another voice</h2>
                     </div>
-                    <Repeat2 size={21} />
+                    <Repeat2 size={21} aria-hidden="true" />
                 </div>
                 <p className="studio-clone-intro">
                     The performance in the file is kept exactly as recorded — timing, rhythm and emphasis —
@@ -132,81 +114,32 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                     are involved.
                 </p>
 
-                <div className="studio-clone-toolbar">
-                    <button className="btn secondary" type="button" onClick={() => fileRef.current?.click()} disabled={disabled}>
-                        <Upload size={16} /> Import audio or video
-                    </button>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        hidden
-                        aria-label="Recording media file"
-                        accept="audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg"
-                        onChange={importMedia}
-                    />
-                    <StudioRecorder
-                        onRecorded={importRecording}
-                        disabled={disabled}
-                        label="Record something to convert"
-                    />
-                    <small className="studio-record-retention">
-                        Microphone recordings are deleted after 30 days.
-                    </small>
-                </div>
-
-                {sources.length > 0 && (
-                    <label className="studio-source-picker">
-                        <span>Recording to convert</span>
-                        <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} disabled={disabled}>
-                            {sources.map((item) => (
-                                <option key={item.id} value={item.id}>{item.fileName}</option>
-                            ))}
-                        </select>
-                    </label>
-                )}
-
-                {source ? (
-                    <div className="studio-clone-workbench">
-                        <div className="studio-clone-preview">
-                            {source.mediaType === 'VIDEO' ? (
-                                <video
-                                    ref={mediaRef}
-                                    controls
-                                    playsInline
-                                    preload="metadata"
-                                    aria-label="Recording preview"
-                                    src={source.previewUrl || source.originalUrl}
-                                    onTimeUpdate={stopAtSelectionEnd}
-                                />
-                            ) : (
-                                <AudioPlayer ref={mediaRef} src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} label="the recording" />
-                            )}
-                            <button className="btn text" type="button" onClick={playSelection} disabled={disabled}>
-                                <Play size={15} /> Play selected region
-                            </button>
-                        </div>
-                        <WaveformRange
-                            peaks={source.waveformPeaks}
-                            duration={source.durationSec}
-                            start={range.start}
-                            end={range.end}
-                            onChange={(start, end) => setRange({ start, end })}
-                            disabled={disabled}
-                            idPrefix="studio-convert-source"
-                            label="Region to convert"
-                        />
-                        <p className={validSource ? 'studio-range-note' : 'studio-range-note is-error'}>
-                            Converting {sourceSpan.toFixed(1)} seconds. Leave the full range selected to
-                            convert the whole recording.
-                        </p>
-                    </div>
-                ) : (
-                    <button className="studio-drop-prompt" type="button" onClick={() => fileRef.current?.click()} disabled={disabled}>
-                        <Upload size={28} />
-                        <strong>Choose the recording you want re-voiced</strong>
-                        <span>WAV, MP3, M4A, AAC, FLAC, OGG, WebM, MP4, MOV, or MKV</span>
-                    </button>
-                )}
+                <MediaWorkbench
+                    sources={sources}
+                    sourceId={sourceId}
+                    onSourceIdChange={setSourceId}
+                    onImportFile={importFile}
+                    onRecorded={importRecording}
+                    disabled={disabled}
+                    inputAriaLabel="Recording media file"
+                    recordLabel="Record something to convert"
+                    retentionNote="Microphone recordings are deleted after 30 days."
+                    pickerLabel="Recording to convert"
+                    previewAriaLabel="Recording preview"
+                    emptyPromptTitle="Choose the recording you want re-voiced"
+                    range={{
+                        ...range,
+                        onChange: (start, end) => setRange({ start, end }),
+                        idPrefix: 'studio-convert-source',
+                        label: 'Region to convert',
+                        note: (
+                            <p className={validSource ? 'studio-range-note' : 'studio-range-note is-error'}>
+                                Converting {sourceSpan.toFixed(1)} seconds. Leave the full range selected to
+                                convert the whole recording.
+                            </p>
+                        ),
+                    }}
+                />
             </section>
 
             <section className="studio-profile-builder" aria-labelledby="studio-convert-target-heading">
@@ -215,7 +148,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         <span className="studio-kicker">Step 2 · Pick the voice to speak it</span>
                         <h2 id="studio-convert-target-heading">Target voice</h2>
                     </div>
-                    <Wand2 size={21} />
+                    <Wand2 size={21} aria-hidden="true" />
                 </div>
 
                 <div className="studio-target-modes" role="radiogroup" aria-label="Target voice source">
@@ -304,7 +237,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         onClick={convert}
                         disabled={disabled || !consent || !validSource || !validTarget}
                     >
-                        <ShieldCheck size={16} />
+                        <ShieldCheck size={16} aria-hidden="true" />
                         {targetMode === 'PROFILE' && selectedVoice
                             ? `Convert to ${selectedVoice.name}`
                             : 'Convert this recording'}
@@ -324,12 +257,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                 </section>
             )}
 
-            <StudioOutputs
-                projectId={project.id}
-                outputs={conversions}
-                onRunJob={onRunJob}
-                disabled={disabled}
-            />
+            <StudioOutputs outputs={conversions} />
         </div>
     );
 }

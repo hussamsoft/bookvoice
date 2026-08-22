@@ -99,7 +99,14 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                     <button className="btn secondary" onClick={() => fileRef.current?.click()} disabled={disabled}>
                         <Upload size={16} /> Import audio or video
                     </button>
-                    <input ref={fileRef} type="file" hidden onChange={upload} accept="audio/*,video/mp4,video/webm,.mov,.mkv" />
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        hidden
+                        aria-label="Project source media file"
+                        onChange={upload}
+                        accept="audio/*,video/mp4,video/webm,.mov,.mkv"
+                    />
                 </div>
                 {(project.sources || []).length === 0 ? (
                     <button className="studio-drop-prompt" onClick={() => fileRef.current?.click()} disabled={disabled}>
@@ -146,16 +153,23 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                     <div className="studio-section-heading"><div><span className="studio-kicker">Waveform-guided edit</span><h3 id="studio-repair-heading">Replace selected speech</h3></div><Scissors size={20} /></div>
                     <label><span>Corrected phrase</span><textarea value={replacement} onChange={(e) => setReplacement(e.target.value)} rows={3} placeholder="Type the complete corrected phrase for the selected range…" /></label>
                     <button className="btn primary" onClick={repair} disabled={disabled || !replacement.trim()}>Create A/B preview</button>
-                    {latestRepairOutput && <div className="studio-ab-preview"><div><span>Original</span><audio controls preload="metadata" src={source.audioUrl} /></div><div><span>Repaired</span><audio controls preload="metadata" src={latestRepairOutput.contentUrl} /></div>{source.mediaType === 'VIDEO' && <button className="btn secondary" onClick={exportVideo} disabled={disabled}>Export repaired MP4</button>}</div>}
+                    {latestRepairOutput && (
+                        <div className="studio-ab-preview">
+                            <div>
+                                <span>Original</span>
+                                <AudioPlayer src={source.audioUrl} label="the original recording" compact />
+                            </div>
+                            <div>
+                                <span>Repaired</span>
+                                <AudioPlayer src={latestRepairOutput.contentUrl} label="the repaired recording" compact />
+                            </div>
+                            {source.mediaType === 'VIDEO' && <button className="btn secondary" onClick={exportVideo} disabled={disabled}>Export repaired MP4</button>}
+                        </div>
+                    )}
                 </section>
             </>}
 
-            <StudioOutputs
-                projectId={project.id}
-                outputs={project.outputs || []}
-                onRunJob={onRunJob}
-                disabled={disabled}
-            />
+            <StudioOutputs outputs={project.outputs || []} />
         </div>
     );
 }

@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Moon, Sparkles, Sun } from 'lucide-react';
+import { readStoredString, writeStoredString } from '../utils/storage';
 
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 
@@ -9,21 +10,16 @@ const SettingsPanel = lazy(() => import('./SettingsPanel'));
  * handled by the operating system.
  */
 function TitleBar() {
-    const [theme, setTheme] = useState(() => {
-        try {
-            return localStorage.getItem('bookvoice:theme') || 'light';
-        } catch {
-            return 'light';
-        }
-    });
+    const [theme, setTheme] = useState(() =>
+        readStoredString('bookvoice.theme', {
+            legacyKeys: ['bookvoice:theme'],
+            fallback: 'light',
+        })
+    );
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
-        try {
-            localStorage.setItem('bookvoice:theme', theme);
-        } catch {
-            /* Theme switching still works when browser storage is unavailable. */
-        }
+        writeStoredString('bookvoice.theme', theme);
     }, [theme]);
 
     const dark = theme === 'dark';

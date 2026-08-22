@@ -55,22 +55,23 @@ export default function StudioProjectSidebar({
                 <ChevronDown size={18} aria-hidden="true" />
             </button>
 
-            <form className="studio-new-project" onSubmit={create}>
-                <label className="sr-only" htmlFor="studio-project-name">New project name</label>
-                <input
-                    id="studio-project-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Project name"
-                    maxLength={100}
-                    disabled={disabled}
-                />
-                <button className="btn primary" type="submit" disabled={disabled}>
-                    <FolderPlus size={16} /> Create
-                </button>
-            </form>
+            <div className="studio-sidebar-body">
+                <form className="studio-new-project" onSubmit={create}>
+                    <label className="sr-only" htmlFor="studio-project-name">New project name</label>
+                    <input
+                        id="studio-project-name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="Project name"
+                        maxLength={100}
+                        disabled={disabled}
+                    />
+                    <button className="btn primary" type="submit" disabled={disabled}>
+                        <FolderPlus size={16} /> Create
+                    </button>
+                </form>
 
-            <div className="studio-project-list" role="list">
+                <div className="studio-project-list" role="list">
                 {projects.length === 0 ? (
                     <div className="studio-empty compact" role="status">
                         <p>No Studio projects yet.</p>
@@ -124,6 +125,7 @@ export default function StudioProjectSidebar({
                         </div>
                     </article>
                 ))}
+                </div>
             </div>
         </aside>
     );

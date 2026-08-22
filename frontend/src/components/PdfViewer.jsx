@@ -4,21 +4,8 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import {
     Loader2,
-    Play,
-    Pause,
-    ChevronUp,
-    ChevronDown,
-    X,
-    ScanText,
-    ZoomIn,
-    ZoomOut,
-    Maximize2,
-    Bookmark,
-    BookmarkCheck,
     Download,
-    Search,
-    SlidersHorizontal,
-    LocateFixed,
+    X,
 } from 'lucide-react';
 import {
     createBookArchive,
@@ -38,7 +25,7 @@ import {
     updatePreparedProgress,
 } from '../utils/api';
 import { createSessionId } from '../utils/session';
-import { SUPPORTED_LANGUAGES } from '../utils/languages';
+import { readStoredString, writeStoredString } from '../utils/storage';
 import { canonicalAudioUrl, createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
 import { clearPdfHighlights } from '../utils/pdfHighlight';
 import { useToast } from './Toast';
@@ -46,8 +33,11 @@ import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-import VoiceSettings from './VoiceSettings';
-import Transcript from './Transcript';
+import ReaderBanners from './reader/ReaderBanners';
+import ResumeDialog from './reader/ResumeDialog';
+import ReaderToolbar, { ZOOM_LIMITS } from './reader/ReaderToolbar';
+import ReadingOptionsPanel from './reader/ReadingOptionsPanel';
+import TranscriptColumn from './reader/TranscriptColumn';
 import PlaybackControls from './PlaybackControls';
 import PreparationProgress from './PreparationProgress';
 import { useAudioTransport } from '../hooks/useAudioTransport';
@@ -107,13 +97,7 @@ export default function PdfViewer({ onDirty }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [transportState, setTransportState] = useState('idle');
     const [followNarration, setFollowNarration] = useState(
-        () => {
-            try {
-                return localStorage.getItem('bookvoice:follow-narration') === 'true';
-            } catch {
-                return false;
-            }
-        }
+        () => readStoredString('bookvoice.followNarration', { legacyKeys: ['bookvoice:follow-narration'] }) === 'true'
     );
     const [audioUrl, setAudioUrl] = useState(null);
     const [audioPage, setAudioPage] = useState(null);
@@ -208,11 +192,7 @@ export default function PdfViewer({ onDirty }) {
     isGeneratingRef.current = isGenerating;
 
     useEffect(() => {
-        try {
-            localStorage.setItem('bookvoice:follow-narration', String(followNarration));
-        } catch {
-            /* Reading still works when browser storage is unavailable. */
-        }
+        writeStoredString('bookvoice.followNarration', String(followNarration));
     }, [followNarration]);
 
     useEffect(() => {
@@ -390,12 +370,15 @@ export default function PdfViewer({ onDirty }) {
     }, [targetLanguage]);
 
     // Keyboard shortcuts: Space = play/pause, ←/→ = seek ±10s.
-    // Ignored while typing in inputs/textareas/contenteditable.
+    // Ignored while typing in inputs/textareas/contenteditable and while a
+    // button-like control has focus — Space must activate that control, not
+    // toggle narration.
     useEffect(() => {
         const handler = (e) => {
             const tag = e.target?.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'AUDIO' || tag === 'VIDEO') return;
             if (e.target?.isContentEditable) return;
+            if (e.target?.closest?.('[role="button"], [role="switch"], [role="tab"]')) return;
             if (e.code === 'Space') {
                 e.preventDefault();
                 handlePlayRef.current();
@@ -1950,245 +1933,79 @@ export default function PdfViewer({ onDirty }) {
                 </div>
             ) : (
                 <>
-                    {!modelReady && modelStatusDetail && (
-                        <div className="model-loading-status-bar">
-                            <Loader2 className="spinner" size={14} />
-                            <span>{modelStatusDetail}</span>
-                        </div>
-                    )}
-                    {modelError && (
-                        <div className="model-loading-status-bar error">
-                            <span>Error: {modelError}</span>
-                            <button className="btn secondary" onClick={retryLoad}>
-                                Retry
-                            </button>
-                        </div>
-                    )}
-                    {deviceInfo === 'cpu' && modelReady && (
-                        <div className="model-loading-status-bar error">
-                            <span>
-                                TTS is on CPU, so narration will be much slower than GPU mode.
-                            </span>
-                        </div>
-                    )}
-                    {prefetchHint && modelReady && !isGenerating && (
-                        <div className="model-loading-status-bar prefetch">
-                            <Loader2 className="spinner" size={12} />
-                            <span>{prefetchHint}</span>
-                        </div>
-                    )}
+                    <ReaderBanners
+                        modelReady={modelReady}
+                        modelStatusDetail={modelStatusDetail}
+                        modelError={modelError}
+                        retryLoad={retryLoad}
+                        deviceInfo={deviceInfo}
+                        prefetchHint={prefetchHint}
+                        isGenerating={isGenerating}
+                    />
                     <PreparationProgress
                         preparation={preparation}
                         onCancel={handleCancelPreparation}
                         cancelling={isCancellingPreparation}
                     />
 
-                    {showResumeChoice && (
-                        <div
-                            className="resume-modal-overlay"
-                            onClick={() => setShowResumeChoice(false)}
-                        >
-                            <div
-                                className="resume-modal"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <button
-                                    className="resume-modal-close"
-                                    onClick={() => setShowResumeChoice(false)}
-                                >
-                                    <X size={18} />
-                                </button>
-                                <h3>Resume or start new?</h3>
-                                <p>
-                                    You have audio for <strong>Page {audioPage}</strong>.
-                                </p>
-                                <div className="resume-modal-actions">
-                                    <button className="btn secondary" onClick={handleResume}>
-                                        Resume Page {audioPage}
-                                    </button>
-                                    <button className="btn primary" onClick={handleReadNewPage}>
-                                        Read Page {pageNumber}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    <ResumeDialog
+                        open={showResumeChoice}
+                        audioPage={audioPage}
+                        pageNumber={pageNumber}
+                        onResume={handleResume}
+                        onStartFresh={handleReadNewPage}
+                        onDismiss={() => setShowResumeChoice(false)}
+                    />
 
-                    <div className="reader-navigation" role="toolbar" aria-label="Reader navigation">
-                        <button
-                            className="btn secondary btn-compact"
-                            onClick={() => goToPage(pageNumber - 1)}
-                            disabled={pageNumber <= 1}
-                            aria-label="Previous page"
-                        >
-                            <ChevronUp size={15} /> Previous
-                        </button>
-                        <form className="page-jump" onSubmit={handlePageJump}>
-                            <label htmlFor="reader-page-input">Page</label>
-                            <input
-                                id="reader-page-input"
-                                type="number"
-                                min={1}
-                                max={numPages || 1}
-                                value={pageJumpInput}
-                                onChange={(event) => setPageJumpInput(event.target.value)}
-                                onBlur={handlePageJump}
-                            />
-                            <span>/ {numPages || '—'}</span>
-                        </form>
-                        <button
-                            className="btn secondary btn-compact"
-                            onClick={() => goToPage(pageNumber + 1)}
-                            disabled={pageNumber >= numPages}
-                            aria-label="Next page"
-                        >
-                            Next <ChevronDown size={15} />
-                        </button>
-                        {audioPage && audioPage !== pageNumber ? (
-                            <button
-                                type="button"
-                                className="btn primary btn-compact"
-                                onClick={() => browsePageIntoView(audioPage)}
-                                aria-label={`Return to narrated page ${audioPage}`}
-                            >
-                                <LocateFixed size={15} /> Return to narrated page {audioPage}
-                            </button>
-                        ) : null}
-              <div className="zoom-controls" title="Zoom with Ctrl+mouse wheel or these controls">
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact"
-                                onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
-                                aria-label="Zoom out"
-                            >
-                                <ZoomOut size={15} />
-                            </button>
-                            <span className="zoom-label" aria-label={`Zoom ${Math.round(zoom * 100)} percent`}>
-                                {Math.round(zoom * 100)}%
-                            </span>
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact"
-                                onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
-                                aria-label="Zoom in"
-                            >
-                                <ZoomIn size={15} />
-                            </button>
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact"
-                                onClick={() => setZoom(1)}
-                                aria-label="Fit PDF to reading area"
-                            >
-                                <Maximize2 size={15} />
-                            </button>
-                        </div>
-                        <label className="reader-follow">
-                            <input
-                                type="checkbox"
-                                checked={followNarration}
-                                onChange={(event) => setFollowNarration(event.target.checked)}
-                            />
-                            Follow narration
-                        </label>
-                        {pageNumber > 1 ? (
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact"
-                                onClick={handleExportThroughCurrentPage}
-                                disabled={isExporting}
-                                title={`Export cached audio for pages 1 through ${pageNumber}`}
-                            >
-                                {isExporting ? <Loader2 className="spinner" size={15} /> : <Download size={15} />}
-                                Export 1–{pageNumber}
-                            </button>
-                        ) : null}
-                        <form className="page-search" onSubmit={handleSearch}>
-                            <Search size={14} />
-                            <input
-                                type="search"
-                                value={searchQuery}
-                                onChange={(event) => setSearchQuery(event.target.value)}
-                                placeholder="Find in book"
-                                aria-label="Find text in book"
-                            />
-                            <button className="btn secondary btn-compact" disabled={!searchQuery.trim() || isSearching}>
-                                {isSearching ? <Loader2 className="spinner" size={14} /> : 'Find'}
-                            </button>
-                        </form>
-                        <button
-                            type="button"
-                            className="btn secondary btn-compact"
-                            onClick={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
-                            aria-label={bookmarks.includes(pageNumber) ? 'Remove bookmark' : 'Bookmark page'}
-                        >
-                            {bookmarks.includes(pageNumber) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-                            {bookmarks.includes(pageNumber) ? `Bookmarked ${pageNumber}` : 'Bookmark'}
-                        </button>
-                        {bookmarks.length ? (
-                            <select
-                                className="bookmark-jump"
-                                aria-label="Go to bookmark"
-                                value=""
-                                onChange={(event) => {
-                                    if (event.target.value) goToPage(Number(event.target.value));
-                                }}
-                            >
-                                <option value="">Bookmarks ({bookmarks.length})</option>
-                                {bookmarks.map((page) => (
-                                    <option key={page} value={page}>Page {page}</option>
-                                ))}
-                            </select>
-                        ) : null}
-                        <button
-                            type="button"
-                            className="btn secondary btn-compact reader-options-toggle"
-                            onClick={() => setShowReadingOptions((open) => !open)}
-                            aria-expanded={showReadingOptions}
-                            aria-label="Reading options"
-                        >
-                            <SlidersHorizontal size={15} /> Reading options
-                        </button>
-                    </div>
+                    <ReaderToolbar
+                        pageNumber={pageNumber}
+                        numPages={numPages}
+                        pageJumpInput={pageJumpInput}
+                        onPageJumpInput={setPageJumpInput}
+                        onPageJumpSubmit={handlePageJump}
+                        onGoToPage={goToPage}
+                        audioPage={audioPage}
+                        onReturnToNarrated={() => browsePageIntoView(audioPage)}
+                        zoom={zoom}
+                        onZoom={setZoom}
+                        followNarration={followNarration}
+                        onFollowNarration={setFollowNarration}
+                        searchQuery={searchQuery}
+                        onSearchQuery={setSearchQuery}
+                        onSearchSubmit={handleSearch}
+                        isSearching={isSearching}
+                        bookmarks={bookmarks}
+                        onToggleBookmark={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
+                        isExporting={isExporting}
+                        onExportThroughCurrentPage={handleExportThroughCurrentPage}
+                        showReadingOptions={showReadingOptions}
+                        onToggleReadingOptions={() => setShowReadingOptions((open) => !open)}
+                    />
 
                     {showReadingOptions ? (
-                        <section className="reading-options" aria-label="Reading options panel">
-                            <VoiceSettings
-                                compact
-                                backendReady={modelReady}
-                                activeVoiceId={activeVoiceId}
-                                onVoiceChange={handleVoiceChange}
-                            />
-                            <label className="reading-option-field">
-                                Language
-                                <select
-                                    value={targetLanguage}
-                                    onChange={(event) => handleLanguageChange(event.target.value)}
-                                    disabled={isGenerating || isOcring}
-                                >
-                                    {SUPPORTED_LANGUAGES.map((lang) => (
-                                        <option key={lang.code} value={lang.code}>{lang.name}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <button className="btn secondary btn-compact" onClick={handleForceOcr} disabled={isGenerating || isOcring}>
-                                <ScanText size={15} /> {isOcring ? 'Running OCR…' : 'Re-run OCR'}
-                            </button>
-                            <button className="btn secondary btn-compact" onClick={() => { setEditTextDraft(pageText); setIsEditingText((value) => !value); }} disabled={!pageText}>
-                                {isEditingText ? 'Cancel editing' : 'Edit extracted text'}
-                            </button>
-                            <button className="btn secondary btn-compact" onClick={handleTranslatePage} disabled={!pageText || isGenerating}>
-                                Translate to {targetLanguage === 'ar' ? 'Arabic' : 'English'}
-                            </button>
-                            <button className="btn primary btn-compact" onClick={handlePrepareWholeBook} disabled={!modelReady || !libraryBookId || preparation?.status === 'RUNNING'}>
-                                Prepare whole book
-                            </button>
-                            {activeProfileId ? (
-                                <button className="btn secondary btn-compact" onClick={handleCreatePreparedFile}>
-                                    <Download size={15} /> Save .bookvoice file
-                                </button>
-                            ) : null}
-                        </section>
+                        <ReadingOptionsPanel
+                            modelReady={modelReady}
+                            activeVoiceId={activeVoiceId}
+                            onVoiceChange={handleVoiceChange}
+                            targetLanguage={targetLanguage}
+                            onLanguageChange={handleLanguageChange}
+                            disabled={isGenerating || isOcring}
+                            isOcring={isOcring}
+                            onForceOcr={handleForceOcr}
+                            isEditingText={isEditingText}
+                            pageText={pageText}
+                            onToggleEditText={() => {
+                                setEditTextDraft(pageText);
+                                setIsEditingText((value) => !value);
+                            }}
+                            onTranslatePage={handleTranslatePage}
+                            isGenerating={isGenerating}
+                            canPrepareBook={!!modelReady && !!libraryBookId}
+                            preparationRunning={preparation?.status === 'RUNNING'}
+                            onPrepareWholeBook={handlePrepareWholeBook}
+                            hasProfile={!!activeProfileId}
+                            onCreatePreparedFile={handleCreatePreparedFile}
+                        />
                     ) : null}
 
                     <div className="pdf-layout">
@@ -2237,62 +2054,29 @@ export default function PdfViewer({ onDirty }) {
                             </div>
                         </div>
                         <div className="pdf-transcript">
-                            <div className="pdf-transcript-actions">
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={() => {
-                                        setEditTextDraft(pageText);
-                                        setIsEditingText((v) => !v);
-                                    }}
-                                    disabled={!pageText}
-                                >
-                                    {isEditingText ? 'Cancel edit' : 'Edit text'}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn secondary btn-compact"
-                                    onClick={handleTranslatePage}
-                                    disabled={!pageText || isGenerating}
-                                >
-                                    Translate to {targetLanguage === 'ar' ? 'Arabic' : 'English'}
-                                </button>
-                            </div>
-                            {isEditingText ? (
-                                <div className="pdf-text-edit-wrap">
-                                    <textarea
-                                        className="pdf-text-edit"
-                                        value={editTextDraft}
-                                        onChange={(e) => setEditTextDraft(e.target.value)}
-                                    />
-                                    <button
-                                        type="button"
-                                        className="btn primary btn-compact"
-                                        onClick={handleSaveEditedText}
-                                    >
-                                        Save text
-                                    </button>
-                                </div>
-                            ) : (
-                            <Transcript
-                                words={pageWords}
-                                currentWord={audioPage === pageNumber ? currentWord : -1}
-                                isPlaying={audioPage === pageNumber && isPlaying}
-                                isPaused={
-                                    !!audioUrl &&
-                                    audioPage === pageNumber &&
-                                    !isPlaying &&
-                                    !isGenerating
-                                }
-                                languageId={targetLanguage}
+                            <TranscriptColumn
+                                pageText={pageText}
+                                isEditingText={isEditingText}
+                                onToggleEditText={() => {
+                                    setEditTextDraft(pageText);
+                                    setIsEditingText((v) => !v);
+                                }}
+                                onTranslatePage={handleTranslatePage}
+                                targetLanguage={targetLanguage}
+                                isGenerating={isGenerating}
+                                editTextDraft={editTextDraft}
+                                onEditTextDraft={setEditTextDraft}
+                                onSaveEditedText={handleSaveEditedText}
+                                pageWords={pageWords}
+                                currentWord={currentWord}
+                                audioPage={audioPage}
+                                pageNumber={pageNumber}
+                                isPlaying={isPlaying}
+                                audioUrl={audioUrl}
                                 onWordActivate={handleWordActivate}
-                                statusHint={
-                                    statusHint ||
-                                    (isGenerating ? 'Generating narration…' : undefined)
-                                }
+                                statusHint={statusHint}
                                 followNarration={followNarration}
                             />
-                            )}
                         </div>
                     </div>
 

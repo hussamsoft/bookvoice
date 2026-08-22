@@ -10,9 +10,16 @@ import { createSessionId } from '../utils/session';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
-import { Loader2, RotateCcw } from 'lucide-react';
+import StatusBanner from './ui/StatusBanner';
+import { Loader2 } from 'lucide-react';
 
 const STEPS = ['capture', 'processing', 'review', 'playback'];
+const STEP_LABELS = {
+    capture: 'Capture a page',
+    processing: 'Reading the page',
+    review: 'Review the text',
+    playback: 'Listen',
+};
 
 export default function BookSession({ onDirty }) {
     const toast = useToast();
@@ -138,49 +145,37 @@ export default function BookSession({ onDirty }) {
         <div className="book-session">
             <header className="session-header">
                 <div className="header-top">
-                    <h2>Reading Session</h2>
+                    <h2>Scan pages</h2>
                     <div className="page-indicator">Page {currentPageIndex + 1}</div>
                 </div>
 
-                <div className="step-indicator" aria-hidden="true">
-                    {STEPS.slice(0, 3).map((s, i) => (
-                        <div
-                            key={s}
-                            className={`step-dot ${i < stepIndex ? 'done' : ''} ${
-                                i === stepIndex ? 'active' : ''
-                            }`}
-                        />
-                    ))}
-                </div>
+                <p className="step-indicator" aria-live="polite">
+                    Step {Math.min(stepIndex + 1, 3)} of 3: {STEP_LABELS[step] || ''}
+                </p>
 
                 <VoiceSettings compact backendReady={modelReady} activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 
                 {!modelReady && modelStatusDetail && (
-                    <div className="model-loading-status-bar">
-                        <Loader2 className="spinner" size={14} />
-                        <span>{modelStatusDetail}</span>
-                    </div>
+                    <StatusBanner tone="loading">
+                        <Loader2 className="spinner" size={14} aria-hidden="true" /> {modelStatusDetail}
+                    </StatusBanner>
                 )}
                 {modelError && (
-                    <div className="model-loading-status-bar error">
-                        <span>Error: {modelError}</span>
-                        <button className="btn secondary" onClick={retryLoad}>
-                            <RotateCcw size={14} /> Retry
-                        </button>
-                    </div>
+                    <StatusBanner
+                        tone="error"
+                        action={
+                            <button type="button" className="btn secondary btn-compact" onClick={retryLoad}>
+                                Retry
+                            </button>
+                        }
+                    >
+                        Error: {modelError}
+                    </StatusBanner>
                 )}
                 {deviceInfo === 'cpu' && modelReady && (
-                    <div className="model-loading-status-bar error">
-                        <span>
-                            TTS is on CPU, so narration will be much slower than GPU mode.
-                        </span>
-                    </div>
-                )}
-                {isNarratingUi && modelStatusDetail && (
-                    <div className="model-loading-status-bar">
-                        <Loader2 className="spinner" size={14} />
-                        <span>{modelStatusDetail}</span>
-                    </div>
+                    <StatusBanner tone="error">
+                        Narration is running on the CPU, so it will be much slower than with a GPU.
+                    </StatusBanner>
                 )}
             </header>
 

@@ -2,15 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, Mic, Square, Trash2 } from 'lucide-react';
 import { recordStreamToWav } from '../utils/wav';
 import { canRecord, STUDIO_MIC_CONSTRAINTS } from '../utils/media';
+import { formatClock as timeLabel } from '../utils/format';
 import AudioPlayer from './AudioPlayer';
 
 const MAX_SECONDS = 300;
 const METER_BARS = 28;
-
-function timeLabel(seconds) {
-    const whole = Math.max(0, Math.floor(seconds));
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
-}
 
 /**
  * Record straight into a Voice Studio project.

@@ -18,8 +18,8 @@ export default class ErrorBoundary extends React.Component {
         if (!this.state.error) return this.props.children;
         return (
             <main className="error-fallback" role="alert">
-                <h1>The reader hit an unexpected error</h1>
-                <p>Your book and settings have not been deleted. Reload the reader to continue.</p>
+                <h1>BookVoice hit an unexpected error</h1>
+                <p>Your books, voices, and projects have not been deleted. Try again to continue where you left off.</p>
                 <button
                     type="button"
                     className="btn primary"

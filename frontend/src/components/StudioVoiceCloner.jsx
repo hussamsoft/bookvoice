@@ -1,9 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Mic2, Play, ShieldCheck, Upload } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Mic2, ShieldCheck } from 'lucide-react';
 import { createStudioProfile, uploadStudioSource } from '../utils/api';
-import AudioPlayer from './AudioPlayer';
-import StudioRecorder from './StudioRecorder';
-import WaveformRange from './WaveformRange';
+import MediaWorkbench from './studio/MediaWorkbench';
 
 function suggestedProfileName(fileName) {
     const base = String(fileName || 'Imported voice').replace(/\.[^.]+$/, '').trim();
@@ -11,8 +9,6 @@ function suggestedProfileName(fileName) {
 }
 
 export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, disabled }) {
-    const fileRef = useRef(null);
-    const mediaRef = useRef(null);
     const [sourceId, setSourceId] = useState(project.sources?.at(-1)?.id || '');
     const [range, setRange] = useState({ start: 0, end: 5 });
     const [profileName, setProfileName] = useState('');
@@ -44,16 +40,12 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
         if (imported) setSourceId(imported);
     };
 
-    const upload = async (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        await onRunJob(
+    const importFile = (file) =>
+        onRunJob(
             'Importing voice media',
             () => uploadStudioSource(project.id, file),
             { onComplete: selectImported, successMessage: () => `${file.name} imported and selected` },
         );
-        event.target.value = '';
-    };
 
     const importRecording = async (blob, name) => {
         await onRunJob(
@@ -96,18 +88,6 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
         setConsent(false);
     };
 
-    const playSelection = () => {
-        if (!mediaRef.current) return;
-        mediaRef.current.currentTime = range.start;
-        mediaRef.current.play();
-    };
-
-    const stopAtSelectionEnd = () => {
-        if (mediaRef.current && mediaRef.current.currentTime >= range.end) {
-            mediaRef.current.pause();
-        }
-    };
-
     const duration = range.end - range.start;
     const validRange = duration >= 5 && duration <= 30;
 
@@ -118,107 +98,65 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
                     <span className="studio-kicker">Step 1 · Replicate the speaker</span>
                     <h2 id="studio-clone-heading">Clone a voice from media</h2>
                 </div>
-                <Mic2 size={21} />
+                <Mic2 size={21} aria-hidden="true" />
             </div>
             <p className="studio-clone-intro">
                 Import an audio or video recording, select one clean speaker, and BookVoice will narrate anything you write in that imported voice.
             </p>
 
-            <div className="studio-clone-toolbar">
-                <button className="btn secondary" type="button" onClick={() => fileRef.current?.click()} disabled={disabled}>
-                    <Upload size={16} /> Import voice audio or video
-                </button>
-                <input
-                    ref={fileRef}
-                    type="file"
-                    hidden
-                    aria-label="Voice media file"
-                    accept="audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg"
-                    onChange={upload}
-                />
-                <StudioRecorder
-                    onRecorded={importRecording}
-                    disabled={disabled}
-                    label="Record this voice"
-                />
-                <small className="studio-record-retention">
-                    Microphone recordings are deleted after 30 days. Saved voices are shared across your devices.
-                </small>
-                {selectedVoice && (
-                    <div className="studio-active-clone" role="status">
-                        <span>Selected narration voice</span>
-                        <strong>{selectedVoice.name}</strong>
-                    </div>
-                )}
-            </div>
-
-            {(project.sources || []).length > 0 && (
-                <label className="studio-source-picker">
-                    <span>Voice source</span>
-                    <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} disabled={disabled}>
-                        {project.sources.map((item) => (
-                            <option key={item.id} value={item.id}>{item.fileName}</option>
-                        ))}
-                    </select>
-                </label>
+            {selectedVoice && (
+                <div className="studio-active-clone" role="status">
+                    <span>Selected narration voice</span>
+                    <strong>{selectedVoice.name}</strong>
+                </div>
             )}
 
-            {source ? (
-                <div className="studio-clone-workbench">
-                    <div className="studio-clone-preview">
-                        {source.mediaType === 'VIDEO' ? (
-                            <video
-                                ref={mediaRef}
-                                controls
-                                playsInline
-                                preload="metadata"
-                                aria-label="Voice source video preview"
-                                src={source.previewUrl || source.originalUrl}
-                                onTimeUpdate={stopAtSelectionEnd}
-                            />
-                        ) : (
-                            <AudioPlayer ref={mediaRef} src={source.originalUrl} onTimeUpdate={stopAtSelectionEnd} label="the voice source" />
-                        )}
-                        <button className="btn text" type="button" onClick={playSelection} disabled={disabled}>
-                            <Play size={15} /> Play selected voice sample
-                        </button>
-                    </div>
-                    <WaveformRange
-                        peaks={source.waveformPeaks}
-                        duration={source.durationSec}
-                        start={range.start}
-                        end={range.end}
-                        onChange={(start, end) => setRange({ start, end })}
-                        disabled={disabled}
-                    />
-                    <p className={validRange ? 'studio-range-note' : 'studio-range-note is-error'}>
-                        Select 5–30 seconds containing one person speaking clearly. Current selection: {duration.toFixed(1)} seconds.
-                    </p>
-                    <div className="studio-profile-fields">
-                        <label>
-                            <span>Profile name</span>
-                            <input value={profileName} onChange={(event) => setProfileName(event.target.value)} maxLength={64} disabled={disabled} />
-                        </label>
-                        <label className="studio-consent">
-                            <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} disabled={disabled} />
-                            <span>I own or have permission to clone this voice.</span>
-                        </label>
-                        <button
-                            className="btn primary"
-                            type="button"
-                            onClick={createAndSelectProfile}
-                            disabled={disabled || !profileName.trim() || !consent || !validRange}
-                        >
-                            <ShieldCheck size={16} /> Create and use this voice
-                        </button>
-                    </div>
+            <MediaWorkbench
+                sources={project.sources || []}
+                sourceId={sourceId}
+                onSourceIdChange={setSourceId}
+                onImportFile={importFile}
+                onRecorded={importRecording}
+                disabled={disabled}
+                importButtonLabel="Import voice audio or video"
+                inputAriaLabel="Voice media file"
+                recordLabel="Record this voice"
+                retentionNote="Microphone recordings are deleted after 30 days. Saved voices are shared across your devices."
+                pickerLabel="Voice source"
+                previewAriaLabel="Voice source video preview"
+                previewPlayerLabel="the voice source"
+                playSelectionLabel="Play selected voice sample"
+                emptyPromptTitle="Choose a recording of the voice to replicate"
+                range={{
+                    ...range,
+                    onChange: (start, end) => setRange({ start, end }),
+                    note: (
+                        <p className={validRange ? 'studio-range-note' : 'studio-range-note is-error'}>
+                            Select 5–30 seconds containing one person speaking clearly. Current selection: {duration.toFixed(1)} seconds.
+                        </p>
+                    ),
+                }}
+            />
+
+            {source && (
+                <div className="studio-profile-fields">
+                    <label>
+                        <span>Profile name</span>
+                        <input value={profileName} onChange={(event) => setProfileName(event.target.value)} maxLength={64} disabled={disabled} />
+                    </label>
+                    <label className="studio-consent">
+                        <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} disabled={disabled} />
+                        <span>I own or have permission to clone this voice.</span>
+                    </label>
+                    <button
+                        className="btn primary"
+                        type="button"
+                        onClick={createAndSelectProfile}
+                        disabled={disabled || !profileName.trim() || !consent || !validRange}
+                    >
+                        <ShieldCheck size={16} aria-hidden="true" /> Create and use this voice
+                    </button>
                 </div>
-            ) : (
-                <button className="studio-drop-prompt" type="button" onClick={() => fileRef.current?.click()} disabled={disabled}>
-                    <Upload size={28} />
-                    <strong>Choose a recording of the voice to replicate</strong>
-                    <span>WAV, MP3, M4A, AAC, FLAC, OGG, WebM, MP4, MOV, or MKV</span>
-                </button>
             )}
         </section>
     );
