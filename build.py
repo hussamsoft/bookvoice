@@ -224,7 +224,29 @@ def release_frontend_environment(base_environment: dict[str, str] | None = None)
     return environment
 
 
+def check_frontend_version():
+    """The VERSION file is the single source of truth for the app version.
+
+    A stale `frontend/package.json` version silently ships mismatched
+    metadata (and any tooling keyed off it), so a release build refuses to
+    run until they agree.
+    """
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    package_json = FRONTEND / "package.json"
+    try:
+        declared = json.loads(package_json.read_text(encoding="utf-8")).get("version")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Could not read {package_json}: {exc}")
+    if declared != version:
+        raise SystemExit(
+            f"frontend/package.json version {declared!r} does not match "
+            f"VERSION {version!r}. Update package.json before building."
+        )
+    return version
+
+
 def build_frontend():
+    check_frontend_version()
     if not (FRONTEND / "node_modules").exists():
         run(["npm", "install"], FRONTEND)
     else:
@@ -646,6 +668,10 @@ def main():
         "--skip-launcher", action="store_true", help="Skip PyInstaller launcher rebuild"
     )
     args = parser.parse_args()
+
+    # Gate every artifact path — including --skip-frontend and MSI-only runs —
+    # on VERSION/package.json agreement.
+    check_frontend_version()
 
     print("[build] Building BookVoice portable dist/ …")
     stage_default_voices()

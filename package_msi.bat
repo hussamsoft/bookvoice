@@ -19,7 +19,8 @@ if not "%EXITCODE%"=="0" (
 )
 
 echo.
-echo MSI packages are available in "%CD%\installer":
-echo   BookVoice.msi       ^(machine-wide, administrator install^)
-echo   BookVoice-User.msi  ^(per-user, no administrator required^)
+echo Packages are available in "%CD%\installer":
+echo   BookVoice-Launcher.exe  ^(standalone launcher + installer, recommended download^)
+echo   BookVoice.msi           ^(machine-wide, administrator install^)
+echo   BookVoice-User.msi      ^(per-user, no administrator required^)
 exit /b 0

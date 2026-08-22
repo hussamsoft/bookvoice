@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -190,6 +191,20 @@ def build_wxs(files, product: MsiProduct):
     })
     ET.SubElement(feature, "ComponentRef", {"Id": "StartMenuShortcut"})
 
+    # First-class discovery anchor for the standalone BookVoice-Launcher.exe:
+    # it reads this value to find the installed Launcher.exe without probing.
+    install_root = "HKCU" if product.install_scope == "perUser" else "HKLM"
+    anchor = ET.SubElement(instdir, "Component", {"Id": "InstallPathAnchor", "Guid": "*", "Win64": "yes"})
+    ET.SubElement(anchor, "RegistryValue", {
+        "Root": install_root,
+        "Key": "Software\\BookVoice\\Install",
+        "Name": "Path",
+        "Type": "string",
+        "Value": "[INSTALLDIR]",
+        "KeyPath": "yes",
+    })
+    ET.SubElement(feature, "ComponentRef", {"Id": "InstallPathAnchor"})
+
     association_root = "HKCU" if product.install_scope == "perUser" else "HKLM"
     association = ET.SubElement(instdir, "Component", {"Id": "PreparedBookAssociation", "Guid": "*", "Win64": "yes"})
     ET.SubElement(association, "RegistryValue", {
@@ -360,6 +375,16 @@ def build_product(files, product: MsiProduct) -> Path:
     return msi_path
 
 
+def assert_release_versions_match():
+    """Direct MSI runs bypass build.py's gate; stamp nothing mismatched."""
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    declared = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8")).get("version")
+    if declared != version:
+        raise SystemExit(
+            f"frontend/package.json version {declared!r} does not match VERSION {version!r}."
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build BookVoice MSI installer(s)")
     parser.add_argument(
@@ -378,6 +403,8 @@ def main():
         help="Reuse an existing cab*.cab cache (incremental/recovery builds only)",
     )
     args = parser.parse_args()
+
+    assert_release_versions_match()
 
     files = collect_files()
     if not files:

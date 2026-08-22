@@ -1,9 +1,27 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 - 2026-08-22
+
+### Added
+
+- A standalone **BookVoice-Launcher.exe** now ships with releases. Double-clicking
+  it starts an installed BookVoice directly; on a fresh machine it first downloads
+  and checksum-verifies the release payload, runs the per-user installer, and then
+  starts the app. It replaces `BookVoice-Setup.exe`, which no longer ships.
+  `--repair` forces a reinstall, `--machine` targets the all-users MSI with UAC,
+  and every other argument is forwarded to the app untouched.
+- The MSI writes a `Software\BookVoice\Install` registry value so the standalone
+  launcher can locate the installation without probing.
+- Release manifests include the launcher executable's size and SHA-256 next to
+  the MSIs and cabinets; `SHA256SUMS.txt` covers it too.
 
 ### Changed
 
+- The bootstrapper's download flow now reports per-file progress events and
+  supports cancellation and resume hooks shared with the launcher's progress
+  window; its release version is read from the build's bundled VERSION instead
+  of a hardcoded constant that could reject fresh manifests.
+- Release builds fail fast when `frontend/package.json` drifts from `VERSION`.
 - The native Windows launcher now has a notification-area icon. Minimizing the
   window hides it from the taskbar while the backend and configured Cloudflare
   tunnel continue running; the icon restores BookVoice or shuts it down cleanly.
@@ -22,6 +40,16 @@
 
 ### Fixed
 
+- Re-exporting a prepared book no longer overwrites the archive file an older
+  export record still references; downloading that older archive can no longer
+  delete a newer export's file.
+- Saving a page of an unknown book answers `404 BOOK_NOT_FOUND` instead of
+  `400 INVALID_PAGE`; Studio imports with a malformed project id answer
+  `404 PROJECT_NOT_FOUND` instead of `INVALID_MEDIA`.
+- Pressing Space while a button has focus activates that button instead of
+  toggling narration playback.
+- Toast notifications no longer re-trigger prepared-library refetches or restart
+  voice-list polling loops (stable toast context identity).
 - Voice profiles stranded by older install/version-scoped data directories are
   recovered into one stable machine library. Same-name recordings are preserved
   as dated variants instead of being overwritten; the original `Future` profile

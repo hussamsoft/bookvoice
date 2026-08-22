@@ -80,12 +80,22 @@ bookvoice/
 
 ## Setup & Execution (Windows)
 
-End users should install via MSI, not copy the `dist/` folder.
+Download **`BookVoice-Launcher.exe`** from the latest GitHub release and double-click it.
+The first run downloads, verifies, and installs BookVoice; every later run starts the
+installed app directly — no console window, no batch files, no separate setup program.
+Pin it to the taskbar or Start menu like any other app.
 
-| Installer | Install location | Admin at install |
-|-----------|------------------|------------------|
-| `BookVoice-User.msi` | `%LocalAppData%\BookVoice\App` | **No** (recommended) |
+| Artifact | Install location | Admin at install |
+|----------|------------------|------------------|
+| `BookVoice-Launcher.exe` | Installs the per-user MSI by default → `%LocalAppData%\BookVoice\App` | **No** (recommended) |
+| `BookVoice-User.msi` | `%LocalAppData%\BookVoice\App` | **No** |
 | `BookVoice.msi` | `Program Files\BookVoice` | Yes |
+
+Launcher flags: `--repair` forces a reinstall, `--machine` installs for all users
+(elevates via UAC), `--quiet` installs silently, and `--manifest-url` points at a
+different release manifest. Everything else is forwarded to the app
+(`--browser`, `--host lan`, `--tunnel`, a `.bookvoice` file, ...). Downloads are
+SHA-256-verified against the signed-in-repo `release-assets.json`.
 
 See [RUN.md](RUN.md) for first-launch behavior, logs, and troubleshooting.
 
