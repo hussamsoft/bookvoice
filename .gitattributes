@@ -1,0 +1,30 @@
+# Normalize all text files to LF in the repo; git handles checkout EOL.
+* text=auto
+
+# Windows scripts and solutions keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sln text eol=crlf
+
+# Binaries — never normalize
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.pdf binary
+*.zip binary
+*.msi binary
+*.cab binary
+*.exe binary
+*.dll binary
+*.pyd binary
+*.node binary
+*.safetensors binary
+*.onnx binary
+*.pt binary
+*.blend binary
