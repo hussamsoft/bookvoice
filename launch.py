@@ -801,10 +801,10 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
             pass
     text = (message + "\n\n" + detail).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
     html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-    body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
+    body{{font-family:'Segoe UI',system-ui,sans-serif;background:#ffffff;color:#18181b;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
     .stage{{flex:1;overflow:auto;padding:2rem}}
-    h2{{color:#ba3e45}} pre{{background:#f7f4ed;border:1px solid #d9d4c9;padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#8a2f35}}
-    p{{color:#68727d}}
+    h2{{color:#b4342f}} pre{{background:#f9f9f9;border:1px solid rgba(0,0,0,.12);padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#52525b}}
+    p{{color:#70707a}}
     </style></head><body><div class="stage"><h2>BookVoice failed to start</h2><pre>{text}</pre>
     <p>See bookvoice_launch.log in your runtime folder.</p>
     </div></body></html>"""
@@ -831,12 +831,12 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
 
 
 SPLASH = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-body{{font-family:Segoe UI,sans-serif;background:#e9e5dc;color:#22262b;display:flex;flex-direction:column;height:100vh;margin:0;overflow:hidden}}
+body{{font-family:'Segoe UI',system-ui,sans-serif;background:#ffffff;color:#18181b;display:flex;flex-direction:column;height:100vh;margin:0;overflow:hidden}}
 .stage{{flex:1;display:flex;align-items:center;justify-content:center}}
 .box{{text-align:center;max-width:28rem;padding:1rem}}
-.loader{{border:3px solid rgba(73,107,134,.15);border-top:3px solid #496b86;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}}
+.loader{{border:3px solid rgba(62,96,124,.18);border-top:3px solid #3e607c;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}}
 @keyframes spin{{to{{transform:rotate(360deg)}}}}
-h2{{font-weight:600;font-size:1.15rem;margin:0}} p{{color:#68727d;margin-top:.5rem;line-height:1.4}}
+h2{{font-weight:600;font-size:1.15rem;margin:0}} p{{color:#70707a;margin-top:.5rem;line-height:1.4}}
 </style></head><body><div class="stage"><div class="box"><div class="loader"></div>
 <h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></div></body></html>"""
 
@@ -923,7 +923,7 @@ def create_main_window(webview_module):
         resizable=True,
         frameless=False,
         easy_drag=False,
-        background_color="#e9e5dc",
+        background_color="#ffffff",
     )
 
 
