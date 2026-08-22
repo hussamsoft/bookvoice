@@ -633,7 +633,13 @@ def create_archive(book_id: str, profile: str) -> dict:
     archive_id = uuid.uuid4().hex
     output_dir = Path(os.environ.get("DATA_DIR", "data")) / "book-archives"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / f"{book_id[:12]}-{profile}.bookvoice"
+    # The on-disk name is unique per export. Re-exporting the same book and
+    # profile must never overwrite a file an older archive record still
+    # references: downloading that older record would otherwise delete the
+    # newer export's file out from under it (download names stay friendly via
+    # the record's "name").
+    download_name = f"{book_id[:12]}-{profile}.bookvoice"
+    output = output_dir / f"{archive_id[:12]}-{download_name}"
     fd, temp_name = tempfile.mkstemp(prefix=f".{book_id[:12]}-", suffix=".bookvoice.tmp", dir=output_dir)
     os.close(fd)
     temp_output = Path(temp_name)
@@ -662,7 +668,7 @@ def create_archive(book_id: str, profile: str) -> dict:
     except Exception:
         temp_output.unlink(missing_ok=True)
         raise
-    record = {"id": archive_id, "bookId": book_id, "profileId": profile, "status": "COMPLETED", "path": str(output), "createdAt": time.time()}
+    record = {"id": archive_id, "bookId": book_id, "profileId": profile, "status": "COMPLETED", "path": str(output), "name": download_name, "createdAt": time.time()}
     with _lock:
         _archives[archive_id] = record
         return dict(record)

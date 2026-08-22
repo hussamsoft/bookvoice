@@ -453,3 +453,69 @@ class StudioRouteContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudioProjectIdStatusContractTests(unittest.TestCase):
+    """Malformed project ids must answer 404 PROJECT_NOT_FOUND, not 400."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self.temp.name
+        studio.reset_runtime_state_for_tests()
+        self.app = FastAPI()
+        self.app.include_router(studio_routes.router, prefix="/api/studio")
+        self.client = TestClient(self.app)
+        self.client.cookies.set(
+            studio_routes.DEVICE_COOKIE_NAME,
+            studio.DEFAULT_DEVICE_ID,
+        )
+
+    def tearDown(self):
+        self.client.close()
+        studio.reset_runtime_state_for_tests()
+        if self.previous is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self.previous
+        self.temp.cleanup()
+
+    def _assert_project_not_found(self, method, path, **kwargs):
+        response = getattr(self.client, method)(path, **kwargs)
+        self.assertEqual(response.status_code, 404, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "PROJECT_NOT_FOUND")
+
+    def test_narration_with_malformed_id_answers_404(self):
+        self._assert_project_not_found(
+            "post",
+            "/api/studio/projects/short/narrations",
+            json={"text": "Hello world"},
+        )
+
+    def test_repair_with_malformed_id_answers_404(self):
+        self._assert_project_not_found(
+            "post",
+            "/api/studio/projects/short/repairs",
+            json={
+                "assetId": "asset",
+                "startSec": 0.0,
+                "endSec": 1.0,
+                "replacementText": "fixed",
+            },
+        )
+
+    def test_conversion_with_malformed_id_answers_404(self):
+        self._assert_project_not_found(
+            "post",
+            "/api/studio/projects/short/conversions",
+            json={"sourceId": "asset"},
+        )
+
+    def test_import_source_with_malformed_id_answers_404(self):
+        response = self.client.post(
+            "/api/studio/projects/short/sources",
+            files={"file": ("clip.wav", b"RIFF", "audio/wav")},
+            data={"captureMethod": "upload"},
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "PROJECT_NOT_FOUND")

@@ -244,13 +244,16 @@ async def import_source(
     capture_method = str(capture_method or "").strip().lower()
     if capture_method not in studio.CAPTURE_METHODS:
         _error("INVALID_MEDIA", "Invalid Studio capture method.", 400)
+    # Resolve the project before touching the upload: a malformed project id
+    # must answer PROJECT_NOT_FOUND like an unknown one, not INVALID_MEDIA.
     try:
         studio.get_project(project_id)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("PROJECT_NOT_FOUND", str(exc), 404)
+    try:
         staged = await _stage_upload(file)
     except ValueError as exc:
         _error("INVALID_MEDIA", str(exc), 413 if "2 GB" in str(exc) else 400)
-    except FileNotFoundError as exc:
-        _error("PROJECT_NOT_FOUND", str(exc), 404)
 
     filename = file.filename or "media.wav"
 
@@ -309,13 +312,15 @@ async def create_profile(project_id: str, request: ProfileCreate):
 
 @router.post("/projects/{project_id}/narrations", status_code=202)
 async def create_narration(project_id: str, request: NarrationCreate):
+    # A malformed project id answers like an unknown one, matching import_source.
     try:
         studio.get_project(project_id)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("PROJECT_NOT_FOUND", str(exc), 404)
+    try:
         settings = studio.validate_generation_settings(request.generationSettings.model_dump())
     except ValueError as exc:
         _error("INVALID_NARRATION", str(exc))
-    except FileNotFoundError as exc:
-        _error("PROJECT_NOT_FOUND", str(exc), 404)
 
     def work(*, job_id, cancel_event):
         studio.update_job_progress(project_id, job_id, 0.1, "Preparing narration")
@@ -336,9 +341,7 @@ async def create_narration(project_id: str, request: NarrationCreate):
 async def create_conversion(project_id: str, request: ConversionCreate):
     try:
         studio.get_project(project_id)
-    except ValueError as exc:
-        _error("INVALID_PROJECT_ID", str(exc))
-    except FileNotFoundError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         _error("PROJECT_NOT_FOUND", str(exc), 404)
     if not request.consentConfirmed:
         _error(
@@ -381,11 +384,12 @@ async def create_conversion(project_id: str, request: ConversionCreate):
 async def create_repair(project_id: str, request: RepairCreate):
     try:
         studio.get_project(project_id)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("PROJECT_NOT_FOUND", str(exc), 404)
+    try:
         settings = studio.validate_generation_settings(request.generationSettings.model_dump())
     except ValueError as exc:
         _error("INVALID_REPAIR", str(exc))
-    except FileNotFoundError as exc:
-        _error("PROJECT_NOT_FOUND", str(exc), 404)
 
     def work(*, job_id, cancel_event):
         studio.update_job_progress(project_id, job_id, 0.1, "Generating replacement")

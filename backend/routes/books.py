@@ -124,6 +124,11 @@ async def get_source(book_id: str):
 
 @router.put("/{book_id}/pages/{page}")
 async def save_page(book_id: str, page: int, update: PageUpdate):
+    # A missing or malformed book id is a missing resource, not a bad page.
+    try:
+        library.get_book(book_id)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("BOOK_NOT_FOUND", str(exc), 404)
     try:
         return library.save_page(book_id, page, update.text, update.pageCount)
     except (ValueError, FileNotFoundError) as exc:
@@ -226,7 +231,7 @@ async def download_archive(archive_id: str):
         return FileResponse(
             path,
             media_type="application/zip",
-            filename=path.name,
+            filename=record.get("name") or path.name,
             background=BackgroundTask(library.delete_archive, archive_id),
         )
     except FileNotFoundError as exc:
