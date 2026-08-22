@@ -10,3 +10,7 @@
 # the +cpu builds resolve from the extra index above.
 torch==2.6.0+cpu
 torchaudio==2.6.0+cpu
+
+# Test runner: a dev-only dependency, so it lives here rather than in the
+# runtime requirements.txt.
+pytest==9.0.3
