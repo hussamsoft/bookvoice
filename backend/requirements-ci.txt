@@ -1,0 +1,12 @@
+# CI-only overlay for GitHub Actions: mirrors backend/requirements.txt but
+# pins CPU-only torch/torchaudio wheels from the PyTorch CPU index so the
+# runner skips the multi-GB NVIDIA/CUDA wheel download that the tests never
+# use (the suite exercises torch kernels directly but never CUDA).
+# Keep this file in sync with requirements.txt.
+--extra-index-url https://download.pytorch.org/whl/cpu
+-r requirements.txt
+
+# Version matches chatterbox-tts==0.1.7's constraint for Python < 3.14;
+# the +cpu builds resolve from the extra index above.
+torch==2.6.0+cpu
+torchaudio==2.6.0+cpu
