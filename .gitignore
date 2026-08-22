@@ -25,6 +25,9 @@ test_venv*/
 .env
 .env.*
 !.env.example
+# Release build input asserted by tests/test_build_release.py; contains only
+# same-origin VITE paths, never secrets.
+!frontend/.env.production
 
 # Generated Data
 backend/data/

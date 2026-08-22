@@ -87,7 +87,7 @@ def split_args(argv: list[str]) -> tuple[dict[str, str | bool], list[str]]:
             index += 1
             continue
         if not token.startswith("-") and token.lower().endswith(".bookvoice"):
-            forwarded.append(os.path.abspath(token))
+            forwarded.append(os.path.realpath(token))
             index += 1
             continue
         forwarded.append(token)
