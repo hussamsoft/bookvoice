@@ -5,6 +5,8 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import {
     Loader2,
     Download,
+    Pause,
+    Play,
     X,
 } from 'lucide-react';
 import {
