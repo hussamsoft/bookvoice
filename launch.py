@@ -9,7 +9,9 @@ MSI installs (Program Files or LocalAppData) and dev runs all use this logic.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import html as html_lib
 import http.client
 import json
 import os
@@ -779,13 +781,28 @@ def apply_network_env(env: dict, host: str) -> dict:
     return env
 
 
-def set_status(window, title: str, detail: str) -> None:
+def set_status(window, title: str, detail: str, progress: int | None = None) -> None:
     if window is None:
         return
     try:
+        safe_title = json.dumps(title)
+        safe_detail = json.dumps(detail)
+        progress_js = ""
+        if progress is not None:
+            value = max(0, min(100, int(progress)))
+            progress_js = (
+                f"const value={value};"
+                "const bar=document.getElementById('progress-bar');"
+                "const meter=document.getElementById('progress');"
+                "if(bar){bar.style.width=value+'%';}"
+                "if(meter){meter.setAttribute('aria-valuenow',String(value));}"
+            )
         window.evaluate_js(
-            f"document.getElementById('title').textContent = {title!r};"
-            f"document.getElementById('detail').textContent = {detail!r};"
+            "(()=>{"
+            f"document.getElementById('title').textContent={safe_title};"
+            f"document.getElementById('detail').textContent={safe_detail};"
+            f"{progress_js}"
+            "})()"
         )
     except Exception:
         pass
@@ -799,18 +816,26 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
                 detail = "\n".join(handle.read().splitlines()[-25:])
         except OSError:
             pass
-    text = (message + "\n\n" + detail).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
-    html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-    body{{font-family:'Segoe UI',system-ui,sans-serif;background:#ffffff;color:#18181b;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
-    .stage{{flex:1;overflow:auto;padding:2rem}}
-    h2{{color:#b4342f}} pre{{background:#f9f9f9;border:1px solid rgba(0,0,0,.12);padding:1rem;border-radius:8px;white-space:pre-wrap;font-size:12px;color:#52525b}}
-    p{{color:#70707a}}
-    </style></head><body><div class="stage"><h2>BookVoice failed to start</h2><pre>{text}</pre>
-    <p>See bookvoice_launch.log in your runtime folder.</p>
-    </div></body></html>"""
+    safe_message = html_lib.escape(message)
+    safe_detail = html_lib.escape(detail)
+    technical = (
+        f"<details><summary>Technical details</summary><pre>{safe_detail}</pre></details>"
+        if safe_detail
+        else ""
+    )
+    error_html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
+    body{{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#18181b;color:#ededed;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
+    .stage{{flex:1;overflow:auto;padding:3rem;max-width:44rem}}
+    .eyebrow{{color:#82aed1;font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}}
+    h2{{font-size:1.6rem;margin:.6rem 0 1rem}} .message{{color:#d4d4d8;line-height:1.55}}
+    .action{{color:#b6b6bd;line-height:1.55}} details{{margin-top:1.5rem;color:#a1a1aa}}
+    summary{{cursor:pointer}} pre{{background:#101012;border:1px solid rgba(255,255,255,.12);padding:1rem;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#b6b6bd}}
+    </style></head><body><main class="stage"><div class="eyebrow">Startup problem</div><h2>BookVoice could not open</h2>
+    <p class="message">{safe_message}</p><p class="action">Close BookVoice and try once more. If it repeats, reinstall the latest build. The launch log is in your BookVoice runtime folder.</p>{technical}
+    </main></body></html>"""
     if window is not None and webview is not None:
         try:
-            window.load_html(html)
+            window.load_html(error_html)
             return
         except Exception:
             pass
@@ -830,15 +855,44 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
         pass
 
 
-SPLASH = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:#ffffff;color:#18181b;display:flex;flex-direction:column;height:100vh;margin:0;overflow:hidden}}
-.stage{{flex:1;display:flex;align-items:center;justify-content:center}}
-.box{{text-align:center;max-width:28rem;padding:1rem}}
-.loader{{border:3px solid rgba(62,96,124,.18);border-top:3px solid #3e607c;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 1.25rem}}
-@keyframes spin{{to{{transform:rotate(360deg)}}}}
-h2{{font-weight:600;font-size:1.15rem;margin:0}} p{{color:#70707a;margin-top:.5rem;line-height:1.4}}
-</style></head><body><div class="stage"><div class="box"><div class="loader"></div>
-<h2 id="title">Starting BookVoice</h2><p id="detail">Preparing…</p></div></div></body></html>"""
+def splash_html(icon_path: str) -> str:
+    """Build the branded launch surface around the packaged BookVoice icon."""
+    icon_data = ""
+    try:
+        with open(icon_path, "rb") as handle:
+            icon_data = base64.b64encode(handle.read()).decode("ascii")
+    except OSError:
+        pass
+    icon_markup = (
+        f'<img class="app-icon" src="data:image/x-icon;base64,{icon_data}" alt="">'
+        if icon_data
+        else '<div class="icon-fallback" aria-hidden="true">BV</div>'
+    )
+    return """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="color-scheme" content="dark"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:dark;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#18181b;color:#ededed}
+*{box-sizing:border-box} body{height:100vh;margin:0;overflow:hidden;background:#18181b}
+.splash{height:100%;display:grid;grid-template-columns:minmax(20rem,38%) 1fr}
+.brand{position:relative;isolation:isolate;display:flex;flex-direction:column;justify-content:space-between;padding:3.5rem;background:#1f1f23;overflow:hidden}
+.brand::before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(circle at 14% 18%,rgba(130,174,209,.28),transparent 42%),linear-gradient(150deg,rgba(52,80,106,.82),rgba(31,31,35,.96) 70%)}
+.identity{display:flex;align-items:center;gap:1rem}.app-icon,.icon-fallback{width:4rem;height:4rem;flex:0 0 auto;filter:drop-shadow(0 10px 18px rgba(0,0,0,.22))}
+.icon-fallback{display:grid;place-items:center;border:1px solid rgba(255,255,255,.3);background:#34506a;color:#fff;font-size:1.15rem;font-weight:700}
+.product{font-size:1.75rem;font-weight:650;letter-spacing:-.025em}.purpose{max-width:19rem;color:#d4d4d8;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;line-height:1.55}
+.signature{display:flex;align-items:flex-end;gap:.38rem;height:4.5rem;opacity:.62}.signature span{display:block;width:.24rem;background:#a8c6dd}.signature span:nth-child(1){height:28%}.signature span:nth-child(2){height:72%}.signature span:nth-child(3){height:46%}.signature span:nth-child(4){height:100%}.signature span:nth-child(5){height:58%}
+.status-panel{display:flex;flex-direction:column;justify-content:flex-end;padding:4.25rem 4.75rem;background:#18181b;border-left:1px solid rgba(255,255,255,.08)}
+.eyebrow{color:#82aed1;font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.status-copy{min-height:7rem;margin-top:.8rem}
+h1{margin:0;font-size:1.55rem;font-weight:620;letter-spacing:-.018em}#detail{max-width:36rem;margin:.75rem 0 0;color:#b6b6bd;font-size:.92rem;line-height:1.55}
+.progress-track{height:3px;margin-top:2.2rem;background:#27272a;overflow:hidden}.progress-bar{height:100%;width:0;background:#82aed1;transition:width 180ms ease-out}
+.meta{display:flex;justify-content:space-between;margin-top:.75rem;color:#70707a;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase}
+@media (max-width:760px){.splash{grid-template-columns:1fr}.brand{display:none}.status-panel{padding:3rem}}
+@media (prefers-reduced-motion:reduce){.progress-bar{transition:none}}
+@media (forced-colors:active){.brand::before{background:Canvas}.brand,.status-panel{background:Canvas;color:CanvasText;border-color:CanvasText}.progress-track{border:1px solid CanvasText;background:Canvas}.progress-bar{background:Highlight}}
+</style></head><body><main class="splash">
+<section class="brand" aria-label="BookVoice"><div class="identity">__ICON__<div class="product">BookVoice</div></div><div><div class="signature" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><p class="purpose">Read, listen, and create with your own voice library.</p></div></section>
+<section class="status-panel" aria-live="polite" aria-atomic="true"><div class="eyebrow">Preparing your workspace</div><div class="status-copy"><h1 id="title">Starting BookVoice</h1><p id="detail">Waiting for startup checks…</p></div>
+<div id="progress" class="progress-track" role="progressbar" aria-label="Startup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-bar" class="progress-bar"></div></div><div class="meta"><span>Local desktop app</span><span>BookVoice</span></div></section>
+</main></body></html>""".replace("__ICON__", icon_markup)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -910,20 +964,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def create_main_window(webview_module):
+def create_main_window(webview_module, app_dir: str | None = None):
     # Let Windows own the non-client frame. Native chrome provides reliable
     # resize borders, Snap Layouts, taskbar-aware maximization, and standard
     # title-bar double-click behavior without reimplementing Win32 hit testing.
     return webview_module.create_window(
         "BookVoice",
-        html=SPLASH,
+        html=splash_html(os.path.join(app_dir or resolve_app_dir(), "bookvoice.ico")),
         width=1440,
         height=900,
         min_size=(1024, 700),
         resizable=True,
         frameless=False,
         easy_drag=False,
-        background_color="#ffffff",
+        background_color="#18181b",
     )
 
 
@@ -992,7 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
             "webview gpu args="
             + os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "(default)")
         )
-        window = create_main_window(webview)
+        window = create_main_window(webview, app_dir)
         tray_controller = configure_system_tray(window, app_dir, log)
 
     state = {"error": None}
@@ -1001,11 +1055,11 @@ def main(argv: list[str] | None = None) -> int:
     def worker():
         nonlocal process, log_file
         try:
-            def status(title, detail):
-                set_status(window, title, detail)
+            def status(title, detail, progress):
+                set_status(window, title, detail, progress)
                 log.write(f"status: {title} | {detail}")
 
-            status("Checking runtime", "Verifying the bundled reading engine…")
+            status("Checking runtime", "Verifying the bundled reading engine…", 12)
             py = packaged_worker(app_dir, log)
             if not py:
                 state["error"] = "The packaged reading engine is incomplete. Reinstall BookVoice."
@@ -1016,6 +1070,7 @@ def main(argv: list[str] | None = None) -> int:
             bind_host = resolve_bind_host(args.host)
             port = pick_port(log, bind_host, resolve_pinned_port(args.port))
             env = apply_network_env(build_env(app_dir, runtime_dir), bind_host)
+            status("Preparing local service", "Selecting a private local address…", 30)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env VOICE_DATA_DIR={env['VOICE_DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
@@ -1030,7 +1085,7 @@ def main(argv: list[str] | None = None) -> int:
                 "token": args.tunnel_token,
             })
             if tunnel.is_enabled(tunnel_settings):
-                status("Opening tunnel", "Publishing BookVoice over Cloudflare…")
+                status("Opening tunnel", "Publishing BookVoice over Cloudflare…", 42)
                 try:
                     active_tunnel = tunnel.start_tunnel(
                         tunnel_settings, port, runtime_dir, log=log
@@ -1058,7 +1113,7 @@ def main(argv: list[str] | None = None) -> int:
                     hostname_warning = tunnel.missing_hostname_warning(tunnel_settings)
                     if hostname_warning:
                         log.write(f"WARNING: {hostname_warning}")
-                        status("Tunnel needs a hostname", hostname_warning)
+                        status("Tunnel needs a hostname", hostname_warning, 46)
                     if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
                         log.write(
                             "WARNING: the tunnel is reachable from the public internet "
@@ -1068,7 +1123,7 @@ def main(argv: list[str] | None = None) -> int:
                     # The app is still perfectly usable locally, so this is
                     # reported rather than treated as a failure to launch.
                     log.write(f"tunnel unavailable: {exc}")
-                    status("Tunnel unavailable", str(exc))
+                    status("Tunnel unavailable", str(exc), 46)
 
             if not is_loopback_host(bind_host):
                 for address in lan_addresses():
@@ -1080,7 +1135,7 @@ def main(argv: list[str] | None = None) -> int:
                         "profiles and Studio projects."
                     )
 
-            status("Starting AI Engine", f"Launching backend on {bind_host}:{port}…")
+            status("Starting reading service", f"Launching locally on {bind_host}:{port}…", 58)
             server_log = os.path.join(runtime_dir, "bookvoice_server.log")
             try:
                 if os.path.isfile(server_log):
@@ -1101,6 +1156,7 @@ def main(argv: list[str] | None = None) -> int:
                 creationflags=_no_window(),
             )
             log.write(f"started pid={process.pid}")
+            status("Loading reading engine", "Waiting for voices and media tools…", 72)
 
             for i in range(300):
                 if process.poll() is not None:
@@ -1117,7 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
                         # native shell so it renders the window controls.
                         params["shell"] = "native"
                     if args.book_path:
-                        status("Opening prepared book", "Validating and importing the archive…")
+                        status("Opening prepared book", "Validating and importing the archive…", 88)
                         book_id = import_prepared_book(url, args.book_path)
                         params["book"] = book_id
                         log.write(f"imported prepared book {book_id}")
@@ -1126,6 +1182,7 @@ def main(argv: list[str] | None = None) -> int:
                         log.write("backend ready (--no-window)")
                         return
                     if window is not None:
+                        status("Ready", "Opening your BookVoice workspace…", 100)
                         window.load_url(open_url)
                     else:
                         os.startfile(open_url)  # type: ignore[attr-defined]
@@ -1136,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
                     show_error(window, state["error"], server_log)
                     return
                 if i % 10 == 0:
-                    status("Starting AI Engine", f"{detail} ({i}s)")
+                    status("Loading reading engine", f"{detail} ({i}s)", 72)
                 time.sleep(1)
 
             state["error"] = "Backend did not become ready in time"
