@@ -90,10 +90,15 @@ def test_minimize_hides_from_taskbar_and_restore_reopens(tmp_path):
         assert window.hide.call_count == 2
         icon.notify.assert_called_once()
 
-        controller.show_window()
+        with patch.object(
+            system_tray, "restore_window_to_foreground", return_value=True
+        ) as foreground:
+            controller.show_window()
 
         window.restore.assert_called_once_with()
         window.show.assert_called_once_with()
+        foreground.assert_called_once_with()
+        assert any("brought into view" in message for message in _log.messages)
     finally:
         controller.stop()
         image_patch.stop()
@@ -113,6 +118,34 @@ def test_quit_from_tray_closes_window_and_stops_icon(tmp_path):
         controller.stop()
         image_patch.stop()
         pystray_patch.stop()
+
+
+def test_monitor_overlap_requires_a_usefully_visible_window_area():
+    monitors = [(0, 0, 1920, 1040), (1920, 0, 3840, 1040)]
+
+    assert system_tray._has_useful_monitor_overlap((120, 80, 1320, 880), monitors)
+    assert system_tray._has_useful_monitor_overlap((2000, 40, 3200, 840), monitors)
+    assert not system_tray._has_useful_monitor_overlap((3900, 80, 5100, 880), monitors)
+    assert not system_tray._has_useful_monitor_overlap((-1190, 40, 10, 840), monitors)
+
+
+def test_native_visibility_does_not_unmaximize_an_already_visible_window():
+    user32 = MagicMock()
+    user32.IsIconic.return_value = False
+    user32.IsWindowVisible.return_value = True
+
+    system_tray._show_existing_window(user32, 123)
+
+    user32.ShowWindow.assert_not_called()
+
+
+def test_native_visibility_restores_only_a_still_minimized_window():
+    user32 = MagicMock()
+    user32.IsIconic.return_value = True
+
+    system_tray._show_existing_window(user32, 123)
+
+    user32.ShowWindow.assert_called_once_with(123, 9)
 
 
 def test_launcher_attaches_tray_only_after_it_starts(tmp_path):
