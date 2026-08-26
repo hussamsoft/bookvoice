@@ -101,6 +101,18 @@ button:disabled {
   font-size: var(--text-xs);
 }
 
+@media (pointer: coarse) {
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .btn-compact,
+  .btn.btn-compact {
+    min-height: var(--control-h-lg);
+  }
+}
+
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -321,7 +333,7 @@ input[type="checkbox"] {
      --control-h-lg row + top hairline + safe-area). Reader composition pads
      its scrollable content by this amount so the bar never covers content. */
   --transport-fixed-h: calc(
-    var(--control-h-lg) + var(--space-4) + env(safe-area-inset-bottom, 0px) + 1px
+    (2 * var(--control-h-lg)) + var(--space-4) + env(safe-area-inset-bottom, 0px) + 1px
   );
 }
 
@@ -449,5 +461,18 @@ input[type="checkbox"] {
   .playback-transport .transport-scrubber {
     height: var(--control-h-lg);
     flex-basis: 100%;
+  }
+
+  /* Thumb-zone bar: primary controls + full-width scrubber. Secondary
+     actions stay reachable via media keys / the transport's other hosts. */
+  .playback-transport .transport-skip,
+  .playback-transport .transport-rate-control {
+    display: none;
+  }
+
+  /* Larger touch targets for dense compact clusters on phones. */
+  .btn-compact,
+  .btn.btn-compact {
+    min-height: var(--control-h-md);
   }
 }

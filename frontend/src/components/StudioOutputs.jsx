@@ -39,7 +39,7 @@ export default function StudioOutputs({
                                 </div>
                             </div>
                             {output.format === 'MP4' ? (
-                                <video controls preload="metadata" src={output.contentUrl} />
+                                <video controls preload="metadata" src={output.contentUrl} aria-label={outputLabel(output)} />
                             ) : (
                                 <AudioPlayer src={output.contentUrl} label={outputLabel(output).toLowerCase()} />
                             )}

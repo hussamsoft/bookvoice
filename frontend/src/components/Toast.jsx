@@ -51,58 +51,45 @@ export function ToastProvider({ children }) {
     const scheduleAutoDismiss = useCallback(
         (id, duration) => {
             clearTimeout(timersRef.current.get(id));
-            if (duration > 0) {
-                timersRef.current.set(id, setTimeout(() => beginExit(id), duration));
-            }
+            timersRef.current.set(id, setTimeout(() => beginExit(id), duration));
         },
         [beginExit]
     );
 
-    const addToast = useCallback(
-        (message, type = 'info', duration = 5000) => {
+    const push = useCallback(
+        (message, type = 'info', duration = 4000) => {
+            const next = { id: toastId++, message, type, leaving: false };
+            const dupKey = `${type}:${message}`;
             const now = Date.now();
             const existing = toastsRef.current.find(
-                (t) =>
-                    !t.leaving &&
-                    t.type === type &&
-                    t.message === message &&
-                    now - t.timestamp < COALESCE_MS
+                (t) => `${t.type}:${t.message}` === dupKey && now - (t.bornAt || now) < COALESCE_MS
             );
             if (existing) {
-                // Bump the timestamp: restarts both the dedupe window and the
-                // auto-dismiss clock instead of stacking a second entry.
-                commit(
-                    toastsRef.current.map((t) => (t.id === existing.id ? { ...t, timestamp: now } : t))
+                const freshToasts = toastsRef.current.map((t) =>
+                    t.id === existing.id ? { ...t, bornAt: now, leaving: false } : t
                 );
+                commit(freshToasts);
+                clearTimeout(timersRef.current.get(existing.id));
                 scheduleAutoDismiss(existing.id, duration);
                 return existing.id;
             }
-            const id = ++toastId;
-            commit([...toastsRef.current, { id, message, type, timestamp: now }]);
-            scheduleAutoDismiss(id, duration);
-            return id;
+            next.bornAt = now;
+            commit([...toastsRef.current, next]);
+            scheduleAutoDismiss(next.id, duration);
+            return next.id;
         },
         [commit, scheduleAutoDismiss]
     );
 
-    useEffect(
-        () => () => {
-            for (const timer of timersRef.current.values()) clearTimeout(timer);
-            timersRef.current.clear();
-        },
-        []
-    );
-
-    // Stable identity: consumers key effects on this object, so a new toast
-    // must never re-create it (a fresh value re-ran library fetches and
-    // polling loops on every notification).
     const toast = useMemo(
         () => ({
-            info: (msg) => addToast(msg, 'info'),
-            success: (msg) => addToast(msg, 'success'),
-            error: (msg) => addToast(msg, 'error', 7000),
+            notify: push,
+            info: (message, duration) => push(message, 'info', duration),
+            success: (message, duration) => push(message, 'success', duration),
+            error: (message, duration) => push(message, 'error', duration),
+            dismiss,
         }),
-        [addToast]
+        [push, dismiss]
     );
 
     const icons = {
@@ -111,30 +98,32 @@ export function ToastProvider({ children }) {
         error: AlertCircle,
     };
 
+    const renderToast = ({ id, message, type, leaving }) => {
+        const Icon = icons[type];
+        return (
+            <div
+                key={id}
+                className={`toast toast-${type}${leaving ? ' toast-leaving' : ''}`}
+                role="alert"
+            >
+                <Icon size={18} className="toast-icon" />
+                <span className="toast-message">{message}</span>
+                <button
+                    className="toast-dismiss"
+                    onClick={() => dismiss(id)}
+                    aria-label="Dismiss"
+                >
+                    <X size={16} />
+                </button>
+            </div>
+        );
+    };
+
     return (
         <ToastContext.Provider value={toast}>
             {children}
-            <div className="toast-container" aria-live="polite">
-                {toasts.map(({ id, message, type, leaving }) => {
-                    const Icon = icons[type];
-                    return (
-                        <div
-                            key={id}
-                            className={`toast toast-${type}${leaving ? ' toast-leaving' : ''}`}
-                            role="alert"
-                        >
-                            <Icon size={18} className="toast-icon" />
-                            <span className="toast-message">{message}</span>
-                            <button
-                                className="toast-dismiss"
-                                onClick={() => dismiss(id)}
-                                aria-label="Dismiss"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-                    );
-                })}
+            <div className="toast-region" aria-live="polite" aria-label="Notifications">
+                {toasts.map(renderToast)}
             </div>
         </ToastContext.Provider>
     );
@@ -142,6 +131,7 @@ export function ToastProvider({ children }) {
 
 export function useToast() {
     const ctx = useContext(ToastContext);
-    if (!ctx) throw new Error('useToast must be used within ToastProvider');
-    return ctx;
+    return ctx || { notify: () => {}, info: () => {}, success: () => {}, error: () => {}, dismiss: () => {} };
 }
+
+export { COALESCE_MS, EXIT_MS };

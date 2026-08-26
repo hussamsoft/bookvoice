@@ -81,16 +81,16 @@ describe('TitleBar', () => {
         mockMatchMedia(false);
         const meta = document.createElement('meta');
         meta.setAttribute('name', 'theme-color');
-        meta.setAttribute('content', '#ffffff');
+        meta.setAttribute('content', '#f7f5f1');
         document.head.appendChild(meta);
 
         render(<TitleBar />);
 
-        expect(meta).toHaveAttribute('content', '#ffffff');
+        expect(meta).toHaveAttribute('content', '#f7f5f1');
 
 
         fireEvent.click(screen.getByRole('button', { name: 'Use dark theme' }));
-        expect(meta).toHaveAttribute('content', '#18181b');
+        expect(meta).toHaveAttribute('content', '#161513');
     });
 
 });

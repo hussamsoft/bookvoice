@@ -283,6 +283,7 @@
   gap: var(--space-2);
   min-width: 0;
   flex: 1;
+  flex-wrap: wrap;
 }
 
 .transport-play {
@@ -446,11 +447,41 @@
   scroll-behavior: smooth;
 }
 
+.pdf-load-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--ink);
+}
+
+.pdf-load-error-icon {
+  color: var(--error);
+  font-size: var(--text-2xl);
+}
+
+.pdf-load-error-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.pdf-load-error-message {
+  color: var(--ink-muted);
+  max-width: 40ch;
+  margin: 0;
+}
+
 .transcript-word {
   cursor: pointer;
   padding: 1px 2px;
   border-radius: 3px;
-  transition: background-color 80ms linear, color 80ms linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
+
   display: inline;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -464,7 +495,7 @@
 }
 
 .transcript-word.past {
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .transcript-word.current {
@@ -486,8 +517,8 @@
   background-image: linear-gradient(var(--signal), var(--signal));
   background-repeat: no-repeat;
   background-position: 0 100%;
-  background-size: 100% 2px;
-  animation: transcript-word-underline-grow 180ms var(--ease-out-quart);
+  animation: transcript-word-underline-grow var(--dur-word-underline) var(--ease-out-quart);
+
 }
 
 @keyframes transcript-word-underline-grow {
@@ -554,6 +585,8 @@
   inset: 0;
   z-index: var(--z-overlay);
   background: rgba(0, 0, 0, 0.35);
+  border: 0;
+  padding: 0;
 }
 
 .reading-options-popover {
@@ -568,6 +601,7 @@
   padding: var(--space-4);
   max-height: min(72vh, 640px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -993,6 +1027,14 @@ video {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+@media (pointer: coarse) {
+  .audio-transport-toggle {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 
 .audio-transport-seek {
   flex: 1;

@@ -92,7 +92,7 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
     );
 
     const repairSentence = async () => {
-        await onRunJob('Rebuilding selected sentence', () => createStudioRepair(project.id, {
+        const success = await onRunJob('Rebuilding selected sentence', () => createStudioRepair(project.id, {
             assetId: correction.assetId,
             startSec: correction.startSec,
             endSec: correction.endSec,
@@ -101,8 +101,9 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
             voiceId: project.voiceId || null,
             generationSettings: settings,
         }));
-        setCorrection(null);
+        if (success) setCorrection(null);
     };
+
 
     return (
         <div className="studio-workflow">

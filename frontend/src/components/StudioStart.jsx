@@ -72,6 +72,8 @@ export default function StudioStart({
                 <div>
                     <input
                         id="studio-start-name"
+                        name="project-name"
+                        autoComplete="off"
                         value={name}
                         onChange={(event) => setName(event.target.value)}
                         placeholder="Project name"

@@ -46,9 +46,36 @@ except ImportError:  # pragma: no cover
     webview = None
 
 
+
 APP_NAME = "BookVoice"
 PORT_START = 8000
 PORT_END = 8020
+
+
+def get_git_version() -> str:
+    """Derive a precise version from git tags and the current commit.
+
+    On a tagged commit this is the tag (e.g. "2.4.0"). On untagged commits it
+    is "<tag>-<distance>-g<shortsha>" (e.g. "2.4.0-4-g1f89b40"), with a
+    "-dirty" suffix when the working tree has modifications. Falls back to
+    the VERSION file when git is unavailable.
+    """
+    here = _Path(__file__).resolve().parent
+    version = "0.0.0"
+    version_file = here / "VERSION"
+    if version_file.is_file():
+        version = version_file.read_text(encoding="utf-8").strip()
+    try:
+        import subprocess as _sp
+        desc = _sp.check_output(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=str(here), stderr=_sp.DEVNULL, text=True,
+        ).strip()
+        if desc:
+            version = desc if not desc.startswith("v") else desc[1:]
+    except (OSError, _sp.CalledProcessError, FileNotFoundError):
+        pass
+    return version
 
 
 def configure_webview_gpu() -> None:
@@ -148,18 +175,18 @@ def resolve_app_dir() -> str:
     return here
 
 
-def read_app_version(app_dir: str) -> str:
-    version_path = os.path.join(app_dir, "VERSION")
-    try:
-        with open(version_path, encoding="utf-8") as handle:
-            return handle.read().strip() or "0.0.0"
-    except OSError:
-        return "0.0.0"
 
 
-def install_id(app_dir: str, version: str) -> str:
-    payload = f"{os.path.normcase(os.path.abspath(app_dir))}|{version.strip()}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+
+
+
+
+
+
+
+
 
 
 def legacy_runtime_dir() -> str:
@@ -175,18 +202,14 @@ def resolve_runtime_dir(app_dir: str) -> str:
     scoped = os.path.join(
         legacy_runtime_dir(),
         "installs",
-        install_id(app_dir, version),
+        f"{install_id(app_dir, version)}",
     )
-    return scoped
-
-
-def migrate_legacy_runtime(legacy_dir: str, scoped_dir: str, log: Logger) -> None:
-    if os.path.abspath(legacy_dir) == os.path.abspath(scoped_dir):
-        return
+    scoped_dir = os.path.abspath(scoped)
+    legacy_dir = os.path.abspath(legacy_runtime_dir())
     if os.path.isdir(scoped_dir) and any(os.scandir(scoped_dir)):
-        return
+        return scoped_dir
     if not os.path.isdir(legacy_dir):
-        return
+        return scoped_dir
 
     os.makedirs(scoped_dir, exist_ok=True)
     for name in (".venv", "data"):
@@ -196,9 +219,8 @@ def migrate_legacy_runtime(legacy_dir: str, scoped_dir: str, log: Logger) -> Non
             continue
         try:
             shutil.move(src, dst)
-            log.write(f"migrated legacy {name} -> {dst}")
-        except OSError as exc:
-            log.write(f"legacy migration skipped for {name}: {exc}")
+        except OSError:
+            pass
 
     for name in os.listdir(legacy_dir):
         if not name.startswith("bookvoice_") or not name.endswith(".log"):
@@ -210,6 +232,37 @@ def migrate_legacy_runtime(legacy_dir: str, scoped_dir: str, log: Logger) -> Non
                 shutil.copy2(src, dst)
             except OSError:
                 pass
+    return scoped_dir
+
+def read_app_version(app_dir: str) -> str:
+    """Read the app version, preferring git for precise commit-level versioning.
+
+    In a packaged release this reads the shipped VERSION file. In development
+    it falls back to `git describe` so every commit has a traceable version
+    (e.g. "2.4.0-4-g1f89b40" or "2.4.0" on a tag).
+    """
+    version = "0.0.0"
+    version_path = os.path.join(app_dir, "VERSION")
+    if os.path.isfile(version_path):
+        version = _Path(version_path).read_text(encoding="utf-8").strip()
+    # Git gives a more precise version when available
+    here = _Path(__file__).resolve().parent
+    try:
+        import subprocess as _sp
+        desc = _sp.check_output(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=str(here), stderr=_sp.DEVNULL, text=True,
+        ).strip()
+        if desc:
+            version = desc if not desc.startswith("v") else desc[1:]
+    except (OSError, _sp.CalledProcessError, FileNotFoundError):
+        pass
+    return version
+
+
+def install_id(app_dir: str, version: str) -> str:
+    payload = f"{os.path.normcase(os.path.abspath(app_dir))}|{version.strip()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def validate_package(app_dir: str) -> str | None:

@@ -45,7 +45,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
     };
 
     const createProfile = async () => {
-        await onRunJob('Building voice profile', () => createStudioProfile(project.id, {
+        const success = await onRunJob('Building voice profile', () => createStudioProfile(project.id, {
             sourceId: source.id,
             name: profileName,
             startSec: range.start,
@@ -55,9 +55,12 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
             refreshVoices: true,
             onComplete: ({ voiceId }) => voiceId ? onPatch({ voiceId }) : null,
         });
-        setProfileName('');
-        setConsent(false);
+        if (success) {
+            setProfileName('');
+            setConsent(false);
+        }
     };
+
 
     const repair = () => onRunJob('Creating repair preview', () => createStudioRepair(project.id, {
         assetId: source.id,

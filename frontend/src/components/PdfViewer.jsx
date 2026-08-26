@@ -7,7 +7,6 @@ import {
     Download,
     Pause,
     Play,
-    X,
 } from 'lucide-react';
 import {
     createBookArchive,
@@ -41,7 +40,7 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 import ReaderBanners from './reader/ReaderBanners';
 import ResumeDialog from './reader/ResumeDialog';
-import ReaderToolbar, { ZOOM_LIMITS } from './reader/ReaderToolbar';
+import ReaderToolbar from './reader/ReaderToolbar';
 import ReadingOptionsPanel from './reader/ReadingOptionsPanel';
 import TranscriptColumn from './reader/TranscriptColumn';
 import PlaybackControls from './PlaybackControls';
@@ -156,6 +155,7 @@ export default function PdfViewer({ onDirty }) {
     const [isCancellingPreparation, setIsCancellingPreparation] = useState(false);
     // "pdf" | "epub" | "txt" (legacy manifests have no sourceKind → PDF).
     const [sourceKind, setSourceKind] = useState('pdf');
+    const [pdfLoadError, setPdfLoadError] = useState(null);
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
@@ -487,9 +487,20 @@ export default function PdfViewer({ onDirty }) {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [skipTransportBy]);
+    // Throttle-save latest values every ~3s instead of resetting the timer per
+    // change (which never fires during uninterrupted playback), plus flush on
+    // visibilitychange/pagehide so closing the tab persists the latest position.
+    const progressFlushRef = useRef(null);
+    const flushProgress = useCallback(() => {
+        if (progressFlushRef.current) {
+            progressFlushRef.current();
+            progressFlushRef.current = null;
+        }
+    }, []);
+
     useEffect(() => {
         if (!documentId) return undefined;
-        const timer = setTimeout(() => {
+        const snapshot = () => () => {
             saveReadingProgress(documentId, {
                 page: pageNumber,
                 time: transport.currentTime,
@@ -497,13 +508,19 @@ export default function PdfViewer({ onDirty }) {
                 playbackRate: transport.playbackRate,
                 bookmarks,
             });
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [bookmarks, documentId, pageNumber, transport.currentTime, transport.playbackRate, zoom]);
+        };
+        if (progressFlushRef.current === null) {
+            progressFlushRef.current = snapshot();
+            const timer = setTimeout(flushProgress, 3000);
+            return () => clearTimeout(timer);
+        }
+        progressFlushRef.current = snapshot();
+        return undefined;
+    }, [bookmarks, documentId, flushProgress, pageNumber, transport.currentTime, transport.playbackRate, zoom]);
 
     useEffect(() => {
         if (!libraryBookId) return undefined;
-        const timer = setTimeout(() => {
+        const snapshot = () => () => {
             updatePreparedProgress(libraryBookId, {
                 page: pageNumber,
                 time: transport.currentTime,
@@ -520,9 +537,26 @@ export default function PdfViewer({ onDirty }) {
                     toast.error(error.message || 'Could not save prepared-book progress.');
                 }
             });
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [bookmarks, libraryBookId, pageNumber, toast, transport.currentTime]);
+        };
+        if (progressFlushRef.current === null) {
+            progressFlushRef.current = snapshot();
+            const timer = setTimeout(flushProgress, 3000);
+            return () => clearTimeout(timer);
+        }
+        progressFlushRef.current = snapshot();
+        return undefined;
+    }, [bookmarks, libraryBookId, flushProgress, pageNumber, toast, transport.currentTime]);
+
+    useEffect(() => {
+        const onHide = () => flushProgress();
+        window.addEventListener('pagehide', onHide);
+        document.addEventListener('visibilitychange', onHide);
+        return () => {
+            window.removeEventListener('pagehide', onHide);
+            document.removeEventListener('visibilitychange', onHide);
+        };
+    }, [flushProgress]);
+
 
     useEffect(() => {
         if (!modelReady || !libraryBookId || preparation?.status !== 'PAUSED') return;
@@ -691,7 +725,26 @@ export default function PdfViewer({ onDirty }) {
         (requestedTime, media = audioRef.current) => {
             const playlist = buildPlaylist(playlistRef.current);
             const target = playbackTargetAtGlobalTime(playlist, requestedTime);
-            if (!media || !target) return 0;
+            if (!media) return 0;
+
+            // Completed single-chunk pages (and prepared-page audio) replace
+            // the streamed playlist with one canonical WAV. Seeking must fall
+            // back to direct time travel on that audio, not silently no-op.
+            if (!target) {
+                const duration = Number(media.duration) || 0;
+                const clamped = Math.max(0, Math.min(Number(requestedTime) || 0, duration));
+                playlistSeekGenerationRef.current += 1;
+                const shouldResume = playlistShouldPlayRef.current;
+                playlistWaitingRef.current = false;
+                media.currentTime = clamped;
+                media.playbackRate = Number(media.playbackRate) || 1;
+                syncHighlightAt(clamped);
+                refreshTransport();
+                media.dispatchEvent(new Event('seeked'));
+                if (shouldResume) media.play().catch(() => {});
+                setTransportState(shouldResume ? 'playing' : 'paused');
+                return clamped;
+            }
 
             const seekGeneration = ++playlistSeekGenerationRef.current;
             const shouldResume = playlistShouldPlayRef.current;
@@ -1180,6 +1233,8 @@ export default function PdfViewer({ onDirty }) {
             refreshTransport();
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
+            setIsEditingText(false);
+            setEditTextDraft('');
 
             try {
                 const resolved = await resolvePageContent({
@@ -1784,11 +1839,13 @@ export default function PdfViewer({ onDirty }) {
         setSourceKind(nextSourceKind);
         isTextBookRef.current = nextSourceKind !== 'pdf';
         resetDocument();
+        setPdfLoadError(null);
         setNumPages(
             isTextBookRef.current
                 ? Number(book?.pageCount ?? book?.chapterCount) || null
                 : null
         );
+
 
         serverPagesRef.current.clear();
         setPageNumber(progress.page);
@@ -2148,12 +2205,13 @@ export default function PdfViewer({ onDirty }) {
 
     const playBtn = getPlayButtonState();
 
-    // Whole-book scrubber timeline: the streamed-chunk playlist's total span
-    // when narration is active, otherwise null (scrubber stays hidden).
+    // when narration is active, otherwise the canonical audio's own duration
+    // so the seek bar stays usable after synthesis completes.
     const playlistTotalDurationS = Number(buildPlaylist(playlistRef.current).totalDurationS);
+    const canonicalDurationS = Number(transport.duration) || 0;
     const scrubberDurationS = Number.isFinite(playlistTotalDurationS) && playlistTotalDurationS > 0
         ? playlistTotalDurationS
-        : null;
+        : (canonicalDurationS > 0 ? canonicalDurationS : null);
 
     return (
         <div className="pdf-viewer-container" data-transport-state={transportState}>
@@ -2335,10 +2393,26 @@ export default function PdfViewer({ onDirty }) {
                                             followNarration={followNarration}
                                         />
                                     )
+                                ) : pdfLoadError ? (
+                                    <div className="pdf-load-error" role="alert">
+                                        <div className="pdf-load-error-icon" aria-hidden="true">⚠</div>
+                                        <h3 className="pdf-load-error-title">Couldn't load this PDF</h3>
+                                        <p className="pdf-load-error-message">{pdfLoadError}</p>
+                                        <button
+                                            className="btn primary"
+                                            onClick={() => {
+                                                setPdfLoadError(null);
+                                                if (fileRef.current) handleFileChange({ target: { files: [fileRef.current] } });
+                                            }}
+                                        >
+                                            Try again
+                                        </button>
+                                    </div>
                                 ) : (
                                     <Document
                                         file={file}
                                         onLoadSuccess={(pdf) => {
+                                            setPdfLoadError(null);
                                             adoptPdfDocument(pdf);
                                             setNumPages(pdf.numPages);
                                             const restoredPage = Math.max(
@@ -2349,6 +2423,17 @@ export default function PdfViewer({ onDirty }) {
                                             pageNumberRef.current = restoredPage;
                                             schedulePrefetchSafe(restoredPage, pdf.numPages);
                                             loadPageIntoView(restoredPage, { autoplay: false });
+                                        }}
+                                        onLoadError={(error) => {
+                                            const msg = error?.message || String(error);
+                                            setPdfLoadError(
+                                                /password|encrypt/i.test(msg)
+                                                    ? 'This PDF is password-protected and cannot be opened.'
+                                                    : /fetch|network|load/i.test(msg)
+                                                    ? 'The PDF could not be loaded. The file may be missing or the server unreachable.'
+                                                    : `Failed to load PDF: ${msg}`
+                                            );
+                                            toast.error('Failed to open PDF');
                                         }}
                                         loading={
                                             <div className="pdf-loading" aria-busy="true">

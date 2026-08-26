@@ -22,7 +22,7 @@ const STEP_LABELS = {
     playback: 'Listen',
 };
 
-export default function BookSession({ onDirty }) {
+export default function BookSession({ epoch, onDirty }) {
     const toast = useToast();
     const [isNarratingUi, setIsNarratingUi] = useState(false);
     const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
@@ -35,6 +35,9 @@ export default function BookSession({ onDirty }) {
     const [currentText, setCurrentText] = useState('');
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
+    const epochRef = useRef(epoch);
+    useEffect(() => { epochRef.current = epoch; }, [epoch]);
+
 
     // Apply saved user settings once, when config arrives — but never clobber
     // a choice the user already made while config was still loading.
@@ -73,11 +76,12 @@ export default function BookSession({ onDirty }) {
         },
         [toast, updateConfig]
     );
-
     const handleCapture = async (imageDataUrl) => {
+        const startEpoch = epochRef.current;
         setStep('processing');
         try {
             const rawText = await extractTextFromImage(imageDataUrl);
+            if (epochRef.current !== startEpoch) return;
             const cleaned = cleanExtractedText(rawText);
 
             if (!cleaned.trim()) {
@@ -90,6 +94,7 @@ export default function BookSession({ onDirty }) {
             setStep('review');
             onDirty?.();
         } catch (error) {
+            if (epochRef.current !== startEpoch) return;
             console.error(error);
             toast.error('Failed to process image: ' + error.message);
             setStep('capture');
@@ -101,6 +106,7 @@ export default function BookSession({ onDirty }) {
             toast.error(modelError || 'AI voice model is still loading. Please wait.');
             return;
         }
+        const startEpoch = epochRef.current;
         setIsNarratingUi(true);
         try {
             const result = await narrateText(
@@ -110,6 +116,8 @@ export default function BookSession({ onDirty }) {
                 activeVoiceId,
                 targetLanguage
             );
+
+            if (epochRef.current !== startEpoch) return;
 
             setPages((prev) => {
                 const updated = [...prev];
@@ -126,6 +134,7 @@ export default function BookSession({ onDirty }) {
             onDirty?.();
             toast.success('Narration ready');
         } catch (error) {
+            if (epochRef.current !== startEpoch) return;
             console.error('TTS Generation Error:', error);
             toast.error(error.message || 'Failed to generate audio.');
             setStep('review');
@@ -133,6 +142,7 @@ export default function BookSession({ onDirty }) {
             setIsNarratingUi(false);
         }
     };
+
 
     const handleNextPage = () => {
         setCurrentPageIndex(pages.length);
@@ -151,8 +161,9 @@ export default function BookSession({ onDirty }) {
                 </div>
 
                 <p className="step-indicator" aria-live="polite">
-                    Step {Math.min(stepIndex + 1, 3)} of 3: {STEP_LABELS[step] || ''}
+                    Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[step] || ''}
                 </p>
+
 
                 <VoiceSettings compact backendReady={modelReady} activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 

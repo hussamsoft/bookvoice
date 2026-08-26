@@ -108,6 +108,9 @@ export default React.memo(function Transcript({
                 if (cursorIndexRef.current >= 0 && cursorIndexRef.current < list.length) {
                     event.preventDefault();
                     handleWordActivate(cursorIndexRef.current, list[cursorIndexRef.current]);
+                } else if (currentWordValueRef.current >= 0 && currentWordValueRef.current < list.length) {
+                    event.preventDefault();
+                    handleWordActivate(currentWordValueRef.current, list[currentWordValueRef.current]);
                 }
                 return;
             default:

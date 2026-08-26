@@ -23,6 +23,8 @@ import StudioStart from './StudioStart';
 import StudioRepair from './StudioRepair';
 import * as studioSession from '../utils/studioSession';
 
+const WORKFLOW_ORDER = ['NARRATION', 'CONVERSION', 'REPAIR'];
+
 export default function VoiceStudio() {
     const toast = useToast();
     const mountedRef = useRef(true);
@@ -107,6 +109,23 @@ export default function VoiceStudio() {
         if (project?.id) studioSession.setWorkflow(project.id, next);
     }, [project?.id]);
 
+    // ARIA tabs pattern: arrow keys / Home / End move the selected workflow
+    // tab with roving tabindex; mouse and touch keep their click behavior.
+    const onWorkflowTabsKeyDown = (event) => {
+        const key = event.key;
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+        const tabs = Array.from(event.currentTarget.querySelectorAll('[role="tab"]'));
+        const index = tabs.indexOf(document.activeElement);
+        if (index === -1) return;
+        event.preventDefault();
+        const nextIndex = key === 'Home' ? 0
+            : key === 'End' ? tabs.length - 1
+            : key === 'ArrowRight' ? Math.min(tabs.length - 1, index + 1)
+            : Math.max(0, index - 1);
+        setWorkflow(WORKFLOW_ORDER[nextIndex]);
+        tabs[nextIndex].focus();
+    };
+
     const patchProject = useCallback(async (changes) => {
         if (!project) return null;
         const updated = await updateStudioProject(project.id, changes);
@@ -180,6 +199,7 @@ export default function VoiceStudio() {
 
     const runJob = useCallback(async (label, submitter, options = {}) => {
         let controller;
+        let success = false;
         try {
             const queued = await submitter();
             controller = new AbortController();
@@ -191,18 +211,22 @@ export default function VoiceStudio() {
                     if (mountedRef.current) setActiveJob(nextJob);
                 },
             });
-            if (!mountedRef.current) return;
+            if (!mountedRef.current) return false;
             await refresh(project?.id, options.refreshVoices === true);
             await options.onComplete?.(completed.result || {});
             const successMessage = options.successMessage?.(completed.result || {});
             toast.success(successMessage || `${label} completed`);
+            success = true;
         } catch (jobError) {
             if (jobError.name !== 'AbortError') toast.error(jobError.message || `${label} failed.`);
+            success = false;
         } finally {
             if (pollControllerRef.current === controller) pollControllerRef.current = null;
             if (mountedRef.current) setActiveJob(null);
         }
+        return success;
     }, [project?.id, refresh, toast]);
+
 
     const cancelJob = async () => {
         if (!activeJob) return;
@@ -320,12 +344,18 @@ export default function VoiceStudio() {
                         </div>
                     </header>
 
-                    <div className="studio-workflow-tabs" role="tablist" aria-label="Voice Studio workflow">
+                    <div
+                        className="studio-workflow-tabs"
+                        role="tablist"
+                        aria-label="Voice Studio workflow"
+                        onKeyDown={onWorkflowTabsKeyDown}
+                    >
                         <button
                             role="tab"
                             aria-selected={workflow === 'NARRATION'}
                             className={workflow === 'NARRATION' ? 'is-active' : ''}
                             onClick={() => setWorkflow('NARRATION')}
+                            tabIndex={workflow === 'NARRATION' ? 0 : -1}
                             disabled={Boolean(activeJob)}
                         >
                             <AudioLines size={18} /> <span><strong>Create narration</strong><small>Type and generate speech</small></span>
@@ -335,6 +365,7 @@ export default function VoiceStudio() {
                             aria-selected={workflow === 'CONVERSION'}
                             className={workflow === 'CONVERSION' ? 'is-active' : ''}
                             onClick={() => setWorkflow('CONVERSION')}
+                            tabIndex={workflow === 'CONVERSION' ? 0 : -1}
                             disabled={Boolean(activeJob)}
                         >
                             <Repeat2 size={18} /> <span><strong>Convert voice</strong><small>Re-voice an existing recording</small></span>
@@ -344,6 +375,7 @@ export default function VoiceStudio() {
                             aria-selected={workflow === 'REPAIR'}
                             className={workflow === 'REPAIR' ? 'is-active' : ''}
                             onClick={() => setWorkflow('REPAIR')}
+                            tabIndex={workflow === 'REPAIR' ? 0 : -1}
                             disabled={Boolean(activeJob)}
                         >
                             <Scissors size={18} /> <span><strong>Repair media</strong><small>Replace a selected phrase</small></span>

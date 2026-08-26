@@ -28,6 +28,7 @@ h2 {
   font-weight: 650;
   letter-spacing: -0.02em;
   line-height: var(--leading-tight);
+  text-wrap: balance;
 }
 
 h3,

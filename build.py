@@ -64,6 +64,29 @@ def tree_fingerprint(root: Path, excluded_top_level: set[str] | None = None) -> 
     return digest.hexdigest()
 
 
+def get_git_version() -> str:
+    """Derive a precise version from git tags and the current commit.
+
+    On a tagged commit this is the tag (e.g. "2.4.0"). On untagged commits it
+    is "<tag>-<distance>-g<shortsha>" (e.g. "2.4.0-4-g1f89b40"), with a
+    "-dirty" suffix when the working tree has modifications. Falls back to
+    the VERSION file when git is unavailable.
+    """
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    try:
+        import subprocess as _sp
+        desc = _sp.check_output(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=str(ROOT), stderr=_sp.DEVNULL, text=True,
+        ).strip()
+        if desc:
+            # Strip a leading "v" so the tag matches VERSION exactly
+            version = desc if not desc.startswith("v") else desc[1:]
+    except (OSError, subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return version
+
+
 def fixed_loopback_assets(static_dir: Path) -> list[str]:
     """Return built JS assets that would bypass the launcher's selected origin."""
     forbidden = (b"http://localhost:8000", b"http://127.0.0.1:8000")

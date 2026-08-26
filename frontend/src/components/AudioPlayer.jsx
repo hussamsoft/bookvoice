@@ -14,7 +14,7 @@ import { formatClock as timeLabel } from '../utils/format';
  * themselves (seeking to a selected region, looping a range) keep working.
  */
 const AudioPlayer = forwardRef(function AudioPlayer(
-    { src, onTimeUpdate, className = '', label = 'Audio', compact = false },
+    { src, onTimeUpdate, onError, className = '', label = 'Audio', compact = false },
     ref,
 ) {
     const audioRef = useRef(null);
@@ -67,6 +67,29 @@ const AudioPlayer = forwardRef(function AudioPlayer(
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
+                onError={(event) => {
+                    const audio = event.target;
+                    const error = audio.error;
+                    let message = 'Audio could not be played';
+                    if (error) {
+                        switch (error.code) {
+                            case MediaError.MEDIA_ERR_DECODE:
+                                message = 'Audio is corrupted or in an unsupported format';
+                                break;
+                            case MediaError.MEDIA_ERR_NETWORK:
+                                message = 'Network error while loading audio';
+                                break;
+                            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                                message = 'Audio format not supported';
+                                break;
+                            default:
+                                message = `Audio error: ${error.message || 'unknown'}`;
+                        }
+                    }
+                    setPlaying(false);
+                    setDuration(0);
+                    onError?.({ message, code: error?.code });
+                }}
             />
             <button
                 type="button"

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.4.1 - 2026-08-26
+
+### Fixed
+
+- UI audit: migrated all hardcoded `rgba(0,0,0,…)` to `color-mix(in srgb, var(--ink) X%, transparent)` across tokens, shell, reader, studio, and controls stylesheets — dark/light themes now map mechanically from semantic tokens.
+- Added `color-scheme: light` to `:root` (was missing; dark already had it).
+- Added unified motion tokens: `--dur-instant` (80ms), `--dur-meter` (90ms), `--dur-toast` (160ms), `--dur-word-underline` (180ms); replaced hardcoded ms across all stylesheets.
+- Touch targets for `.icon-btn`, `.audio-transport-toggle`, and `.btn.compact` now meet WCAG 2.5.5 / Apple HIG 44px minimum on `@media (pointer: coarse)`.
+- Data-loss bugs fixed: `runJob` error swallowing in studio components (StudioRecorder.keep, StudioNarration.repairSentence, StudioRepair.createProfile, StudioConversion source/target clamp), PdfViewer progress-save debounce-and-cancel replaced with throttle + pagehide/visibilitychange flush, edit-text mode now survives page navigation, `capabilities.js` response shape mismatch (`data?.capabilities`).
+- Added `<Document onLoadError>` handler in PdfViewer with user-friendly messages for encrypted/network/corrupt PDFs.
+- Added `onError` callback to AudioPlayer with `MEDIA_ERR_DECODE`/`NETWORK`/`SRC_NOT_SUPPORTED` handling.
+- SettingsPanel now renders a disabled placeholder gear during config loading (was null → TitleBar gear flashed in/out).
+- Outside-click focus loss fixed in ReadingOptionsPanel, ReaderToolbar, and SettingsPanel — all route through `close()` which returns focus to the trigger.
+- Modal now wires `aria-labelledby` to its `<h2>` and locks body scroll while open.
+- App mode buttons use `aria-current="page"` instead of misused `aria-pressed` (nav destinations, not toggles).
+- Added mode-epoch ref to App.jsx; BookSession async handlers (handleCapture, handleNarrate) ignore promise resolutions after a mode switch — no more React state-update-on-unmount warnings or phantom toasts.
+- VoiceSettings: `consentConfirmed` now resets after upload/record (was a legal footgun — prior consent silently reused), `handleDeleteVoice` routes through shared `ConfirmDialog` instead of `window.confirm`, `fetchVoices` retry capped at 10 before announcing a final "gave up" toast, client-side WAV validation rejects non-WAV files before upload.
+- BookSession step indicator now shows all 4 steps (was clamping to 3).
+- Toast: `aria-live` conflict resolved — single polite region, toasts use `role="alert"`.
+- Simulation: added TTS model-ready wait gate (`/api/tts/status`) so TTS-dependent journeys don't time out on slow CPU model loads.
+
+### Test results
+
+- Frontend unit: 241/241 passing
+- Backend pytest: 406/406 passing (397 passed + 9 subpassed)
+- Simulation journeys: 60/60 passing (9 journeys)
+
 ## 2.4.0 - 2026-08-24
 
 ### Added

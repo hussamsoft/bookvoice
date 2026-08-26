@@ -54,7 +54,7 @@ export default function WaveformRange({
             </svg>
             <div className="studio-range-grid">
                 <label htmlFor={`${idPrefix}-start`}>
-                    <span>Start <output>{timeLabel(start)}</output></span>
+                    <span>Start <output className="studio-waveform-output">{timeLabel(start)}</output></span>
                     <input
                         id={`${idPrefix}-start`}
                         type="range"
@@ -66,7 +66,7 @@ export default function WaveformRange({
                     />
                 </label>
                 <label htmlFor={`${idPrefix}-end`}>
-                    <span>End <output>{timeLabel(end)}</output></span>
+                    <span>End <output className="studio-waveform-output">{timeLabel(end)}</output></span>
                     <input
                         id={`${idPrefix}-end`}
                         type="range"

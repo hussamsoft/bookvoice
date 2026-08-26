@@ -63,7 +63,7 @@ export default function ReadingOptionsPanel({
         };
         const onMouseDown = (event) => {
             if (rootRef.current && !rootRef.current.contains(event.target)) {
-                setOpen(false);
+                close();
             }
         };
         document.addEventListener('keydown', onKeyDown);
@@ -88,7 +88,13 @@ export default function ReadingOptionsPanel({
             </button>
             {open ? (
                 <>
-                    <div className="reading-options-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
+                    <button
+                        type="button"
+                        aria-label="Dismiss"
+                        className="reading-options-scrim"
+                        onClick={() => setOpen(false)}
+                        aria-hidden="false"
+                    />
                     <section
                         ref={panelRef}
                         role="dialog"

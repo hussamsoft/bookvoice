@@ -45,7 +45,7 @@ function writeString(view, offset, str) {
  * Record from a MediaStream into a true PCM WAV blob using Web Audio API.
  * Avoids MediaRecorder's webm/opus containers that break voice cloning.
  */
-export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {}) {
+export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel, onAutoStop } = {}) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const audioContext = new AudioCtx({ latencyHint: 'interactive' });
     if (audioContext.state === 'suspended') {
@@ -61,13 +61,12 @@ export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {
     let stopped = false;
 
     processor.onaudioprocess = (event) => {
-        if (stopped) return;
         const input = event.inputBuffer.getChannelData(0);
         chunks.push(new Float32Array(input));
         if (onLevel) {
             let sum = 0;
-            for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-            onLevel(Math.sqrt(sum / input.length));
+            for (let i = 0; i < input.length; i++) sum += Math.abs(input[i]);
+            onLevel(sum / input.length);
         }
     };
 
@@ -96,8 +95,9 @@ export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {
     };
 
     // Auto-stop safety
-    const timer = setTimeout(() => {
-        stop();
+    const timer = setTimeout(async () => {
+        const blob = await stop();
+        if (onAutoStop) onAutoStop(blob);
     }, maxSeconds * 1000);
 
     function encodeChunks() {
@@ -109,10 +109,6 @@ export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel } = {
             merged.set(c, offset);
             offset += c.length;
         }
-        // Preserve the AudioContext's native rate. The previous nearest-neighbor
-        // downsample to 22.05 kHz discarded voice detail and introduced audible
-        // aliasing. The server performs any model-specific resampling with
-        // FFmpeg's proper band-limited filters after the original is preserved.
         return encodeWav(merged, sampleRate);
     }
 

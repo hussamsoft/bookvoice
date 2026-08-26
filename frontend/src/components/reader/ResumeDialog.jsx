@@ -1,6 +1,5 @@
 import React from 'react';
 import Modal from '../ui/Modal';
-import Button from '../ui/Button';
 
 /**
  * Ask whether to continue the narrated page or read the visible one.

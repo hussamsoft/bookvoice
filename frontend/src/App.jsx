@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useRef, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import ConfirmDialog from './components/ui/ConfirmDialog';
@@ -8,12 +8,23 @@ const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
 const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 
+const MODE_LABELS = {
+    pdf: 'reader',
+    camera: 'scanner',
+    studio: 'voice studio',
+};
+
 function App() {
     const [mode, setMode] = useState(getAppMode);
     const [sessionDirty, setSessionDirty] = useState(false);
     const [pendingMode, setPendingMode] = useState(null);
+    // Epoch increments on every mode switch so in-flight async handlers from a
+    // previous mode can detect they're stale and bail out (no state update on
+    // unmounted/wrong-mode components, no phantom toasts).
+    const epochRef = useRef(0);
 
     const switchTo = (next) => {
+        epochRef.current += 1;
         setSessionDirty(false);
         setMode(next);
         setAppMode(next);
@@ -43,7 +54,7 @@ function App() {
                     <button
                         className={`mode-button ${mode === 'pdf' ? 'is-active' : ''}`}
                         aria-label="Read a book"
-                        aria-pressed={mode === 'pdf'}
+                        aria-current={mode === 'pdf' ? 'page' : undefined}
                         onClick={() => requestMode('pdf')}
                     >
                         <FileText size={17} aria-hidden="true" />
@@ -53,7 +64,7 @@ function App() {
                     <button
                         className={`mode-button ${mode === 'camera' ? 'is-active' : ''}`}
                         aria-label="Scan a page"
-                        aria-pressed={mode === 'camera'}
+                        aria-current={mode === 'camera' ? 'page' : undefined}
                         onClick={() => requestMode('camera')}
                     >
                         <ScanLine size={17} aria-hidden="true" />
@@ -63,7 +74,7 @@ function App() {
                     <button
                         className={`mode-button ${mode === 'studio' ? 'is-active' : ''}`}
                         aria-label="Voice Studio"
-                        aria-pressed={mode === 'studio'}
+                        aria-current={mode === 'studio' ? 'page' : undefined}
                         onClick={() => requestMode('studio')}
                     >
                         <AudioWaveform size={17} aria-hidden="true" />
@@ -74,13 +85,25 @@ function App() {
             </header>
 
             <main className="main-content reading-stage">
-                <Suspense fallback={<div className="loading-state" role="status">Loading reader…</div>}>
+                <Suspense fallback={
+                    <div className="loading-state" role="status">
+                        Loading {MODE_LABELS[mode] || 'app'}…
+                    </div>
+                }>
                     {mode === 'camera' ? (
-                        <BookSession key="camera" onDirty={() => setSessionDirty(true)} />
+                        <BookSession
+                            key={`camera-${epochRef.current}`}
+                            epoch={epochRef.current}
+                            onDirty={() => setSessionDirty(true)}
+                        />
                     ) : mode === 'studio' ? (
-                        <VoiceStudio key="studio" />
+                        <VoiceStudio key={`studio-${epochRef.current}`} />
                     ) : (
-                        <PdfViewer key="pdf" onDirty={() => setSessionDirty(true)} />
+                        <PdfViewer
+                            key={`pdf-${epochRef.current}`}
+                            epoch={epochRef.current}
+                            onDirty={() => setSessionDirty(true)}
+                        />
                     )}
                 </Suspense>
             </main>

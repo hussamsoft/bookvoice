@@ -25,7 +25,7 @@ function TitleBar() {
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
         const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', theme === 'dark' ? '#18181b' : '#ffffff');
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#161513' : '#f7f5f1');
         writeStoredString('bookvoice.theme', theme);
     }, [theme]);
 

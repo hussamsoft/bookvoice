@@ -54,7 +54,7 @@ describe('App Component', () => {
     expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
     expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
     expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Read a book' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Read a book' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('opens Voice Studio as a third persistent workspace', async () => {
@@ -63,7 +63,7 @@ describe('App Component', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voice Studio' }));
 
     expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-current', 'page');
     expect(localStorage.getItem('bookvoice.app.mode')).toBe('studio');
   });
 
@@ -73,6 +73,6 @@ describe('App Component', () => {
     renderApp();
 
     expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-current', 'page');
   });
 });

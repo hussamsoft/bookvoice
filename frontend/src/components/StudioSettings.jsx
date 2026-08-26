@@ -178,6 +178,7 @@ export default function StudioSettings({
                         <input
                             id="studio-guidance"
                             type="number"
+                            inputMode="decimal"
                             min="0"
                             max="1"
                             step="0.05"

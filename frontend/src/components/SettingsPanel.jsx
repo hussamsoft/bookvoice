@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useToast } from './Toast';
 import Button from './ui/Button';
@@ -11,24 +11,41 @@ export default function SettingsPanel() {
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const panelRef = useRef(null);
+    const triggerRef = useRef(null);
+
+    const closeSettings = useCallback(() => {
+        setOpen(false);
+        triggerRef.current?.focus();
+    }, []);
 
     useEffect(() => {
         if (!open) return undefined;
         const closeOnOutside = (event) => {
-            if (!panelRef.current?.contains(event.target)) setOpen(false);
+            if (!panelRef.current?.contains(event.target)) closeSettings();
         };
         const closeOnEscape = (event) => {
-            if (event.key === 'Escape') setOpen(false);
+            if (event.key === 'Escape') closeSettings();
         };
-        document.addEventListener('pointerdown', closeOnOutside);
+        document.addEventListener('click', closeOnOutside);
         document.addEventListener('keydown', closeOnEscape);
         return () => {
-            document.removeEventListener('pointerdown', closeOnOutside);
+            document.removeEventListener('click', closeOnOutside);
             document.removeEventListener('keydown', closeOnEscape);
         };
-    }, [open]);
+    }, [open, closeSettings]);
 
-    if (!config) return null;
+    if (!config) {
+        return (
+            <button
+                ref={triggerRef}
+                className="icon-btn"
+                aria-label="Open settings"
+                aria-disabled="true"
+            >
+                <Settings size={16} />
+            </button>
+        );
+    }
 
     const handleChange = async (key, value) => {
         setSaving(true);
@@ -44,11 +61,12 @@ export default function SettingsPanel() {
     return (
         <div className="settings-panel-wrap" ref={panelRef}>
             <Button
+                ref={triggerRef}
                 variant="secondary"
                 size="sm"
                 onClick={() => setOpen((o) => !o)}
                 aria-expanded={open}
-                aria-label="Open settings"
+                aria-label={open ? 'Close settings' : 'Open settings'}
                 title="Settings"
             >
                 <Settings size={16} />

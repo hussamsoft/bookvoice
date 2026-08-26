@@ -10,23 +10,29 @@ const FOCUSABLE = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
+let modalTitleId = 0;
+
 /**
  * Accessible modal dialog: focus moves in on open, is trapped while open,
- * Escape closes, and focus returns to whoever opened it.
+ * Escape closes, focus returns to whoever opened it, body scroll is locked
+ * while open, and the title is wired to aria-labelledby on the dialog.
  */
-export default function Modal({ open, onClose, title, children, actions, closeLabel = 'Close' }) {
+export default function Modal({ open, onClose, title, children, actions }) {
     const panelRef = useRef(null);
     const previouslyFocused = useRef(null);
-    // Enter choreography: mount with the hidden state, then flip classes on
-    // the next frame so the overlay fade / panel scale transitions run
-    // instead of being swallowed by insertion.
+    const [titleId] = useState(() => `modal-title-${++modalTitleId}`);
     const [shown, setShown] = useState(false);
 
+    // Scroll lock + enter choreography: mount with the hidden state, then flip
+    // classes on the next frame so the overlay fade / panel scale transitions
+    // run instead of being swallowed by insertion.
     useEffect(() => {
         if (!open) {
             setShown(false);
+            document.body.style.overflow = '';
             return undefined;
         }
+        document.body.style.overflow = 'hidden';
         let raf2;
         const raf1 = requestAnimationFrame(() => {
             raf2 = requestAnimationFrame(() => setShown(true));
@@ -34,9 +40,12 @@ export default function Modal({ open, onClose, title, children, actions, closeLa
         return () => {
             cancelAnimationFrame(raf1);
             cancelAnimationFrame(raf2);
+            document.body.style.overflow = '';
         };
     }, [open]);
 
+    // Focus management: remember where we came from, move focus in on open,
+    // trap Tab within the dialog, restore focus on close.
     useEffect(() => {
         if (!open) return undefined;
         previouslyFocused.current = document.activeElement;
@@ -87,10 +96,10 @@ export default function Modal({ open, onClose, title, children, actions, closeLa
                 className={`modal-panel${shown ? ' is-shown' : ''}`}
                 role="dialog"
                 aria-modal="true"
-                aria-label={title}
+                aria-labelledby={title ? titleId : undefined}
                 tabIndex={-1}
             >
-                {title ? <h2 className="modal-title">{title}</h2> : null}
+                {title ? <h2 className="modal-title" id={titleId}>{title}</h2> : null}
                 {children}
                 {actions ? (
                     <div className="modal-actions">

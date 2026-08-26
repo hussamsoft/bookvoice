@@ -324,7 +324,7 @@
 .studio-project-header input:focus-visible {
   outline: none;
   border-bottom-color: var(--accent);
-  box-shadow: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .studio-project-header-actions {
@@ -507,6 +507,13 @@
   padding: 2px 8px;
 }
 
+/* Touch screens get larger tap targets without denser typography. */
+@media (pointer: coarse) {
+  .studio-transcript button {
+    min-height: 32px;
+  }
+}
+
 .studio-correction {
   border-top: 1px dashed var(--hairline-strong);
   padding-top: var(--space-3);
@@ -678,7 +685,8 @@
   background: var(--signal);
   border-radius: 2px;
   transform-origin: center;
-  transition: transform 90ms linear;
+  transition: transform var(--dur-meter) linear;
+
 }
 
 .studio-record-clock {
@@ -691,6 +699,12 @@
   color: var(--error);
   font-size: var(--text-xs);
 }
+
+.voice-fetch-error {
+  color: var(--error);
+  font-size: var(--text-xs);
+}
+
 
 .studio-record-retention {
   font-size: var(--text-xs);
@@ -727,13 +741,16 @@
   color: var(--ink-secondary);
 }
 
+.studio-waveform-output {
+  font-variant-numeric: tabular-nums;
+}
+
 .studio-waveform-plot {
   position: relative;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
-  touch-action: none;
 }
 
 .studio-waveform-selection {

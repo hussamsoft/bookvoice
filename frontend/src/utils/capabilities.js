@@ -19,11 +19,12 @@ let cached = null;
 export function loadCapabilities() {
     if (!cached) {
         cached = getUserConfig()
-            .then((data) => ({ ...DEFAULT_CAPABILITIES, ...(data.capabilities || {}) }))
+            .then((data) => ({ ...DEFAULT_CAPABILITIES, ...(data?.capabilities || {}) }))
             .catch(() => ({ ...DEFAULT_CAPABILITIES }));
     }
     return cached;
 }
+
 
 export function resetCapabilities() {
     cached = null;

@@ -8,6 +8,7 @@ import WaveformRange from './WaveformRange';
 
 const MAX_TARGET_CLIP_SEC = 30;
 const MIN_TARGET_CLIP_SEC = 5;
+const TARGET_MODES = ['PROFILE', 'SOURCE'];
 
 export default function StudioConversion({ project, voices, onPatch, onRunJob, disabled }) {
     const sources = useMemo(() => project.sources || [], [project.sources]);
@@ -42,15 +43,19 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
     const sourceDurationSec = source?.durationSec;
     useEffect(() => {
         if (!sourceId) return;
-        setRange({ start: 0, end: Math.max(0.5, Number(sourceDurationSec) || 0.5) });
+        const dur = Number(sourceDurationSec) || 0.5;
+        setRange({ start: 0, end: Math.max(0.5, Math.min(dur, 60 * 60)) });
         setConsent(false);
     }, [sourceId, sourceDurationSec]);
+
 
     const targetDurationSec = targetSource?.durationSec;
     useEffect(() => {
         if (!targetSourceId) return;
-        setTargetRange({ start: 0, end: Math.min(MAX_TARGET_CLIP_SEC, Math.max(MIN_TARGET_CLIP_SEC, Number(targetDurationSec) || MIN_TARGET_CLIP_SEC)) });
+        const dur = Number(targetDurationSec) || MIN_TARGET_CLIP_SEC;
+        setTargetRange({ start: 0, end: Math.min(dur, Math.max(MIN_TARGET_CLIP_SEC, Math.min(MAX_TARGET_CLIP_SEC, dur))) });
     }, [targetSourceId, targetDurationSec]);
+
 
     // Selecting whatever was just imported is the only sensible next step —
     // otherwise the picker keeps pointing at the previous file and the new one
@@ -76,6 +81,21 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
             ),
             { onComplete: selectImported, successMessage: () => 'Recording added and selected' },
         );
+    };
+
+    // ARIA radio-group pattern: arrow keys move selection with roving
+    // tabindex; mouse and touch keep their click behavior.
+    const onTargetModeKeyDown = (event) => {
+        const key = event.key;
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return;
+        const radios = Array.from(event.currentTarget.querySelectorAll('[role="radio"]'));
+        const index = radios.indexOf(document.activeElement);
+        if (index === -1) return;
+        event.preventDefault();
+        const direction = key === 'ArrowUp' || key === 'ArrowLeft' ? -1 : 1;
+        const nextIndex = (index + direction + radios.length) % radios.length;
+        setTargetMode(TARGET_MODES[nextIndex]);
+        radios[nextIndex].focus();
     };
 
     const sourceSpan = range.end - range.start;
@@ -151,13 +171,19 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                     <Wand2 size={21} aria-hidden="true" />
                 </div>
 
-                <div className="studio-target-modes" role="radiogroup" aria-label="Target voice source">
+                <div
+                    className="studio-target-modes"
+                    role="radiogroup"
+                    aria-label="Target voice source"
+                    onKeyDown={onTargetModeKeyDown}
+                >
                     <button
                         type="button"
                         role="radio"
                         aria-checked={targetMode === 'PROFILE'}
                         className={targetMode === 'PROFILE' ? 'is-active' : ''}
                         onClick={() => setTargetMode('PROFILE')}
+                        tabIndex={targetMode === 'PROFILE' ? 0 : -1}
                         disabled={disabled}
                     >
                         <strong>Saved voice</strong>
@@ -169,6 +195,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         aria-checked={targetMode === 'SOURCE'}
                         className={targetMode === 'SOURCE' ? 'is-active' : ''}
                         onClick={() => setTargetMode('SOURCE')}
+                        tabIndex={targetMode === 'SOURCE' ? 0 : -1}
                         disabled={disabled}
                     >
                         <strong>Another recording</strong>

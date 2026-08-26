@@ -76,6 +76,20 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
             recorderRef.current = await recordStreamToWav(stream, {
                 maxSeconds: MAX_SECONDS,
                 onLevel: pushLevel,
+                onAutoStop: (blob) => {
+                    if (blob && blob.size >= 1000) {
+                        const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
+                        setTake({
+                            blob,
+                            url: URL.createObjectURL(blob),
+                            name: `recording-${stamp}.wav`,
+                            seconds: (Date.now() - startedAtRef.current) / 1000,
+                        });
+                    }
+                    setRecording(false);
+                    setLevels(new Array(METER_BARS).fill(0));
+                    releaseMicrophone();
+                },
             });
             startedAtRef.current = Date.now();
             setElapsed(0);
@@ -85,6 +99,7 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
             setError('Could not use the microphone. Check that permission is allowed.');
         }
     };
+
 
     const stop = async () => {
         if (!recorderRef.current) return;
@@ -121,6 +136,7 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
             setSaving(false);
         }
     };
+
 
     if (take) {
         return (
@@ -165,7 +181,7 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
                 {recording && <span className="studio-record-clock">{timeLabel(elapsed)}</span>}
             </button>
             {recording && (
-                <div className="studio-record-meter" role="status" aria-live="off">
+                <div className="studio-record-meter" role="status">
                     <div className="studio-record-bars" aria-hidden="true">
                         {levels.map((value, index) => (
                             <span

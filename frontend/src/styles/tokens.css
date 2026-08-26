@@ -11,6 +11,7 @@
  */
 
 :root {
+  color-scheme: light;
   /* Primitives — neutrals (legacy ramp, still referenced; semantic layers
    * below take precedence over these) */
   --gray-0: #ffffff;
@@ -36,32 +37,32 @@
   --ink-secondary: #5c5a54;
   --ink-muted: #6e6b64;
   --ink-faint: var(--gray-400);
-  --hairline: rgba(33, 31, 27, 0.10);
-  --hairline-strong: rgba(33, 31, 27, 0.17);
+  --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
 
   /* Action accent — the only hue for interactive states */
   --accent: #3a5a78;
   --accent-hover: #2e4a63;
   --accent-on: #ffffff;
-  --accent-soft: rgba(58, 90, 120, 0.10);
-  --accent-ring: rgba(58, 90, 120, 0.45);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
 
   /* Signal — reserved for narration / live audio state */
   --signal: #2c5d5a;
-  --signal-soft: rgba(44, 93, 90, 0.12);
-  --signal-ring: rgba(44, 93, 90, 0.50);
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
 
   /* Live — recording and destructive actions only */
   --live: #a03a2e;
 
   /* Functional status pairs */
   --error: #b4342f;
-  --error-bg: rgba(180, 52, 47, 0.08);
-  --error-ring: rgba(180, 52, 47, 0.45);
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
   --success: #1f7a55;
-  --success-bg: rgba(31, 122, 85, 0.09);
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
   --warning: #925c00;
-  --warning-bg: rgba(146, 92, 0, 0.10);
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
 
   /* Typography
    * Weights in use: 400 (body), 500 (UI emphasis / body headings),
@@ -100,14 +101,19 @@
 
   /* Elevation — borders carry separation; shadows float above content.
    * --shadow-pop is the lighter tier for menus/sheets vs full overlays. */
-  --shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.18);
-  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.12);
+  --shadow-overlay: 0 16px 40px color-mix(in srgb, var(--ink) 18%, transparent);
+  --shadow-pop: 0 10px 28px color-mix(in srgb, var(--ink) 12%, transparent);
 
   /* Motion */
+  --dur-instant: 80ms;
+  --dur-meter: 90ms;
+  --dur-toast: 160ms;
+  --dur-word-underline: 180ms;
   --dur-fast: 140ms;
   --dur: 200ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
 
   /* Control heights */
   --control-h-sm: 28px;
@@ -135,6 +141,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #161513;
   --surface: #1e1c19;
   --surface-raised: #262420;
@@ -142,26 +149,25 @@
   --ink-secondary: #b8b4ac;
   --ink-muted: var(--gray-400);
   --ink-faint: var(--gray-600);
-  --hairline: rgba(236, 233, 227, 0.10);
-  --hairline-strong: rgba(236, 233, 227, 0.17);
+  --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
   --accent: #9dbbd6;
   --accent-hover: #b4cce2;
   --accent-on: #161513;
-  --accent-soft: rgba(157, 187, 214, 0.14);
-  --accent-ring: rgba(157, 187, 214, 0.55);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
   --signal: #7fb8ae;
-  --signal-soft: rgba(127, 184, 174, 0.14);
-  --signal-ring: rgba(127, 184, 174, 0.55);
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
   --live: #e07a6e;
   /* Status pairs remapped warm so they read on #1e1c19 */
   --error: #e5837a;
-  --error-bg: rgba(229, 131, 122, 0.12);
-  --error-ring: rgba(229, 131, 122, 0.50);
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
   --success: #66b391;
-  --success-bg: rgba(102, 179, 145, 0.13);
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
   --warning: #d9a84e;
-  --warning-bg: rgba(217, 168, 78, 0.12);
-  --shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.55);
-  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.45);
-  color-scheme: dark;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+  --shadow-overlay: 0 16px 40px color-mix(in srgb, var(--ink) 55%, transparent);
+  --shadow-pop: 0 10px 28px color-mix(in srgb, var(--ink) 45%, transparent);
 }

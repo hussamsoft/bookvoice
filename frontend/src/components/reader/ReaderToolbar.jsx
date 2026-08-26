@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Bookmark,
     BookmarkCheck,
@@ -13,7 +13,7 @@ import {
     ZoomOut,
 } from 'lucide-react';
 
-export const ZOOM_LIMITS = { min: 0.7, max: 2.6, step: 0.15 };
+const ZOOM_LIMITS = { min: 0.7, max: 2.6, step: 0.15 };
 
 /**
  * Reader toolbar, clustered into labeled move · view · track · find groups
@@ -49,12 +49,16 @@ export default function ReaderToolbar({
     const moreRootRef = useRef(null);
     const moreTriggerRef = useRef(null);
 
+    const closeMore = useCallback(() => {
+        setMoreOpen(false);
+        moreTriggerRef.current?.focus();
+    }, []);
+
     useEffect(() => {
         if (!moreOpen) return undefined;
         const onKeyDown = (event) => {
             if (event.key === 'Escape') {
-                setMoreOpen(false);
-                moreTriggerRef.current?.focus();
+                closeMore();
                 return;
             }
             if (event.key !== 'Tab' || !moreRootRef.current) return;
@@ -72,7 +76,7 @@ export default function ReaderToolbar({
         };
         const onMouseDown = (event) => {
             if (moreRootRef.current && !moreRootRef.current.contains(event.target)) {
-                setMoreOpen(false);
+                closeMore();
             }
         };
         document.addEventListener('keydown', onKeyDown);
@@ -81,7 +85,8 @@ export default function ReaderToolbar({
             document.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('mousedown', onMouseDown);
         };
-    }, [moreOpen]);
+    }, [moreOpen, closeMore]);
+
 
     return (
         <div className="reader-navigation" role="toolbar" aria-label="Reader navigation">
@@ -240,6 +245,7 @@ export default function ReaderToolbar({
                                     if (event.target.value) {
                                         onGoToPage(Number(event.target.value));
                                         setMoreOpen(false);
+                                        moreTriggerRef.current?.focus();
                                     }
                                 }}
                             >

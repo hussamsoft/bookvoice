@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getVoices, uploadVoice, deleteVoice } from '../utils/api';
 import { recordStreamToWav } from '../utils/wav';
 import { useToast } from './Toast';
+import ConfirmDialog from './ui/ConfirmDialog';
 import { Mic, Upload, StopCircle, RefreshCw, Trash2 } from 'lucide-react';
+
+const MAX_FETCH_RETRIES = 10;
 
 export default function VoiceSettings({
     activeVoiceId,
@@ -17,6 +20,8 @@ export default function VoiceSettings({
     const [newVoiceName, setNewVoiceName] = useState('');
     const [uploadName, setUploadName] = useState('');
     const [consentConfirmed, setConsentConfirmed] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [fetchFailed, setFetchFailed] = useState(false);
 
     const recorderRef = useRef(null);
     const streamRef = useRef(null);
@@ -50,11 +55,12 @@ export default function VoiceSettings({
     );
 
     const fetchVoices = useCallback(
-        async ({ announceFailure = true } = {}) => {
+        async ({ announceFailure = true, retry = false } = {}) => {
             try {
                 const data = await getVoices();
                 setVoices(data);
                 validateActiveVoice(data, activeVoiceId);
+                setFetchFailed(false);
                 return data;
             } catch (error) {
                 console.error(error);
@@ -65,6 +71,7 @@ export default function VoiceSettings({
                             : 'Waiting for the reading engine to finish starting…'
                     );
                 }
+                if (retry) setFetchFailed(true);
                 return null;
             }
         },
@@ -82,9 +89,18 @@ export default function VoiceSettings({
 
         const run = async () => {
             if (cancelled) return;
+            if (failCount >= MAX_FETCH_RETRIES) {
+                setFetchFailed(true);
+                toast.error(
+                    'Could not load voice profiles after several attempts.',
+                    0 // persist until dismissed
+                );
+                return;
+            }
             const announceFailure =
                 failCount >= 5 || (backendReadyRef.current && failCount >= 2);
             const data = await fetchVoices({ announceFailure });
+            if (cancelled) return;
             if (data !== null) {
                 failCount = 0;
                 return;
@@ -96,10 +112,11 @@ export default function VoiceSettings({
         run();
         return () => {
             cancelled = true;
-            if (timer) clearTimeout(timer);
+            clearTimeout(timer);
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach((t) => t.stop());
             }
+
         };
     }, [fetchVoices]);
 
@@ -117,6 +134,17 @@ export default function VoiceSettings({
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        // Validate file type client-side against the accept list.
+        const isWav =
+            file.type === 'audio/wav' ||
+            file.type === 'audio/x-wav' ||
+            file.name.toLowerCase().endsWith('.wav');
+        if (!isWav) {
+            toast.error('Please upload a WAV file.');
+            e.target.value = null;
+            return;
+        }
 
         const name = uploadName.trim();
         if (!name) {
@@ -136,6 +164,7 @@ export default function VoiceSettings({
             await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
             setUploadName('');
+            setConsentConfirmed(false);
             toast.success(`Voice "${name}" saved`);
         } catch (error) {
             toast.error(error.message);
@@ -172,10 +201,6 @@ export default function VoiceSettings({
         setLoading(true);
         try {
             const blob = await recorderRef.current.stop();
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach((t) => t.stop());
-                streamRef.current = null;
-            }
             recorderRef.current = null;
 
             if (!blob || blob.size < 1000) {
@@ -188,6 +213,7 @@ export default function VoiceSettings({
             await fetchVoices({ announceFailure: true });
             onVoiceChange(result.id);
             setNewVoiceName('');
+            setConsentConfirmed(false);
             toast.success(`Voice "${savedName}" saved`);
         } catch (error) {
             toast.error(error.message);
@@ -198,7 +224,11 @@ export default function VoiceSettings({
 
     const handleDeleteVoice = async () => {
         if (!activeVoiceId) return;
-        if (!window.confirm(`Delete voice "${activeVoiceId}"?`)) return;
+        setConfirmDeleteOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        setConfirmDeleteOpen(false);
         setLoading(true);
         try {
             await deleteVoice(activeVoiceId);
@@ -215,8 +245,9 @@ export default function VoiceSettings({
     return (
         <div className="voice-settings">
             <div className="voice-selector">
-                <label>Voice</label>
+                <label htmlFor="voice-select">Voice</label>
                 <select
+                    id="voice-select"
                     value={activeVoiceId || ''}
                     onChange={(e) => onVoiceChange(e.target.value || null)}
                 >
@@ -229,22 +260,40 @@ export default function VoiceSettings({
                 </select>
                 <button
                     className="icon-btn"
-                    onClick={() => fetchVoices({ announceFailure: true })}
+                    onClick={() => fetchVoices({ announceFailure: true, retry: true })}
+                    aria-label="Refresh voices"
                     title="Refresh voices"
+                    disabled={loading}
                 >
                     <RefreshCw size={16} />
                 </button>
+                {fetchFailed && !voices.length && (
+                    <span className="voice-fetch-error" role="status">
+                        Couldn’t load voices
+                    </span>
+                )}
                 {activeVoiceId && (
                     <button
                         className="icon-btn danger"
                         onClick={handleDeleteVoice}
                         disabled={loading}
+                        aria-label="Delete selected voice"
                         title="Delete selected voice"
                     >
                         <Trash2 size={16} />
                     </button>
                 )}
             </div>
+
+            <ConfirmDialog
+                open={confirmDeleteOpen}
+                title="Delete voice?"
+                message={activeVoiceId ? `This will permanently delete the voice "${activeVoiceId}". This cannot be undone.` : ''}
+                confirmLabel="Delete"
+                confirmVariant="danger"
+                onConfirm={confirmDelete}
+                onCancel={() => setConfirmDeleteOpen(false)}
+            />
 
             {!compact && <div className="voice-creation">
                 <h4>Create new voice</h4>
@@ -262,6 +311,7 @@ export default function VoiceSettings({
                         <input
                             type="text"
                             placeholder="Voice name"
+                            aria-label="Voice name"
                             value={uploadName}
                             onChange={(e) => setUploadName(e.target.value)}
                             disabled={loading}
@@ -286,6 +336,7 @@ export default function VoiceSettings({
                         <input
                             type="text"
                             placeholder="Voice name"
+                            aria-label="Voice name"
                             value={newVoiceName}
                             onChange={(e) => setNewVoiceName(e.target.value)}
                             disabled={isRecording || loading}
@@ -305,7 +356,7 @@ export default function VoiceSettings({
                         )}
                     </div>
                 </div>
-                {loading && <p className="hint">Saving voice profile...</p>}
+                {loading && <p className="hint">Saving voice profile…</p>}
             </div>}
         </div>
     );

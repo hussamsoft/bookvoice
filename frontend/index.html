@@ -7,11 +7,19 @@
     <meta name="description" content="Capture book pages, extract text, translate, and hear them narrated in your own voice." />
     <meta name="theme-color" content="#F7F5F1" />
     <script>
-      // Match the app background before first paint; TitleBar keeps it in
-      // sync after mount (dark value mirrors tokens.css --bg).
+      // Match the app theme and background before first paint; TitleBar keeps
+      // them in sync after mount (values mirror tokens.css --bg).
       (function () {
         try {
           var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          try {
+            var stored = window.localStorage.getItem('bookvoice.theme');
+            if (stored !== 'dark' && stored !== 'light') {
+              stored = window.localStorage.getItem('bookvoice:theme');
+            }
+            if (stored === 'dark' || stored === 'light') dark = stored === 'dark';
+          } catch (e) { /* storage unavailable; keep system preference */ }
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
           document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#161513' : '#F7F5F1');
         } catch (e) { /* non-browser env */ }
       })();
