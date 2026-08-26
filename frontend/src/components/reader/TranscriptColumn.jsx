@@ -1,4 +1,5 @@
 import React from 'react';
+import { Languages, PenLine } from 'lucide-react';
 import Transcript from '../Transcript';
 
 /**
@@ -30,18 +31,20 @@ export default function TranscriptColumn({
             <div className="pdf-transcript-actions">
                 <button
                     type="button"
-                    className="btn secondary btn-compact"
+                    className="btn text btn-compact transcript-action"
                     onClick={onToggleEditText}
                     disabled={!pageText}
                 >
+                    <PenLine size={15} aria-hidden="true" />
                     {isEditingText ? 'Cancel editing' : 'Edit text'}
                 </button>
                 <button
                     type="button"
-                    className="btn secondary btn-compact"
+                    className="btn text btn-compact transcript-action"
                     onClick={onTranslatePage}
                     disabled={!pageText || isGenerating}
                 >
+                    <Languages size={15} aria-hidden="true" />
                     Translate to {targetLanguage === 'ar' ? 'English' : 'Arabic'}
                 </button>
             </div>

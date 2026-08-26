@@ -26,7 +26,19 @@ This MVP was built across three development phases:
    - Playback progress, seeking, speed control, skip controls, and page-audio export.
    - Desktop launcher binds to **localhost only** (not exposed on the LAN).
 
-4. **Voice Studio**
+
+4. **Reading formats & exports**
+   - **EPUB and plain-text books** (`.epub`, `.txt`, `.md`) join PDFs and
+     `.bookvoice` archives: chapters are extracted on import into the prepared
+     library, so narration, bookmarks, whole-book preparation, and reading
+     progress work without a PDF. Text books render as a transcript column.
+   - **Chaptered M4B audiobook export** concatenates one voice profile's
+     prepared page audio into a single `.m4b` with per-page chapter markers,
+     using the bundled FFmpeg.
+   - A **sleep timer** (5–60 minutes, or stop at end of page) lives in the
+     shared playback transport, and narration registers with the OS media
+     overlay so keyboard media keys play, pause, skip, and change pages.
+5. **Voice Studio**
    - Persistent local projects for narration written directly in BookVoice; no text-file import is required.
    - Create Narration starts with direct WAV, MP3, M4A/AAC, FLAC, OGG, WebM, MP4, MOV, or MKV import. Select 5–30 seconds of one speaker, confirm ownership/permission, and the resulting cloned profile is automatically selected to narrate whatever you type.
    - Video imports receive a local H.264/AAC preview for reliable in-app picture and sound, while standalone narration adds short head and tail silence to protect speech from playback cutoffs.
@@ -43,6 +55,12 @@ BookVoice is a local desktop app by default: loopback-only, no login, with
 generated files downloaded by the browser using it. It can also run as a private server — see
 [`deploy/README.md`](deploy/README.md) for the environment variables, the Modal
 deployment, and the limits (single-tenant, no per-user separation, no quotas).
+
+## Linux
+
+A practical Linux server deployment (CPU or NVIDIA GPU) is documented in
+[`deploy/linux.md`](deploy/linux.md), including a `scripts/setup_linux.sh`
+bootstrap, model-weight notes, and a hardened systemd unit.
 
 ## Technology Stack
 

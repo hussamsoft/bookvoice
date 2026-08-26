@@ -9,6 +9,7 @@
 
 .main-header {
   flex: none;
+  padding-top: env(safe-area-inset-top);
   background: var(--surface);
   border-bottom: 1px solid var(--hairline);
 }
@@ -24,8 +25,9 @@
 }
 
 .titlebar-brand h1 {
-  font-size: var(--text-base);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 650;
   letter-spacing: -0.01em;
 }
 
@@ -53,7 +55,7 @@
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
-  z-index: 60;
+  z-index: var(--z-panel);
   width: min(320px, calc(100vw - 32px));
   max-height: min(70vh, 520px);
   overflow-y: auto;
@@ -64,7 +66,7 @@
   background: var(--surface-raised);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-overlay);
+  box-shadow: var(--shadow-pop);
 }
 
 .settings-dropdown h4 {
@@ -98,6 +100,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
+  position: relative;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -112,10 +115,32 @@
   color: var(--ink);
 }
 
+.mode-switcher button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
 .mode-button.is-active {
   background: var(--surface-raised);
   color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+
+.mode-button::after {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 2px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 180ms var(--ease-out-quart);
+}
+
+.mode-button.is-active::after {
+  transform: scaleX(1);
 }
 
 .mode-button span {
@@ -200,7 +225,7 @@
   bottom: var(--space-5);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 90;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -218,6 +243,28 @@
   color: var(--ink);
   box-shadow: var(--shadow-overlay);
   font-size: var(--text-sm);
+  animation: bv-toast-in 160ms var(--ease-out-quart);
+}
+
+@keyframes bv-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Exit phase: ToastProvider flags .toast-leaving, then removes the node
+ * after this transition (EXIT_MS in Toast.jsx must stay in sync). */
+.toast.toast-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 160ms var(--ease-out-quart),
+    transform 160ms var(--ease-out-quart);
 }
 
 .toast-icon {

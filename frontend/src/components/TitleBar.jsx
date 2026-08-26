@@ -9,16 +9,23 @@ const SettingsPanel = lazy(() => import('./SettingsPanel'));
  * the standard Windows frame so snapping, resizing, and maximize behavior are
  * handled by the operating system.
  */
+function prefersColorSchemeDark() {
+    if (typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 function TitleBar() {
     const [theme, setTheme] = useState(() =>
         readStoredString('bookvoice.theme', {
             legacyKeys: ['bookvoice:theme'],
-            fallback: 'light',
+            fallback: prefersColorSchemeDark() ? 'dark' : 'light',
         })
     );
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#18181b' : '#ffffff');
         writeStoredString('bookvoice.theme', theme);
     }, [theme]);
 

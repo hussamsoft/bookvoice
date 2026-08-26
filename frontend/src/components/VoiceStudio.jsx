@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors, X } from 'lucide-react';
+import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
 import {
     cancelStudioJob,
     claimLegacyStudioProjects,
@@ -263,6 +263,7 @@ export default function VoiceStudio() {
         ? latestJob
         : null;
 
+    const jobProgressPct = Math.min(100, Math.max(0, Math.round((activeJob?.progress || 0) * 100)));
     return (
         <div className="voice-studio">
             <StudioProjectSidebar
@@ -351,9 +352,19 @@ export default function VoiceStudio() {
 
                     {activeJob && (
                         <div className="studio-job" role="status" aria-live="polite">
-                            <div><strong>{activeJob.message || 'Working'}</strong><span>{Math.round((activeJob.progress || 0) * 100)}%</span></div>
-                            <progress max="1" value={activeJob.progress || 0} />
-                            <button className="icon-btn" onClick={cancelJob} aria-label="Cancel Studio job"><X size={16} /></button>
+                            <strong>{activeJob.message || 'Working'}</strong>
+                            <span className="studio-job-pct">{jobProgressPct}%</span>
+                            <div
+                                className="studio-job-meter"
+                                role="progressbar"
+                                aria-label={activeJob.message || 'Working'}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={jobProgressPct}
+                            >
+                                <div className="studio-job-meter-fill" style={{ width: `${jobProgressPct}%` }} />
+                            </div>
+                            <button className="btn text" onClick={cancelJob} aria-label="Cancel Studio job">Cancel</button>
                         </div>
                     )}
 

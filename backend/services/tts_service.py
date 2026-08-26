@@ -567,10 +567,13 @@ def _generate_chunk(model, text: str, language_id: str, **generate_kwargs):
     import torch.nn.functional as F
 
     max_new_tokens = _estimate_max_new_tokens(text)
-    # CFG doubles compute (two sequences). Keep quality on GPU; speed up CPU.
+    # t3.inference always runs the CFG batch of two (bos_embed and each step's
+    # token embed are doubled unconditionally); cfg_weight only scales the
+    # interpolation. A 0.0 default therefore saves no compute on CPU and breaks
+    # the batch-2 contract inside t3.py (tensor-size mismatch at the first cat).
     cfg_weight = generate_kwargs.get("cfg_weight")
     if cfg_weight is None:
-        cfg_weight = 0.4 if _is_cuda_build() else 0.0
+        cfg_weight = 0.4
     temperature = generate_kwargs.get("temperature", 0.8)
     repetition_penalty = generate_kwargs.get("repetition_penalty", 1.2)
     min_p = generate_kwargs.get("min_p", 0.05)

@@ -24,7 +24,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
-OUT = ROOT / "installer"
+OUT = Path(os.environ.get("BOOKVOICE_MSI_OUT_DIR") or (ROOT / "installer"))
 WIX_BIN = ROOT / "tools" / "wix"
 MACHINE_UPGRADE_CODE = "{E3B3C1A2-1C2D-4F0E-9A1B-1234567890AB}"
 USER_UPGRADE_CODE = "{F4C4D2B3-2D3E-5F1F-0B2C-234567890ABC}"
@@ -322,6 +322,19 @@ def compile_msi(wxs_path: Path, msi_path: Path, *, per_user: bool = False) -> No
         ],
         check=True,
     )
+    # light.exe compresses every cabinet before touching the final database;
+    # an unwritable target must fail before that, not two hours later.
+    for probe_target in (msi_path, wxs_path.with_suffix(".wixpdb")):
+        if probe_target.exists():
+            try:
+                with open(probe_target, "r+b"):
+                    pass
+            except OSError as exc:
+                raise SystemExit(
+                    f"Cannot replace existing {probe_target.name}: {exc}. "
+                    "Delete it (or unlock its handle), or set BOOKVOICE_MSI_OUT_DIR "
+                    "to a writable directory."
+                ) from exc
     light_cmd = [
         str(light),
         "-ext",

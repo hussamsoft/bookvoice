@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useToast } from './Toast';
+import Button from './ui/Button';
 import { useUserConfig } from '../hooks/useUserConfig';
 import VoiceSettings from './VoiceSettings';
 
@@ -33,7 +34,6 @@ export default function SettingsPanel() {
         setSaving(true);
         try {
             await updateConfig({ [key]: value });
-            toast.success('Settings saved');
         } catch (e) {
             toast.error(e?.message || 'Could not save settings');
         } finally {
@@ -43,15 +43,16 @@ export default function SettingsPanel() {
 
     return (
         <div className="settings-panel-wrap" ref={panelRef}>
-            <button
-                className="btn secondary btn-compact"
+            <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setOpen((o) => !o)}
                 aria-expanded={open}
                 aria-label="Open settings"
                 title="Settings"
             >
                 <Settings size={16} />
-            </button>
+            </Button>
             {open && (
                 <div className="settings-dropdown">
                     <h4>Settings</h4>

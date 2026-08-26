@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  bookAudiobookContentUrl,
+  cancelBookAudiobook,
   claimLegacyStudioProjects,
+  createBookAudiobook,
   createStudioNarration,
   createStudioProject,
   exportCachedAudio,
+  getBookAudiobook,
+  getBookPage,
   getPreparedBook,
   getStudioWorkspace,
   narrateTextStream,
@@ -103,6 +108,74 @@ describe('getPreparedBook', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/books\/book$/));
     expect(result.pageHashes).toEqual({ '1.json': 'hash' });
+  });
+});
+
+describe('getBookPage', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('fetches a source page for text books', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ page: 4, text: 'Chapter text' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getBookPage('book-1', 4);
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/books\/book-1\/pages\/4$/));
+    expect(result).toEqual({ page: 4, text: 'Chapter text' });
+  });
+
+  it('maps a missing page to null and other failures to an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    await expect(getBookPage('book-1', 99)).resolves.toBeNull();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+    await expect(getBookPage('book-1', 2)).rejects.toThrow('Could not load page 2.');
+  });
+});
+
+describe('audiobook export', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('starts an export job for a voice profile', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      json: async () => ({ jobId: 'job-9', status: 'QUEUED', pageCount: 12 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createBookAudiobook('book-1', 'a'.repeat(20));
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/books\/book-1\/audiobooks$/);
+    expect(JSON.parse(options.body)).toEqual({ profileId: 'a'.repeat(20) });
+    expect(result.jobId).toBe('job-9');
+  });
+
+  it('polls job progress and builds the one-shot content URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'job-9', status: 'RUNNING', pagesDone: 3, pageCount: 12 }),
+    })));
+
+    const status = await getBookAudiobook('book-1', 'job-9');
+
+    expect(status.pagesDone).toBe(3);
+    expect(bookAudiobookContentUrl('book-1', 'job-9')).toMatch(
+      /\/books\/book-1\/audiobooks\/job-9\/content$/,
+    );
+  });
+
+  it('tolerates a missing job when cancelling a finished export', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(cancelBookAudiobook('book-1', 'gone')).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
   });
 });
 

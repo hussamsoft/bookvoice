@@ -13,26 +13,93 @@ describe('Transcript accessibility', () => {
     languageId: 'en',
   };
 
-  it('renders each word as a focusable button with an accessible name', () => {
-    render(<Transcript {...baseProps} />);
-    const words = screen.getAllByRole('button');
+  it('exposes the transcript as a single tab stop with plain word spans', () => {
+    const { container } = render(<Transcript {...baseProps} />);
+    const wordsContainer = container.querySelector('.transcript-words');
+    expect(wordsContainer.getAttribute('tabindex')).toBe('0');
+    expect(wordsContainer.getAttribute('role')).toBe('region');
+    expect(wordsContainer.getAttribute('aria-label')).toBe('Narration transcript');
+
+    const words = container.querySelectorAll('.transcript-word');
     expect(words).toHaveLength(3);
     words.forEach((el) => {
-      expect(el).toHaveProperty('tabIndex', 0);
-      expect(el.getAttribute('aria-label')).toBeTruthy();
+      expect(el.getAttribute('tabindex')).toBeNull();
+      expect(el.getAttribute('role')).toBeNull();
+      expect(screen.queryAllByRole('button')).toHaveLength(0);
     });
   });
 
-  it('activates a word on Enter and Space', () => {
+  it('moves the cursor with arrow keys and activates with Enter or Space', () => {
     const onWordActivate = vi.fn();
-    render(<Transcript {...baseProps} onWordActivate={onWordActivate} />);
-    const first = screen.getAllByRole('button')[0];
+    const { container } = render(
+      <Transcript {...baseProps} currentWord={0} onWordActivate={onWordActivate} />
+    );
+    const wordsContainer = container.querySelector('.transcript-words');
 
-    fireEvent.keyDown(first, { key: 'Enter' });
+    // With no cursor yet, movement starts from the narrated word (index 0).
+    fireEvent.keyDown(wordsContainer, { key: 'ArrowRight' });
+    expect(
+      wordsContainer.querySelector('[data-word-index="1"]').classList.contains('cursor')
+    ).toBe(true);
+
+    fireEvent.keyDown(wordsContainer, { key: 'Enter' });
     expect(onWordActivate).toHaveBeenCalledTimes(1);
+    expect(onWordActivate.mock.calls[0][0]).toBe(1);
+    expect(onWordActivate.mock.calls[0][1]).toBe('world');
 
-    fireEvent.keyDown(first, { key: ' ' });
+    fireEvent.keyDown(wordsContainer, { key: ' ' });
     expect(onWordActivate).toHaveBeenCalledTimes(2);
+  });
+
+  it('jumps to the ends with Home and End and clamps at the boundaries', () => {
+    const { container } = render(<Transcript {...baseProps} />);
+    const wordsContainer = container.querySelector('.transcript-words');
+
+    fireEvent.keyDown(wordsContainer, { key: 'End' });
+    expect(
+      wordsContainer.querySelector('[data-word-index="2"]').classList.contains('cursor')
+    ).toBe(true);
+
+    // ArrowRight past the last word stays clamped.
+    fireEvent.keyDown(wordsContainer, { key: 'ArrowRight' });
+    expect(
+      wordsContainer.querySelector('[data-word-index="2"]').classList.contains('cursor')
+    ).toBe(true);
+
+    fireEvent.keyDown(wordsContainer, { key: 'Home' });
+    expect(
+      wordsContainer.querySelector('[data-word-index="0"]').classList.contains('cursor')
+    ).toBe(true);
+  });
+
+  it('clears the cursor on Escape and on blur', () => {
+    const { container } = render(<Transcript {...baseProps} currentWord={0} />);
+    const wordsContainer = container.querySelector('.transcript-words');
+
+    fireEvent.keyDown(wordsContainer, { key: 'End' });
+    const last = wordsContainer.querySelector('[data-word-index="2"]');
+    expect(last.classList.contains('cursor')).toBe(true);
+
+    fireEvent.keyDown(wordsContainer, { key: 'Escape' });
+    expect(last.classList.contains('cursor')).toBe(false);
+
+    fireEvent.keyDown(wordsContainer, { key: 'Home' });
+    const first = wordsContainer.querySelector('[data-word-index="0"]');
+    expect(first.classList.contains('cursor')).toBe(true);
+
+    fireEvent.blur(wordsContainer);
+    expect(first.classList.contains('cursor')).toBe(false);
+  });
+
+  it('does not activate anything while no word is cursored', () => {
+    const onWordActivate = vi.fn();
+    const { container } = render(
+      <Transcript {...baseProps} onWordActivate={onWordActivate} />
+    );
+    const wordsContainer = container.querySelector('.transcript-words');
+
+    fireEvent.keyDown(wordsContainer, { key: 'Enter' });
+    expect(onWordActivate).not.toHaveBeenCalled();
   });
 
   it('sets RTL direction for Arabic', () => {
@@ -57,9 +124,9 @@ describe('Transcript accessibility', () => {
     const { container } = render(
       <Transcript {...baseProps} onWordActivate={() => pending} />
     );
-    fireEvent.click(screen.getAllByRole('button')[0]);
+    fireEvent.click(container.querySelector('.transcript-word'));
     expect(container.querySelector('.word-pronounce-spinner')).toBeNull();
-    expect(screen.getAllByRole('button')[0].textContent).toBe('Hello');
+    expect(container.querySelector('.transcript-word').textContent).toBe('Hello');
   });
 
   it('does not move the text column unless follow narration is enabled', () => {

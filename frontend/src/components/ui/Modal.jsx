@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import Button from './Button';
 
 const FOCUSABLE = [
     'a[href]',
@@ -16,6 +17,25 @@ const FOCUSABLE = [
 export default function Modal({ open, onClose, title, children, actions, closeLabel = 'Close' }) {
     const panelRef = useRef(null);
     const previouslyFocused = useRef(null);
+    // Enter choreography: mount with the hidden state, then flip classes on
+    // the next frame so the overlay fade / panel scale transitions run
+    // instead of being swallowed by insertion.
+    const [shown, setShown] = useState(false);
+
+    useEffect(() => {
+        if (!open) {
+            setShown(false);
+            return undefined;
+        }
+        let raf2;
+        const raf1 = requestAnimationFrame(() => {
+            raf2 = requestAnimationFrame(() => setShown(true));
+        });
+        return () => {
+            cancelAnimationFrame(raf1);
+            cancelAnimationFrame(raf2);
+        };
+    }, [open]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -57,14 +77,14 @@ export default function Modal({ open, onClose, title, children, actions, closeLa
 
     return (
         <div
-            className="modal-overlay"
+            className={`modal-overlay${shown ? ' is-shown' : ''}`}
             onMouseDown={(event) => {
                 if (event.target === event.currentTarget) onClose?.();
             }}
         >
             <div
                 ref={panelRef}
-                className="modal-panel"
+                className={`modal-panel${shown ? ' is-shown' : ''}`}
                 role="dialog"
                 aria-modal="true"
                 aria-label={title}
@@ -75,20 +95,9 @@ export default function Modal({ open, onClose, title, children, actions, closeLa
                 {actions ? (
                     <div className="modal-actions">
                         {actions.map(({ label, onClick, variant, key }) => (
-                            <button
-                                key={key ?? label}
-                                type="button"
-                                className={
-                                    variant === 'primary'
-                                        ? 'btn primary'
-                                        : variant === 'danger'
-                                            ? 'btn danger'
-                                            : 'btn secondary'
-                                }
-                                onClick={onClick}
-                            >
+                            <Button key={key ?? label} variant={variant} onClick={onClick}>
                                 {label}
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 ) : null}

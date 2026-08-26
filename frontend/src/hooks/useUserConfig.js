@@ -13,6 +13,10 @@ import { getUserConfig, saveUserConfig } from '../utils/api';
  * finish out of order, and a failed save rejects the returned promise and
  * sets `saveError` for the UI/toast layer.
  */
+// Shared in-flight loader so several components mounting together trigger a
+// single GET; cleared on settle so later mounts always read fresh data.
+let configRequest = null;
+
 export function useUserConfig() {
     const [config, setConfig] = useState(null);
     const [version, setVersion] = useState('');
@@ -27,9 +31,12 @@ export function useUserConfig() {
 
     useEffect(() => {
         let cancelled = false;
+        configRequest ??= getUserConfig().finally(() => {
+            configRequest = null;
+        });
         (async () => {
             try {
-                const data = await getUserConfig();
+                const data = await configRequest;
                 if (!cancelled) {
                     const cfg = data.config || {};
                     committedRef.current = cfg;

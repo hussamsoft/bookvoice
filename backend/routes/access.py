@@ -35,14 +35,32 @@ async def read_access(request: Request):
 
 
 @router.post("/")
-async def create_session(request: LoginRequest, response: Response):
+async def create_session(login: LoginRequest, request: Request, response: Response):
     if not access_service.auth_required():
         return {"authRequired": False, "authenticated": True}
-    if not access_service.verify_password(request.password):
+    # Throttle guessing per client address before touching the password.
+    client_key = request.client.host if request.client else "unknown"
+    blocked = access_service.login_blocked_seconds(client_key)
+    if blocked:
+        return JSONResponse(
+            {
+                "detail": {
+                    "code": "TOO_MANY_ATTEMPTS",
+                    "message": f"Too many attempts. Try again in {blocked}s.",
+                }
+            },
+            status_code=429,
+            headers={"Retry-After": str(blocked)},
+        )
+    if not access_service.verify_password(login.password):
+        backoff = access_service.record_login_failure(client_key)
+        headers = {"Retry-After": str(backoff)} if backoff else None
         return JSONResponse(
             {"detail": {"code": "INVALID_PASSWORD", "message": "That password is not correct."}},
             status_code=401,
+            headers=headers,
         )
+    access_service.record_login_success(client_key)
     response.set_cookie(
         access_service.COOKIE_NAME,
         access_service.issue_session(),

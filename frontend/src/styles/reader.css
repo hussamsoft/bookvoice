@@ -6,7 +6,19 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  max-width: 100%;
+  overflow-x: clip;
   padding: var(--space-3) var(--space-4) var(--space-4);
+  /* Notched / rounded-device insets on mobile reading widths. */
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
+}
+
+/* Fixed narration transport at <=720px overlays the page; keep content clear. */
+@media (max-width: 720px) {
+  .pdf-viewer-container {
+    padding-bottom: calc(var(--transport-fixed-h, calc(76px + env(safe-area-inset-bottom, 0px))) + var(--space-2));
+  }
 }
 
 /* --- Upload / empty state ------------------------------------------------ */
@@ -68,6 +80,7 @@
   gap: var(--space-3);
   flex: 1 1 auto;
   min-height: 0;
+  max-width: 100%;
 }
 
 .pdf-main {
@@ -166,7 +179,48 @@
 .reader-navigation {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* Labeled move · view · track · find groups with subtle separators. */
+.reader-nav-group {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+}
+
+.reader-navigation > :not(:first-child) {
+  border-left: 1px solid var(--hairline);
+  padding-left: var(--space-2);
+}
+
+/* "More" popover: secondary actions (export, bookmark jump). */
+.reader-nav-more {
+  position: relative;
+  margin-left: auto;
+}
+
+.reader-nav-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-panel);
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.reader-nav-menu .bookmark-jump {
+  width: 100%;
 }
 
 .page-search {
@@ -260,6 +314,25 @@
   gap: var(--space-1);
 }
 
+.transport-sleep-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.transport-sleep {
+  min-width: 7.6rem;
+  background: var(--surface-raised);
+  border-color: var(--hairline-strong);
+}
+
+.transport-sleep-remaining {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .transport-status {
   font-size: var(--text-xs);
   color: var(--ink-muted);
@@ -344,6 +417,16 @@
   flex-shrink: 0;
 }
 
+/* Quiet icon+label page actions (edit / translate) living beside the transcript. */
+.btn.text.transcript-action {
+  color: var(--ink-secondary);
+}
+
+.btn.text.transcript-action:hover:not(:disabled),
+.btn.text.transcript-action:focus-visible {
+  color: var(--accent);
+}
+
 .transcript-empty {
   color: var(--ink-muted);
   font-size: var(--text-sm);
@@ -381,7 +464,7 @@
 }
 
 .transcript-word.past {
-  color: var(--ink-faint);
+  color: var(--ink-muted);
 }
 
 .transcript-word.current {
@@ -390,8 +473,31 @@
   border-radius: 3px;
 }
 
+.transcript-word.cursor {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
 .transcript-word.pronouncing {
   outline: 2px solid var(--accent-ring);
+}
+
+.transcript-word.active {
+  background-image: linear-gradient(var(--signal), var(--signal));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 2px;
+  animation: transcript-word-underline-grow 180ms var(--ease-out-quart);
+}
+
+@keyframes transcript-word-underline-grow {
+  from {
+    background-size: 0% 2px;
+  }
+
+  to {
+    background-size: 100% 2px;
+  }
 }
 
 /* Inline page-text editing */
@@ -431,19 +537,86 @@
 
 /* --- Reading options drawer -------------------------------------------------------- */
 
-.reading-options {
+/* Self-managed trigger + surface: bottom sheet by default (<1024px),
+ * anchored popover at >=1024px. */
+.reading-options-root {
+  position: relative;
   flex: none;
+  display: inline-flex;
+}
+
+.reading-options-trigger {
+  flex: none;
+}
+
+.reading-options-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.reading-options-popover {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-panel);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-3) var(--space-4);
   padding: var(--space-4);
-  margin-bottom: var(--space-3);
-  background: var(--surface);
+  max-height: min(72vh, 640px);
+  overflow-y: auto;
+  background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-pop);
+  animation: reading-options-slide-up 200ms var(--ease-out-quart);
 }
 
-.reader-section-label {  grid-column: 1 / -1;
+@keyframes reading-options-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.reading-options-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.reading-options-span {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1024px) {
+  .reading-options-scrim {
+    display: none;
+  }
+
+  .reading-options-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: auto;
+    bottom: auto;
+    width: min(640px, calc(100vw - 48px));
+    max-height: min(72vh, 640px);
+    border-radius: var(--radius-lg);
+    animation: none;
+  }
+}
+
+.reader-section-label {
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -524,6 +697,25 @@
 
 .prepared-book-row:hover {
   border-color: var(--hairline-strong);
+}
+
+.prepared-book-row-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.source-kind-badge {
+  flex: none;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full, 999px);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .preparation-progress {

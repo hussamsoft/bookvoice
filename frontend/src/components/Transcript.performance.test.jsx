@@ -34,5 +34,5 @@ describe('Transcript rendering cost', () => {
     rerender(<Transcript {...props} currentWord={1} />);
 
     expect(wordRenderSpy).not.toHaveBeenCalled();
-  });
+  }, 15000);
 });

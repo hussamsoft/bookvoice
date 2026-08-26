@@ -55,17 +55,16 @@ def seed_default_voices():
             s = os.path.join(src, f)
             d = os.path.join(dst, f)
             if not os.path.exists(d):
+                temp_name = None
                 try:
                     fd, temp_name = tempfile.mkstemp(prefix=f".{f}-", suffix=".tmp", dir=dst)
                     os.close(fd)
                     shutil.copy2(s, temp_name)
                     os.replace(temp_name, d)
-                except OSError:
-                    try:
-                        os.unlink(temp_name)
-                    except (OSError, UnboundLocalError):
-                        pass
-                    pass
+                except OSError as exc:
+                    if temp_name is not None:
+                        Path(temp_name).unlink(missing_ok=True)
+                    print(f"[voices] could not seed default voice {f}: {exc}")
 
 
 def _looks_like_wav(data: bytes) -> bool:

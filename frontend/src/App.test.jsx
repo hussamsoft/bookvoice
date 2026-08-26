@@ -44,7 +44,7 @@ describe('App Component', () => {
     expect(await screen.findByTestId('book-session-mock')).toBeInTheDocument();
     expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'PDF reader' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read a book' }));
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
@@ -54,7 +54,7 @@ describe('App Component', () => {
     expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
     expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
     expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'PDF reader' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Read a book' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('opens Voice Studio as a third persistent workspace', async () => {

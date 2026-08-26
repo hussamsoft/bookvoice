@@ -246,8 +246,8 @@ start is billed — it is GPU time — so a long idle window is not automaticall
 the expensive choice if you generate in bursts.
 
 ## Other hosts
-
-Any Linux box with an NVIDIA GPU works — the app already falls back to
+Any Linux box with an NVIDIA GPU works — see [`linux.md`](linux.md) for a
+full walkthrough. The app already falls back to
 `shutil.which` for FFmpeg off Windows, so system `ffmpeg`/`ffprobe` is enough.
 Do **not** ship `runtime-manifest.json` to a Linux host: its presence makes
 `media_tools` insist on packaged Windows executables and refuse to run.

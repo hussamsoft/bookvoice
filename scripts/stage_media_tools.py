@@ -37,7 +37,7 @@ def _resolved_executable(value: str | None) -> Path | None:
     return resolved if resolved.is_file() else None
 
 
-def media_tools_source() -> dict[str, Path]:
+def media_tools_source(extra_dir: Path | None = None) -> dict[str, Path]:
     """Resolve build-machine tools; packaged runtime never calls this function."""
     configured = os.environ.get(MEDIA_SOURCE_ENV, "").strip()
     if configured:
@@ -46,6 +46,13 @@ def media_tools_source() -> dict[str, Path]:
     else:
         candidates = {name: _resolved_executable(shutil.which(name)) for name in TOOL_NAMES}
     missing = [name for name, path in candidates.items() if path is None]
+    if missing and extra_dir is not None:
+        # A previous build's dist payload already carries the pinned binaries;
+        # rebuilding must not require an external download or env var.
+        candidates.update(
+            {name: _resolved_executable(str(extra_dir / name)) for name in missing}
+        )
+        missing = [name for name, path in candidates.items() if path is None]
     if missing:
         raise SystemExit(
             "Pinned FFmpeg tools are required to build BookVoice. Set "
@@ -77,9 +84,10 @@ def _tool_version(path: Path, expected_name: str) -> str:
 
 
 def _license_path(source: Path) -> Path:
-    for candidate in (source.parent / "LICENSE", source.parent.parent / "LICENSE"):
-        if candidate.is_file():
-            return candidate
+    for base in (source.parent, source.parent.parent):
+        for candidate in (base / "LICENSE", base / "LICENSE.txt"):
+            if candidate.is_file():
+                return candidate
     raise SystemExit("FFmpeg LICENSE file is required beside the pinned build payload.")
 
 
@@ -109,7 +117,7 @@ def _update_manifest(path: Path, media_contract: dict) -> None:
 
 
 def stage_media_tools(root: Path, dist: Path) -> dict:
-    sources = media_tools_source()
+    sources = media_tools_source(dist / TOOL_DIR)
     versions = {
         name: _tool_version(path, Path(name).stem)
         for name, path in sources.items()
@@ -117,18 +125,28 @@ def stage_media_tools(root: Path, dist: Path) -> dict:
     if set(versions.values()) != {PINNED_VERSION}:
         raise SystemExit("FFmpeg and FFprobe versions do not match.")
 
-    destination = dist / TOOL_DIR
-    if destination.exists():
-        shutil.rmtree(destination)
-    destination.mkdir(parents=True)
-    for name, source in sources.items():
-        shutil.copy2(source, destination / name)
+    # Sources may resolve from a previous build's dist payload — the same
+    # directory this step replaces. Copy them aside before the wipe.
+    staging_dir = Path(tempfile.mkdtemp(prefix="bookvoice-media-tools-"))
+    try:
+        for name in TOOL_NAMES:
+            shutil.copy2(sources[name], staging_dir / name)
+        # Resolve the license while the originals still exist.
+        shutil.copy2(_license_path(sources["ffmpeg.exe"]), staging_dir / "LICENSE.txt")
+        destination = dist / TOOL_DIR
+        if destination.exists():
+            shutil.rmtree(destination)
+        destination.mkdir(parents=True)
+        for name in TOOL_NAMES:
+            shutil.copy2(staging_dir / name, destination / name)
+        shutil.copy2(staging_dir / "LICENSE.txt", destination / "LICENSE.txt")
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     notice = root / "third_party" / "FFmpeg-NOTICE.txt"
     if not notice.is_file():
         raise SystemExit("third_party/FFmpeg-NOTICE.txt is required.")
     shutil.copy2(notice, destination / "NOTICE.txt")
-    shutil.copy2(_license_path(sources["ffmpeg.exe"]), destination / "LICENSE.txt")
 
     contract = {
         "version": PINNED_VERSION,

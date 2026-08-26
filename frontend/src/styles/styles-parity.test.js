@@ -98,12 +98,26 @@ describe('styles parity', () => {
 
     it('defines the theme contract tokens both themes rely on', () => {
         const tokens = readFileSync(join(STYLE_DIR, 'tokens.css'), 'utf8');
+        const count = (needle) => tokens.split(needle).length - 1;
+
+        // Theme-independent structural tokens: declared once in :root.
         for (const token of [
             '--bg', '--surface', '--surface-raised', '--ink', '--ink-muted',
             '--hairline', '--accent', '--accent-ring', '--error', '--shadow-overlay',
+            '--font-display', '--shadow-pop', '--ease-out-quart',
+            '--text-2xl', '--text-3xl',
+            '--control-h-sm', '--control-h-md', '--control-h-lg',
+            '--z-raised', '--z-nav', '--z-panel', '--z-overlay', '--z-toast',
+            '--bp-sm', '--bp-md',
         ]) {
-            expect(tokens).toContain(token);
+            expect(count(token)).toBeGreaterThanOrEqual(1);
         }
+
+        // Themed tokens must be mapped for BOTH light and dark.
+        for (const token of ['--signal', '--signal-soft', '--signal-ring', '--live', '--shadow-pop']) {
+            expect(count(token)).toBeGreaterThanOrEqual(2);
+        }
+
         expect(tokens).toContain('[data-theme="dark"]');
     });
 });

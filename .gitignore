@@ -12,6 +12,7 @@ node_modules/
 frontend/dist/
 dist-ssr/
 *.local
+frontend/tmp/
 
 # Python
 __pycache__/
@@ -55,6 +56,13 @@ installer/
 # every release (~35 MB Launcher.exe) and repeatedly drifted from source.
 # Rebuild locally with `python build.py`; releases ship via GitHub Releases.
 /dist/
+
+# Local scratch and private material that must never be committed.
+# "Old Docs" holds personal keys/certs (e.g. auto.key) unrelated to the app.
+.pytest_tmp/
+Old Docs/
+backend/data-e2e/
+.venv-linux/
 
 # Keep the committed, preloaded default voices (override the global *.wav rule)
 !voices/*.wav

@@ -1,16 +1,17 @@
 import React from 'react';
-import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 
 const ICONS = {
     info: Info,
     loading: Info,
     success: CheckCircle2,
     error: AlertCircle,
+    warning: AlertTriangle,
 };
 
 /**
  * One banner for model status, prefetch hints, and job outcomes.
- * tone: 'info' | 'loading' | 'success' | 'error' | 'prefetch'
+ * tone: 'info' | 'loading' | 'success' | 'error' | 'warning' | 'prefetch'
  */
 export default function StatusBanner({ tone = 'info', children, action }) {
     const Icon = ICONS[tone] ?? ICONS.info;

@@ -60,6 +60,28 @@ class MediaToolsBundleTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 module._tool_version(Path("ffmpeg.exe"), "ffmpeg")
 
+    def test_media_tools_source_falls_back_to_a_previous_dist_payload(self):
+        module = load_stage_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            staged = base / "dist" / "tools" / "ffmpeg"
+            staged.mkdir(parents=True)
+            for name in module.TOOL_NAMES:
+                (staged / name).write_bytes(name.encode("ascii"))
+
+            with patch.dict("os.environ", {module.MEDIA_SOURCE_ENV: ""}):
+                with patch.object(module.shutil, "which", return_value=None):
+                    sources = module.media_tools_source(staged)
+
+            self.assertEqual(set(sources), set(module.TOOL_NAMES))
+
+    def test_missing_tools_without_fallback_still_fail(self):
+        module = load_stage_module()
+        with patch.dict("os.environ", {module.MEDIA_SOURCE_ENV: ""}):
+            with patch.object(module.shutil, "which", return_value=None):
+                with self.assertRaises(SystemExit):
+                    module.media_tools_source(None)
+
 
 if __name__ == "__main__":
     unittest.main()

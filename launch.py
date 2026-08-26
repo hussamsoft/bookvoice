@@ -1158,6 +1158,92 @@ def main(argv: list[str] | None = None) -> int:
             log.write(f"started pid={process.pid}")
             status("Loading reading engine", "Waiting for voices and media tools…", 72)
 
+            def stop_server():
+                """Terminate the backend process tree; safe to call repeatedly."""
+                children = []
+                if psutil is not None and process.poll() is None:
+                    try:
+                        children = psutil.Process(process.pid).children(recursive=True)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        children = []
+                if process.poll() is None:
+                    process.terminate()
+                for child in children:
+                    try:
+                        child.terminate()
+                    except psutil.NoSuchProcess:
+                        pass
+                try:
+                    process.wait(timeout=3)
+                except Exception:
+                    process.kill()
+
+            def watch_server(watch_url, reload_url):
+                """Restart the backend if it dies or stops accepting connections.
+
+                uvicorn's Windows proactor accept loop can die silently
+                (WinError 64) when a client aborts a connection mid-accept:
+                the process stays alive but never accepts another socket.
+                Poll /api/health — cheap and model-independent, so normal
+                model warmup never trips it — and restart on sustained
+                failure or process exit.
+                """
+                nonlocal process, log_file
+                misses = 0
+                restarts = 0
+                while True:
+                    time.sleep(5)
+                    reason = None
+                    if process.poll() is not None:
+                        reason = f"backend exited (code {process.returncode})"
+                    elif backend_readiness(watch_url)[0]:
+                        misses = 0
+                    else:
+                        misses += 1
+                        if misses >= 6:
+                            reason = "backend stopped answering health checks"
+                    if reason is None:
+                        continue
+                    restarts += 1
+                    if restarts > 5:
+                        state["error"] = (
+                            "Reading service kept failing; gave up after 5 restarts."
+                        )
+                        log.write(state["error"])
+                        stop_server()
+                        show_error(window, state["error"], server_log)
+                        return
+                    log.write(f"watchdog: {reason}; restart {restarts}/5")
+                    status(
+                        "Restarting reading service",
+                        "The reading engine stopped responding; restarting…",
+                        72,
+                    )
+                    stop_server()
+                    try:
+                        log_file.close()
+                    except OSError:
+                        pass
+                    log_file = open(server_log, "a", encoding="utf-8", errors="replace")
+                    process = subprocess.Popen(
+                        cmd,
+                        cwd=app_dir,
+                        env=env,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        creationflags=_no_window(),
+                    )
+                    log.write(f"watchdog: restarted pid={process.pid}")
+                    for _ in range(300):
+                        if process.poll() is not None:
+                            break
+                        if backend_readiness(watch_url)[0]:
+                            misses = 0
+                            if window is not None:
+                                window.load_url(reload_url)
+                            break
+                        time.sleep(1)
+
             for i in range(300):
                 if process.poll() is not None:
                     state["error"] = "Backend exited early"
@@ -1180,12 +1266,13 @@ def main(argv: list[str] | None = None) -> int:
                     open_url = f"{url}/?{urllib.parse.urlencode(params)}" if params else url
                     if args.no_window:
                         log.write("backend ready (--no-window)")
-                        return
-                    if window is not None:
-                        status("Ready", "Opening your BookVoice workspace…", 100)
-                        window.load_url(open_url)
                     else:
-                        os.startfile(open_url)  # type: ignore[attr-defined]
+                        if window is not None:
+                            status("Ready", "Opening your BookVoice workspace…", 100)
+                            window.load_url(open_url)
+                        else:
+                            os.startfile(open_url)  # type: ignore[attr-defined]
+                    watch_server(url, open_url)
                     return
                 if failed:
                     state["error"] = f"TTS model failed to load: {detail}"

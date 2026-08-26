@@ -34,7 +34,7 @@ export default function ReaderBanners({
                 </StatusBanner>
             )}
             {deviceInfo === 'cpu' && modelReady && (
-                <StatusBanner tone="error">
+                <StatusBanner tone="warning">
                     Narration is running on the CPU, so it will be much slower than with a GPU.
                 </StatusBanner>
             )}

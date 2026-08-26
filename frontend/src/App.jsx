@@ -1,6 +1,5 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
-import { useToast } from './components/Toast';
 import TitleBar from './components/TitleBar';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import { getAppMode, setAppMode } from './utils/appSession';
@@ -10,7 +9,6 @@ const PdfViewer = lazy(() => import('./components/PdfViewer'));
 const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 
 function App() {
-    const toast = useToast();
     const [mode, setMode] = useState(getAppMode);
     const [sessionDirty, setSessionDirty] = useState(false);
     const [pendingMode, setPendingMode] = useState(null);
@@ -28,9 +26,6 @@ function App() {
             return;
         }
         switchTo(next);
-        if (next === 'camera') {
-            toast.info('Scan a page to start.');
-        }
     };
 
     const confirmPendingMode = () => {
@@ -38,9 +33,6 @@ function App() {
         setPendingMode(null);
         if (!next) return;
         switchTo(next);
-        if (next === 'camera') {
-            toast.info('Scan a page to start.');
-        }
     };
 
     return (
@@ -50,13 +42,13 @@ function App() {
                 <nav className="mode-switcher" aria-label="Reading mode">
                     <button
                         className={`mode-button ${mode === 'pdf' ? 'is-active' : ''}`}
-                        aria-label="PDF reader"
+                        aria-label="Read a book"
                         aria-pressed={mode === 'pdf'}
                         onClick={() => requestMode('pdf')}
                     >
                         <FileText size={17} aria-hidden="true" />
-                        <span>PDF reader</span>
-                        <small>Open a book file</small>
+                        <span>Read a book</span>
+                        <small>PDF, EPUB, or text file</small>
                     </button>
                     <button
                         className={`mode-button ${mode === 'camera' ? 'is-active' : ''}`}

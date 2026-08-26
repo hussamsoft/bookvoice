@@ -11,6 +11,7 @@ import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
 import StatusBanner from './ui/StatusBanner';
+import Button from './ui/Button';
 import { Loader2 } from 'lucide-react';
 
 const STEPS = ['capture', 'processing', 'review', 'playback'];
@@ -164,16 +165,16 @@ export default function BookSession({ onDirty }) {
                     <StatusBanner
                         tone="error"
                         action={
-                            <button type="button" className="btn secondary btn-compact" onClick={retryLoad}>
+                            <Button variant="secondary" size="sm" onClick={retryLoad}>
                                 Retry
-                            </button>
+                            </Button>
                         }
                     >
                         Error: {modelError}
                     </StatusBanner>
                 )}
                 {deviceInfo === 'cpu' && modelReady && (
-                    <StatusBanner tone="error">
+                    <StatusBanner tone="warning">
                         Narration is running on the CPU, so it will be much slower than with a GPU.
                     </StatusBanner>
                 )}
@@ -184,7 +185,7 @@ export default function BookSession({ onDirty }) {
 
                 {step === 'processing' && (
                     <div className="loading-state">
-                        <Loader2 className="spinner" size={40} />
+                        <div className="skeleton skeleton--block" aria-hidden="true" />
                         <p>Extracting text from page...</p>
                     </div>
                 )}

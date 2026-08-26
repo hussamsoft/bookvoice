@@ -1,25 +1,60 @@
-import React from 'react';
-import { Pause, Play, RotateCcw, RotateCw, Square } from 'lucide-react';
+import React, { useImperativeHandle } from 'react';
+import { ChevronDown, Pause, Play, RotateCcw, RotateCw, Square } from 'lucide-react';
 import { formatClock as formatTime } from '../utils/format';
+import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../hooks/useSleepTimer';
 
 export default function PlaybackControls({
     transport,
     onToggle = transport.toggle,
-    disabled = false,
     compact = false,
     generating = false,
+    disabled = false,
     hasMedia = false,
+    duration = null,
+    onSeek,
     onStop,
+    sleepRef,
     pageLabel = '',
 }) {
+    // Sleep timer counts down only while narration plays; expiry reuses the
+    // Stop button's path when the consumer provides one, otherwise pause.
+    const sleep = useSleepTimer({
+        playing: !!transport.isPlaying,
+        onExpire: onStop || (() => transport.toggle()),
+    });
+
+    // Consumers that know when a page finishes naturally (the reader) signal
+    // the "end of chapter" sleep mode through this handle.
+    useImperativeHandle(sleepRef, () => ({ notifyPageEnded: sleep.notifyPageEnded }), [
+        sleep.notifyPageEnded,
+    ]);
+
+    const handleSleepChange = (event) => {
+        const value = event.target.value;
+        if (value === 'off') {
+            sleep.cancel();
+        } else if (value === SLEEP_END_OF_CHAPTER) {
+            sleep.setMinutes(SLEEP_END_OF_CHAPTER);
+        } else {
+            sleep.setMinutes(Number(value));
+        }
+    };
     const canSeek = transport.duration > 0;
     const playDisabled = disabled && !transport.isPlaying;
+    // Scrubber appears only when the consumer provides both a playlist-global
+    // duration and a seek callback (see PdfViewer wiring).
+    const showScrubber = Number.isFinite(duration) && duration > 0 && typeof onSeek === 'function';
+    const elapsed = Math.min(Math.max(Number(transport.currentTime) || 0, 0), duration);
+    const handleSeek = (event) => {
+        const seconds = Number(event.target.value);
+        onSeek(Math.min(Math.max(seconds, 0), duration));
+    };
     const canStop = generating || hasMedia || transport.isPlaying;
     return (
         <div className={`playback-transport ${compact ? 'compact' : ''}`}>
             <button
                 type="button"
-                className="btn secondary btn-compact transport-stop"
+                className="btn secondary compact transport-stop"
                 onClick={onStop}
                 disabled={!canStop || !onStop}
                 aria-label="Stop narration"
@@ -30,7 +65,7 @@ export default function PlaybackControls({
             </button>
             <button
                 type="button"
-                className="btn secondary btn-compact transport-skip"
+                className="btn secondary compact transport-skip"
                 onClick={() => transport.skipBy(-10)}
                 disabled={!canSeek}
                 aria-label="Skip back 10 seconds"
@@ -52,7 +87,7 @@ export default function PlaybackControls({
             </button>
             <button
                 type="button"
-                className="btn secondary btn-compact transport-skip"
+                className="btn secondary compact transport-skip"
                 onClick={() => transport.skipBy(10)}
                 disabled={!canSeek}
                 aria-label="Skip forward 10 seconds"
@@ -61,6 +96,20 @@ export default function PlaybackControls({
                 <RotateCw size={15} />
                 <span className="transport-label">Forward 10</span>
             </button>
+            {showScrubber ? (
+                <input
+                    type="range"
+                    className="transport-scrubber"
+                    aria-label="Narration position"
+                    aria-valuetext={`${formatTime(elapsed)} elapsed, ${formatTime(Math.max(duration - elapsed, 0))} remaining`}
+                    min={0}
+                    max={Math.round(duration)}
+                    step={1}
+                    value={elapsed}
+                    style={{ '--scrub-fill': `${duration ? (elapsed / duration) * 100 : 0}%` }}
+                    onChange={handleSeek}
+                />
+            ) : null}
             <span className="transport-time">
                 {formatTime(transport.currentTime)} / {formatTime(transport.duration)}
             </span>
@@ -76,6 +125,28 @@ export default function PlaybackControls({
                         <option key={rate} value={rate}>{rate}x</option>
                     ))}
                 </select>
+                <ChevronDown size={14} aria-hidden="true" className="transport-select-chevron" />
+            </label>
+            <label className="transport-sleep-control">
+                <span className="sr-only">Sleep timer</span>
+                <select
+                    className="transport-sleep"
+                    aria-label="Sleep timer"
+                    value={sleep.minutes == null ? 'off' : String(sleep.minutes)}
+                    onChange={handleSleepChange}
+                >
+                    <option value="off">Sleep: Off</option>
+                    {SLEEP_MINUTE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option} min</option>
+                    ))}
+                    <option value={SLEEP_END_OF_CHAPTER}>End of chapter</option>
+                </select>
+                {sleep.minutes === SLEEP_END_OF_CHAPTER ? (
+                    <span className="transport-sleep-remaining">chapter end</span>
+                ) : sleep.remainingMs != null ? (
+                    <span className="transport-sleep-remaining">{formatTime(sleep.remainingMs / 1000)}</span>
+                ) : null}
+                <ChevronDown size={14} aria-hidden="true" className="transport-select-chevron" />
             </label>
             {pageLabel ? <span className="transport-page">{pageLabel}</span> : null}
             {generating ? <span className="transport-status">Preparing audio…</span> : null}

@@ -5,7 +5,17 @@
     <link rel="icon" type="image/png" href="/bookvoice.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Capture book pages, extract text, translate, and hear them narrated in your own voice." />
-    <meta name="theme-color" content="#14110f" />
+    <meta name="theme-color" content="#F7F5F1" />
+    <script>
+      // Match the app background before first paint; TitleBar keeps it in
+      // sync after mount (dark value mirrors tokens.css --bg).
+      (function () {
+        try {
+          var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#161513' : '#F7F5F1');
+        } catch (e) { /* non-browser env */ }
+      })();
+    </script>
     <title>BookVoice</title>
   </head>
   <body>

@@ -26,6 +26,21 @@ function updatePlaybackClasses(container, previousWord, currentWord) {
     current?.classList.add('current');
 }
 
+function clearCursor(container) {
+    if (!container) return;
+    container.querySelector('.transcript-word.cursor')?.classList.remove('cursor');
+}
+
+function moveCursor(container, previousCursor, nextCursor) {
+    if (!container || previousCursor === nextCursor) return;
+    if (previousCursor >= 0) {
+        container.querySelector(`[data-word-index="${previousCursor}"]`)?.classList.remove('cursor');
+    }
+    if (nextCursor >= 0) {
+        container.querySelector(`[data-word-index="${nextCursor}"]`)?.classList.add('cursor');
+    }
+}
+
 /**
  * Follow-along transcript.
  *
@@ -47,6 +62,7 @@ export default React.memo(function Transcript({
 }) {
     const wordsContainerRef = useRef(null);
     const previousWordRef = useRef(-1);
+    const cursorIndexRef = useRef(-1);
     const currentWordValueRef = useRef(currentWord);
     const interactionRef = useRef({ onWordActivate, isPlaying, isPaused });
     currentWordValueRef.current = currentWord;
@@ -58,6 +74,53 @@ export default React.memo(function Transcript({
             isPlaying: interaction.isPlaying,
             isPaused: interaction.isPaused,
         });
+    }, []);
+
+    const handleWordsKeyDown = useCallback((event) => {
+        const container = wordsContainerRef.current;
+        const list = words || [];
+        if (!container || list.length === 0) return;
+        // With no cursor yet, movement starts from the narrated word (or the first).
+        const base = cursorIndexRef.current >= 0
+            ? cursorIndexRef.current
+            : currentWordValueRef.current;
+        let next;
+        switch (event.key) {
+            case 'ArrowRight':
+                next = Math.min(list.length - 1, Math.max(0, base) + 1);
+                break;
+            case 'ArrowLeft':
+                next = Math.max(0, Math.max(0, base) - 1);
+                break;
+            case 'Home':
+                next = 0;
+                break;
+            case 'End':
+                next = list.length - 1;
+                break;
+            case 'Escape':
+                clearCursor(container);
+                cursorIndexRef.current = -1;
+                return;
+            case 'Enter':
+            case ' ':
+            case 'Spacebar':
+                if (cursorIndexRef.current >= 0 && cursorIndexRef.current < list.length) {
+                    event.preventDefault();
+                    handleWordActivate(cursorIndexRef.current, list[cursorIndexRef.current]);
+                }
+                return;
+            default:
+                return;
+        }
+        event.preventDefault();
+        moveCursor(container, cursorIndexRef.current, next);
+        cursorIndexRef.current = next;
+    }, [handleWordActivate, words]);
+
+    const handleWordsBlur = useCallback(() => {
+        clearCursor(wordsContainerRef.current);
+        cursorIndexRef.current = -1;
     }, []);
 
     const wordElements = useMemo(
@@ -79,9 +142,10 @@ export default React.memo(function Transcript({
         const container = wordsContainerRef.current;
         if (!container) return;
         container.querySelectorAll('.transcript-word').forEach((element) => {
-            element.classList.remove('current', 'past');
+            element.classList.remove('current', 'past', 'cursor');
         });
         previousWordRef.current = -1;
+        cursorIndexRef.current = -1;
         updatePlaybackClasses(container, -1, currentWordValueRef.current);
         previousWordRef.current = currentWordValueRef.current;
     }, [words]);
@@ -134,7 +198,17 @@ export default React.memo(function Transcript({
                       ? 'Click a word to hear it instantly — resume starts there'
                       : 'Click a word to hear it instantly'}
             </p>
-            <div className="transcript-words" dir={dir} lang={languageId || 'en'} ref={wordsContainerRef}>
+            <div
+                className="transcript-words"
+                dir={dir}
+                lang={languageId || 'en'}
+                ref={wordsContainerRef}
+                tabIndex={0}
+                role="region"
+                aria-label="Narration transcript"
+                onKeyDown={handleWordsKeyDown}
+                onBlur={handleWordsBlur}
+            >
                 {wordElements}
             </div>
         </div>

@@ -1,39 +1,45 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 
 /**
- * The single button implementation. Variants map to the design-system
- * classes; `ghost` is the quiet inline action and `danger` composes with any
- * variant (e.g. primary+danger for destructive confirmations).
+ * The single button primitive. Variants map to the design-system classes;
+ * sizes map to the --control-h tokens (`md` is the .btn default height).
+ * `ghost` is the quiet inline action and `danger` reads as destructive.
  */
-const BASE_CLASS = 'btn';
+const VARIANT_CLASS = {
+    primary: 'primary',
+    secondary: 'secondary',
+    ghost: 'text',
+    danger: 'danger',
+};
 
-function classesFor({ variant, compact, className }) {
-    const names = [BASE_CLASS];
-    if (variant === 'primary') names.push('primary');
-    else if (variant === 'ghost') names.push('text');
-    else names.push('secondary');
-    if (variant === 'danger' || variant === 'primary-danger') {
-        names.push('danger');
-        if (variant === 'primary-danger') names.push('primary');
-    }
-    if (compact) names.push('compact');
+const SIZE_CLASS = {
+    sm: 'btn-sm',
+    md: '',
+    lg: 'btn-lg',
+};
+
+const Button = forwardRef(function Button(
+    {
+        variant = 'secondary',
+        size = 'md',
+        icon: Icon,
+        className = '',
+        type = 'button',
+        children,
+        ...rest
+    },
+    ref
+) {
+    const names = ['btn', VARIANT_CLASS[variant] || 'secondary'];
+    const sizeClass = SIZE_CLASS[size];
+    if (sizeClass) names.push(sizeClass);
     if (className) names.push(className);
-    return names.join(' ');
-}
-
-export default function Button({
-    variant = 'secondary',
-    compact = false,
-    icon: Icon,
-    className = '',
-    type = 'button',
-    children,
-    ...rest
-}) {
     return (
-        <button type={type} className={classesFor({ variant, compact, className })} {...rest}>
+        <button ref={ref} type={type} className={names.join(' ')} {...rest}>
             {Icon ? <Icon size={16} aria-hidden="true" /> : null}
             {children}
         </button>
     );
-}
+});
+
+export default Button;

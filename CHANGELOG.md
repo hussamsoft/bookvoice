@@ -1,5 +1,83 @@
 # Changelog
 
+## 2.4.0 - 2026-08-24
+
+### Added
+
+- A complete visual redesign of the app shell, reader, and Voice Studio built
+  on a versioned design-token system: warm paper surfaces in light mode and
+  first-class "night listening" dark mode (now following the OS preference on
+  first run), a display/UI/reading type system (Fraunces, IBM Plex Sans,
+  Literata, Noto Naskh Arabic for Arabic reading contexts) self-hosted with
+  per-subset loading, a dedicated Signal color reserved for narration and
+  live audio, and a documented z-index/breakpoint/control-height ladder
+  asserted by the styles-parity test.
+- The narration transport gained a seek bar wired to the whole-book playlist
+  timeline, and the reader toolbar is regrouped into labeled clusters with an
+  overflow menu. Reading options moved into a desktop popover / mobile bottom
+  sheet; loading states use skeletons; the prepared library lists every book
+  in a scroll area.
+- Voice Studio surfaces adopt the new skin: token-styled selects and a
+  progress meter, a docked job strip replacing the floating card, Signal-hued
+  waveform selection and recorder meters, and a windowed per-word correction
+  list that stays fast on very long scripts.
+- Toasts coalesce repeats and animate in/out; dialogs fade and scale in;
+  mode switching shows an underline indicator instead of a toast; CPU
+  slowdown banners render as amber warnings; buttons show pressed states.
+- The reader now opens **EPUB and plain-text books** (`.epub`, `.txt`, `.md`)
+  alongside PDFs and `.bookvoice` archives. Chapters are extracted on import
+  with Python's standard library, split into bounded pages, and stored in the
+  prepared-book library, so narration, bookmarks, progress, whole-book
+  preparation, and export work without a PDF. Text books render as a
+  transcript-style reading column; the library shows a source-kind badge.
+- Prepared books can be exported as a **chaptered M4B audiobook**. New
+  `POST /api/books/{id}/audiobooks` jobs concatenate one voice profile's
+  prepared page audio into a single AAC `.m4b` with QuickTime chapter markers
+  per page, using the bundled FFmpeg, and are downloaded once like archives.
+- A **sleep timer** joins the shared playback transport: 5–60 minute presets
+  or stop at end of page. The countdown pauses with playback and fires the
+  normal stop path exactly once.
+- Narration now registers with the browser **Media Session API**, so Windows
+  media keys and the media overlay play/pause/stop, skip ±10 s, and move
+  between pages while a book is narrated.
+- `deploy/linux.md` and `scripts/setup_linux.sh` document a practical Linux
+  server deployment: CPU or CUDA dependency profiles, frontend bundle
+  rebuild, model placement (including the copy-from-Windows requirement for
+  English Chatterbox weights), alignment-model staging, a hardened systemd
+  unit, and a verification checklist.
+
+### Fixed
+
+- Importing an empty or unreadable EPUB/TXT no longer leaves a poisoned
+  prepared-book entry that reported success on retry.
+- The transcript is no longer a keyboard trap: words are one screen-reader
+  flow, the transcript panel is a single tab stop with arrow-key word
+  navigation, and past-word contrast meets WCAG AA.
+- Narration no longer fails on CPU-only machines: the default guidance
+  weight fell back to 0.0 on CPU builds, but the T3 model always runs the
+  classifier-free-guidance batch of two, so every request died with a
+  tensor-size mismatch before synthesizing a single sample. The default is
+  now 0.4 on every device (the batch is paid either way; the weight only
+  scales interpolation).
+- Saving book progress no longer loses the race against concurrent reads on
+  Windows: manifest writes retry briefly when a reader holds the file open,
+  instead of failing the save with PermissionError.
+- Opening a text book no longer refetches the current page forever: the
+  reader's prefetch hook received a freshly-created callback on every render,
+  which re-ran the page-restore effect in a loop (a network request roughly
+  once a second) and kept the page column in its skeleton state.
+- Restoring the window from the notification area no longer unmaximizes an
+  already-visible window, repositions windows stranded on disconnected
+  monitors into a usable area, and deterministically brings the existing
+  window to the foreground.
+- The startup splash is branded around the packaged BookVoice icon with real
+  milestone text and a determinate progress bar; startup failures render a
+  readable recovery screen with collapsed technical details.
+- The packaged native reader route rendered `Play is not defined`; missing
+  transport icon imports were restored.
+- Default-voice seeding failures are now reported in the server log instead
+  of being silently discarded.
+
 ## 2.3.0 - 2026-08-23
 
 ### Added

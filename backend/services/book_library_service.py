@@ -14,6 +14,7 @@ import zipfile
 from concurrent.futures import CancelledError
 from pathlib import Path, PurePosixPath
 
+from services.book_text_extraction import extract_epub, extract_plain_text, split_into_pages
 from services.config_service import app_version
 from services.path_utils import validate_language_id, validate_page_index, validate_voice_id
 
@@ -224,13 +225,27 @@ def _manifest_path(book_id: str) -> Path:
     return book_dir(book_id) / "manifest.json"
 
 
+def _replace_with_retry(source_name: str, destination: Path) -> None:
+    """os.replace onto a concurrently read file fails transiently on Windows:
+    readers hold the destination open without FILE_SHARE_DELETE, so an atomic
+    replace that lands mid-read raises PermissionError. Retry briefly."""
+    for attempt in range(6):
+        try:
+            os.replace(source_name, destination)
+            return
+        except PermissionError:
+            if attempt == 5:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, ensure_ascii=False)
-        os.replace(temp_name, path)
+        _replace_with_retry(temp_name, path)
     except Exception:
         try:
             os.unlink(temp_name)
@@ -313,6 +328,66 @@ def import_pdf_path(path: Path, filename: str) -> dict:
     return _summary(manifest)
 
 
+def import_epub_path(path: Path, filename: str) -> dict:
+    """Import a staged EPUB, extracting chapters into pre-populated pages."""
+    return _import_extracted_path(path, filename, "source.epub", "epub", extract_epub)
+
+
+def import_text_path(path: Path, filename: str) -> dict:
+    """Import a staged plain-text book, splitting it into pages."""
+    return _import_extracted_path(path, filename, "source.txt", "txt", extract_plain_text)
+
+
+def _import_extracted_path(
+    path: Path,
+    filename: str,
+    source_name: str,
+    source_kind: str,
+    extractor,
+) -> dict:
+    source_path = Path(path)
+    book_id = _sha256_file(source_path)
+    target = book_dir(book_id)
+    target.mkdir(parents=True, exist_ok=True)
+    source = target / source_name
+    if not source.exists() or _sha256_file(source) != book_id:
+        fd, temp_name = tempfile.mkstemp(
+            prefix=".source-", suffix=Path(source_name).suffix, dir=target
+        )
+        os.close(fd)
+        try:
+            shutil.copy2(source_path, temp_name)
+            os.replace(temp_name, source)
+        except Exception:
+            Path(temp_name).unlink(missing_ok=True)
+            raise
+    manifest_path = target / "manifest.json"
+    if not manifest_path.exists():
+        extracted = extractor(source_path)
+        title = extracted.get("title") or Path(filename or "Untitled book").stem
+        manifest = _new_manifest(book_id, title, book_id)
+        manifest["sourceKind"] = source_kind
+        _write_json(manifest_path, manifest)
+        try:
+            pages = split_into_pages(extracted.get("chapters") or [])
+            for page_number, page in enumerate(pages, start=1):
+                save_page(
+                    book_id,
+                    page_number,
+                    page["text"],
+                    len(pages),
+                    chapter_title=page.get("chapterTitle"),
+                )
+        except Exception:
+            manifest_path.unlink(missing_ok=True)
+            raise
+        manifest = get_book(book_id)
+        manifest["pageCount"] = len(pages)
+        manifest["chapterCount"] = len(pages)
+        _write_json(manifest_path, manifest)
+    return _summary(get_book(book_id))
+
+
 def _summary(manifest: dict) -> dict:
     profiles = manifest.get("profiles") if isinstance(manifest.get("profiles"), dict) else {}
     summarized_profiles = []
@@ -333,10 +408,11 @@ def _summary(manifest: dict) -> dict:
         summarized_profiles.append(
             {**profile_record, "readyPages": sorted(set(ready_pages))}
         )
-    return {
+    summary = {
         "id": manifest["id"],
         "title": manifest.get("title") or "Untitled book",
         "pageCount": int(manifest.get("pageCount") or 0),
+        "sourceKind": manifest.get("sourceKind", "pdf"),
         "sourceSha256": manifest.get("sourceSha256"),
         "updatedAt": manifest.get("updatedAt"),
         "progress": manifest.get("progress") or {},
@@ -344,6 +420,9 @@ def _summary(manifest: dict) -> dict:
         "activeProfileId": manifest.get("activeProfileId"),
         "preparation": manifest.get("preparation"),
     }
+    if manifest.get("chapterCount") is not None:
+        summary["chapterCount"] = int(manifest["chapterCount"])
+    return summary
 
 
 def list_books() -> list[dict]:
@@ -414,7 +493,14 @@ def _stop_book_jobs(book_id: str, timeout: float = 10.0) -> None:
             _jobs.pop(job["id"], None)
 
 
-def save_page(book_id: str, page: int, text: str, page_count: int | None = None) -> dict:
+def save_page(
+    book_id: str,
+    page: int,
+    text: str,
+    page_count: int | None = None,
+    *,
+    chapter_title: str | None = None,
+) -> dict:
     page = validate_page_index(page)
     if page < 1:
         raise ValueError("Page numbers start at 1.")
@@ -433,6 +519,8 @@ def save_page(book_id: str, page: int, text: str, page_count: int | None = None)
             "wordTimings": (existing.get("wordTimings") or []) if unchanged else [],
             "updatedAt": int(time.time()),
         }
+        if chapter_title is not None:
+            payload["chapterTitle"] = chapter_title
         if unchanged and existing.get("audio"):
             payload["audio"] = existing["audio"]
         _write_json(target, payload)

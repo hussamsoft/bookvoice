@@ -82,10 +82,20 @@ async def import_book(file: UploadFile = File(...)):
         except ValueError:
             _error("UPLOAD_TOO_LARGE", "Book files may not exceed 2 GB.", 413)
         filename = file.filename or "book.pdf"
+        suffix = Path(filename).suffix.lower()
         try:
-            if filename.lower().endswith(".bookvoice"):
+            if suffix == ".bookvoice":
                 return library.import_bookvoice_path(staged, filename)
-            return library.import_pdf_path(staged, filename)
+            if suffix == ".pdf":
+                return library.import_pdf_path(staged, filename)
+            if suffix == ".epub":
+                return library.import_epub_path(staged, filename)
+            if suffix in {".txt", ".md"}:
+                return library.import_text_path(staged, filename)
+            _error(
+                "INVALID_BOOK_FILE",
+                "Unsupported book file type. Supported types: .pdf, .epub, .txt, .md, .bookvoice",
+            )
         except (ValueError, FileNotFoundError, KeyError, RuntimeError) as exc:
             _error("INVALID_BOOK_FILE", str(exc))
     finally:
@@ -133,6 +143,18 @@ async def save_page(book_id: str, page: int, update: PageUpdate):
         return library.save_page(book_id, page, update.text, update.pageCount)
     except (ValueError, FileNotFoundError) as exc:
         _error("INVALID_PAGE", str(exc))
+
+
+@router.get("/{book_id}/pages/{page}")
+async def get_stored_page(book_id: str, page: int):
+    try:
+        library.get_book(book_id)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("BOOK_NOT_FOUND", str(exc), 404)
+    try:
+        return library.get_page(book_id, page)
+    except (ValueError, FileNotFoundError) as exc:
+        _error("PAGE_NOT_FOUND", str(exc), 404)
 
 
 @router.patch("/{book_id}/progress")

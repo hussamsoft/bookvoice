@@ -348,6 +348,19 @@ export async function getPreparedBook(bookId) {
     return response.json();
 }
 
+/**
+ * Source page text for text books (.epub/.txt/.md). The backend stores one
+ * entry per reader page; 404 means the page does not exist.
+ */
+export async function getBookPage(bookId, page) {
+    const response = await fetch(
+        `${API_BASE_URL}/books/${encodeURIComponent(bookId)}/pages/${page}`
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Could not load page ${page}.`);
+    return response.json();
+}
+
 export async function importPreparedBook(file) {
     const form = new FormData();
     form.append('file', file, file.name);
@@ -430,6 +443,38 @@ export async function createBookArchive(bookId, profileId) {
     if (!response.ok) throw new Error('Could not create a prepared-book file.');
     const data = await response.json();
     return { ...data, downloadUrl: `${AUDIO_BASE_URL}${data.downloadUrl}` };
+}
+
+export async function createBookAudiobook(bookId, profileId) {
+    const response = await fetch(`${API_BASE_URL}/books/${bookId}/audiobooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId }),
+    });
+    if (!response.ok) throw new Error('Could not start the audiobook export.');
+    return response.json();
+}
+
+export async function getBookAudiobook(bookId, jobId) {
+    const response = await fetch(
+        `${API_BASE_URL}/books/${bookId}/audiobooks/${encodeURIComponent(jobId)}`,
+    );
+    if (!response.ok) throw new Error('Could not read audiobook export progress.');
+    return response.json();
+}
+
+export async function cancelBookAudiobook(bookId, jobId) {
+    const response = await fetch(
+        `${API_BASE_URL}/books/${bookId}/audiobooks/${encodeURIComponent(jobId)}`,
+        { method: 'DELETE' },
+    );
+    if (!response.ok && response.status !== 404) {
+        throw new Error('Could not stop the audiobook export.');
+    }
+}
+
+export function bookAudiobookContentUrl(bookId, jobId) {
+    return `${API_BASE_URL}/books/${bookId}/audiobooks/${encodeURIComponent(jobId)}/content`;
 }
 
 async function studioRequest(path, options = {}, fallback = 'Voice Studio request failed') {

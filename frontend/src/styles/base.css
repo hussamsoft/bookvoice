@@ -23,10 +23,17 @@ body {
 }
 
 h1,
-h2,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+
 h3,
 h4 {
-  font-weight: 600;
+  font-family: var(--font-ui);
+  font-weight: 500;
   letter-spacing: -0.01em;
   line-height: var(--leading-tight);
 }
@@ -37,6 +44,13 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+}
+
+/* Arabic / RTL reading contexts swap the serif reading face for Naskh.
+ * Redefining the token keeps every consumer (reader.css etc.) on var(). */
+[lang="ar"],
+[dir="rtl"] {
+  --font-reading: "Noto Naskh Arabic", "Literata Variable", Georgia, "Times New Roman", serif;
 }
 
 a {
@@ -117,6 +131,52 @@ a {
 .hint {
   color: var(--ink-muted);
   font-size: var(--text-sm);
+}
+
+/* Skeleton placeholders — surface fill + shimmer sweep. The global
+ * prefers-reduced-motion kill switch below also disables the shimmer. */
+.skeleton {
+  background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ink) 7%, transparent),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: bv-shimmer 1.4s linear infinite;
+}
+
+@keyframes bv-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton--line {
+  width: 100%;
+  height: calc(var(--text-md) * var(--leading-normal));
+  border-radius: var(--radius-sm);
+}
+
+.skeleton--block {
+  min-height: 96px;
+  border-radius: var(--radius-md);
+}
+
+/* Button primitive sizes (ui/Button.jsx) mapped to control-height tokens. */
+.btn-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.btn-lg {
+  height: var(--control-h-lg);
+  padding: 0 var(--space-5);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,6 +11,10 @@ import {
 } from 'lucide-react';
 import {
     createBookArchive,
+    createBookAudiobook,
+    cancelBookAudiobook,
+    bookAudiobookContentUrl,
+    getBookPage,
     createBookPreparation,
     cancelBookPreparation,
     exportCachedAudio,
@@ -41,6 +45,7 @@ import ReaderToolbar, { ZOOM_LIMITS } from './reader/ReaderToolbar';
 import ReadingOptionsPanel from './reader/ReadingOptionsPanel';
 import TranscriptColumn from './reader/TranscriptColumn';
 import PlaybackControls from './PlaybackControls';
+import TextPageColumn from './reader/TextPageColumn';
 import PreparationProgress from './PreparationProgress';
 import { useAudioTransport } from '../hooks/useAudioTransport';
 import { audioRangeForWord, waitForAudioMetadata } from '../utils/media';
@@ -66,6 +71,13 @@ import {
 import { shouldDisableFollowNarration } from '../utils/readerNavigation';
 import { shouldDisableNarrationStart } from '../utils/readerPlaybackState';
 import { shouldZoomPdfWheel } from '../utils/pdfInteraction';
+import {
+    clearMediaSession,
+    setActionHandlers,
+    setPlaybackState,
+    setPositionState,
+    updateMediaSession,
+} from '../utils/mediaSession';
 import { mapWithConcurrency } from '../utils/boundedConcurrency';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -83,6 +95,12 @@ import {
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;
+
+function sourceKindFromName(name = '') {
+    if (/\.epub$/i.test(name)) return 'epub';
+    if (/\.(txt|md)$/i.test(name)) return 'txt';
+    return 'pdf';
+}
 
 export default function PdfViewer({ onDirty }) {
     const toast = useToast();
@@ -124,12 +142,20 @@ export default function PdfViewer({ onDirty }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
-    const [showReadingOptions, setShowReadingOptions] = useState(false);
     const [libraryBooks, setLibraryBooks] = useState([]);
+    const [libraryPending, setLibraryPending] = useState(true);
+    const [isLoadingPageText, setIsLoadingPageText] = useState(false);
     const [libraryBookId, setLibraryBookId] = useState(null);
     const [activeProfileId, setActiveProfileId] = useState(null);
     const [preparation, setPreparation] = useState(null);
+    const [audiobook, setAudiobook] = useState(null); // {jobId, pagesDone, pageCount}
+    const [isExportingAudiobook, setIsExportingAudiobook] = useState(false);
+    const audiobookPollRef = useRef(null);
+    const isMountedRef = useRef(true);
+    const sleepTimerRef = useRef(null);
     const [isCancellingPreparation, setIsCancellingPreparation] = useState(false);
+    // "pdf" | "epub" | "txt" (legacy manifests have no sourceKind → PDF).
+    const [sourceKind, setSourceKind] = useState('pdf');
 
     const audioRef = useRef(null);
     const pronounceRef = useRef(null);
@@ -173,6 +199,12 @@ export default function PdfViewer({ onDirty }) {
     const advancePlaylistRef = useRef(() => {}); // set by the streaming effect
     const handlePlayRef = useRef(() => {});
     const openLibraryBookRef = useRef(() => {});
+    const goToPageRef = useRef(() => {});
+    const stopPlaybackRef = useRef(() => {});
+    const libraryBookIdRef = useRef(null);
+    const numPagesRef = useRef(null);
+    const isTextBookRef = useRef(false);
+    const serverPagesRef = useRef(new Map()); // page → server text for text books
     const startupBookOpenedRef = useRef(false);
     const autoResumedPreparationRef = useRef('');
     const progressSaveFailureRef = useRef(null);
@@ -193,6 +225,11 @@ export default function PdfViewer({ onDirty }) {
     activeVoiceRef.current = activeVoiceId;
     isGeneratingRef.current = isGenerating;
 
+    const isTextBook = sourceKind !== 'pdf';
+    libraryBookIdRef.current = libraryBookId;
+    numPagesRef.current = numPages;
+    isTextBookRef.current = isTextBook;
+
     useEffect(() => {
         writeStoredString('bookvoice.followNarration', String(followNarration));
     }, [followNarration]);
@@ -200,6 +237,7 @@ export default function PdfViewer({ onDirty }) {
     useEffect(() => {
         listPreparedBooks().then((books) => {
             setLibraryBooks(books);
+            setLibraryPending(false);
             const startupBookId = new URLSearchParams(window.location.search).get('book');
             const startupBook = books.find((book) => book.id === startupBookId);
             if (startupBook && !startupBookOpenedRef.current) {
@@ -207,6 +245,7 @@ export default function PdfViewer({ onDirty }) {
                 openLibraryBookRef.current(startupBook);
             }
         }).catch((error) => {
+            setLibraryPending(false);
             toast.error(error.message || 'Could not load the prepared-book library.');
         });
     }, [toast]);
@@ -273,6 +312,52 @@ export default function PdfViewer({ onDirty }) {
         resetDocument,
     } = usePdfDocument({ file, fileRef, toast });
 
+    // Text books (.epub/.txt/.md) have no PDF text layer: their pages live on
+    // the server and are fetched once per page, then reused for narration,
+    // find-in-book, and prefetching.
+    const fetchServerPageText = useCallback(async (page) => {
+        const cached = serverPagesRef.current.get(page);
+        if (cached != null) return cached;
+        const data = await getBookPage(libraryBookIdRef.current, page);
+        const text = String(data?.text || '').trim();
+        if (!text) throw new Error(`No text found on page ${page}.`);
+        serverPagesRef.current.set(page, text);
+        return text;
+    }, []);
+
+    // Single source of truth for "give me this page's text", regardless of
+    // whether the book is a PDF (local extraction/OCR) or a text book
+    // (server pages).
+    const getPageText = useCallback(
+        (page, opts = {}) => (
+            isTextBookRef.current ? fetchServerPageText(page) : preparePageText(page, opts)
+        ),
+        [fetchServerPageText, preparePageText]
+    );
+
+    const findTextInServerPages = useCallback(async (query) => {
+        const needle = String(query || '').trim().toLocaleLowerCase();
+        const total = numPagesRef.current;
+        if (!needle || !libraryBookIdRef.current || !total) return null;
+        // Warm the server-page cache with bounded concurrency, then match in
+        // wrap-around order starting at the current page — the same search
+        // semantics as the PDF text-layer scan.
+        const pages = Array.from({ length: total }, (_, index) => index + 1);
+        await mapWithConcurrency(pages, 3, async (page) => {
+            try {
+                await fetchServerPageText(page);
+            } catch {
+                /* unreadable pages simply never match */
+            }
+        });
+        for (let offset = 0; offset < total; offset += 1) {
+            const pageNum = ((pageNumberRef.current - 1 + offset) % total) + 1;
+            const text = serverPagesRef.current.get(pageNum) || '';
+            if (text.toLocaleLowerCase().includes(needle)) return pageNum;
+        }
+        return null;
+    }, [fetchServerPageText]);
+
     const {
         rebindWordSpans,
         buildTimings,
@@ -304,13 +389,18 @@ export default function PdfViewer({ onDirty }) {
         bookId: libraryBookId,
     });
 
+    const preparePageTextForPrefetch = useCallback(
+        (page, opts) => getPageText(page, { ...opts, setIsOcring }),
+        [getPageText]
+    );
+
     const { cancelPrefetch, schedulePrefetch } = usePrefetch({
         cacheRef,
         activeVoiceRef,
         langRef,
         modelReady,
         isGeneratingRef,
-        preparePageText: (page, opts) => preparePageText(page, { ...opts, setIsOcring }),
+        preparePageText: preparePageTextForPrefetch,
         narratePage,
         setPrefetchHint,
     });
@@ -381,6 +471,8 @@ export default function PdfViewer({ onDirty }) {
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'AUDIO' || tag === 'VIDEO') return;
             if (e.target?.isContentEditable) return;
             if (e.target?.closest?.('[role="button"], [role="switch"], [role="tab"]')) return;
+            // Transcript region owns Space/←/→ for word-cursor navigation.
+            if (e.target?.closest?.('.transcript-words')) return;
             if (e.code === 'Space') {
                 e.preventDefault();
                 handlePlayRef.current();
@@ -395,7 +487,6 @@ export default function PdfViewer({ onDirty }) {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [skipTransportBy]);
-
     useEffect(() => {
         if (!documentId) return undefined;
         const timer = setTimeout(() => {
@@ -521,7 +612,44 @@ export default function PdfViewer({ onDirty }) {
         syncHighlightAt(0);
         refreshTransport();
     }, [cancelGeneration, refreshTransport, syncHighlightAt]);
+    stopPlaybackRef.current = stopPlayback;
 
+
+
+    // OS media keys / media overlay integration. Handlers reuse the exact
+    // transport functions behind the on-screen controls; refs keep the
+    // registration effect mount-only. Everything inside is a no-op when the
+    // Media Session API is unavailable.
+    const bookTitle = libraryBooks.find((book) => book.id === libraryBookId)?.title
+        || (file?.name ? file.name.replace(/\.(pdf|epub|txt|md)$/i, '') : '');
+    useEffect(() => {
+        setPlaybackState(isPlaying);
+    }, [isPlaying]);
+
+    useEffect(() => {
+        updateMediaSession({ title: `Page ${pageNumber}`, album: bookTitle });
+    }, [bookTitle, pageNumber]);
+
+    useEffect(() => {
+        setPositionState({
+            duration: transport.duration,
+            position: transport.currentTime,
+            rate: transport.playbackRate,
+        });
+    }, [transport.currentTime, transport.duration, transport.playbackRate]);
+
+    useEffect(() => {
+        setActionHandlers({
+            play: () => handlePlayRef.current(),
+            pause: () => pauseAudio(),
+            stop: () => stopPlaybackRef.current(),
+            previoustrack: () => goToPageRef.current(pageNumberRef.current - 1),
+            nexttrack: () => goToPageRef.current(pageNumberRef.current + 1),
+            seekbackward: () => skipTransportBy(-10),
+            seekforward: () => skipTransportBy(10),
+        });
+        return () => clearMediaSession();
+    }, [pauseAudio, skipTransportBy]);
     // Fit base page width into the scroll viewport
     useEffect(() => {
         const el = containerRef.current;
@@ -670,6 +798,9 @@ export default function PdfViewer({ onDirty }) {
             const last = Math.max(0, narratedWordCount - 1);
             setCurrentWord(last);
             currentWordRef.current = last;
+            // A natural end of page is what the sleep timer's
+            // "end of chapter" mode waits for.
+            sleepTimerRef.current?.notifyPageEnded?.();
         };
         const handleSeeked = () => syncHighlightAt(Number(audio.currentTime) || 0);
 
@@ -1032,6 +1163,7 @@ export default function PdfViewer({ onDirty }) {
     const loadPageIntoView = useCallback(
         async (pageNum, { autoplay = false } = {}) => {
             browseRequestRef.current += 1;
+            setIsLoadingPageText(true);
             cancelPrefetch();
             cancelGeneration();
             if (streamAbortRef.current) streamAbortRef.current.abort();
@@ -1055,7 +1187,7 @@ export default function PdfViewer({ onDirty }) {
                     profileId: activeProfileId,
                     page: pageNum,
                     getPreparedPage,
-                    preparePageText: (page) => preparePageText(page, { setIsOcring }),
+                    preparePageText: (page) => getPageText(page, { setIsOcring }),
                 });
                 const { text, prepared, source } = resolved;
                 setPageText(text);
@@ -1063,6 +1195,7 @@ export default function PdfViewer({ onDirty }) {
                 setPageWords(text.split(/\s+/).filter(Boolean));
                 pageWordsRef.current = text.split(/\s+/).filter(Boolean);
                 cachePageText(pageNum, text);
+                setIsLoadingPageText(false);
 
                 if (libraryBookId && source !== 'prepared') {
                     await savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum);
@@ -1104,6 +1237,7 @@ export default function PdfViewer({ onDirty }) {
                 }
                 if (numPages) schedulePrefetchSafe(pageNum, numPages);
             } catch (e) {
+                setIsLoadingPageText(false);
                 toast.error(e.message);
             }
         },
@@ -1118,12 +1252,29 @@ export default function PdfViewer({ onDirty }) {
             modelReady,
             numPages,
             pauseAudio,
-            preparePageText,
+            getPageText,
             schedulePrefetchSafe,
             toast,
             refreshTransport,
         ]
     );
+
+    const loadPageIntoViewRef = useRef(() => {});
+    loadPageIntoViewRef.current = loadPageIntoView;
+    const schedulePrefetchSafeRef = useRef(() => {});
+    schedulePrefetchSafeRef.current = schedulePrefetchSafe;
+    // Text books have no PDF <Document> to announce its page count: once the
+    // manifest count is known, fetch the restored page straight from the
+    // server (mirroring the PDF onLoadSuccess flow).
+    useEffect(() => {
+        if (!isTextBook || !file || !numPages) return undefined;
+        const restoredPage = Math.max(1, Math.min(numPages, pageNumberRef.current));
+        setPageNumber(restoredPage);
+        pageNumberRef.current = restoredPage;
+        schedulePrefetchSafeRef.current(restoredPage, numPages);
+        loadPageIntoViewRef.current(restoredPage, { autoplay: false });
+        return undefined;
+    }, [file, isTextBook, numPages]);
 
     // Browsing is deliberately separate from narration. Turning a page must
     // not abort generation, pause audio, clear its playlist, or replace its
@@ -1140,6 +1291,7 @@ export default function PdfViewer({ onDirty }) {
                 setFollowNarration(false);
             }
             const requestId = ++browseRequestRef.current;
+            setIsLoadingPageText(true);
             setPageNumber(pageNum);
             pageNumberRef.current = pageNum;
             clearPdfHighlights(containerRef.current || document);
@@ -1150,7 +1302,7 @@ export default function PdfViewer({ onDirty }) {
                     profileId: activeProfileId,
                     page: pageNum,
                     getPreparedPage,
-                    preparePageText: (page) => preparePageText(page, { setIsOcring }),
+                    preparePageText: (page) => getPageText(page, { setIsOcring }),
                 });
                 if (requestId !== browseRequestRef.current) return;
                 const words = text.split(/\s+/).filter(Boolean);
@@ -1159,12 +1311,14 @@ export default function PdfViewer({ onDirty }) {
                 setPageWords(words);
                 pageWordsRef.current = words;
                 cachePageText(pageNum, text);
+                setIsLoadingPageText(false);
                 if (libraryBookId && source !== 'prepared') {
                     await savePreparedPage(libraryBookId, pageNum, text, numPages || pageNum);
                 }
                 requestAnimationFrame(() => rebindWordSpans());
             } catch (error) {
                 if (requestId !== browseRequestRef.current) return;
+                setIsLoadingPageText(false);
                 toast.error(error.message || 'Could not open that page');
             }
         },
@@ -1173,7 +1327,7 @@ export default function PdfViewer({ onDirty }) {
             cachePageText,
             libraryBookId,
             numPages,
-            preparePageText,
+            getPageText,
             prevHighlightSpanRef,
             rebindWordSpans,
             toast,
@@ -1186,6 +1340,7 @@ export default function PdfViewer({ onDirty }) {
         if (n === pageNumber) return;
         browsePageIntoView(n);
     };
+    goToPageRef.current = goToPage;
 
     const handlePageJump = (e) => {
         e?.preventDefault?.();
@@ -1352,7 +1507,7 @@ export default function PdfViewer({ onDirty }) {
                 profileId: activeProfileId,
                 page: pageNumber,
                 getPreparedPage,
-                preparePageText: (page) => preparePageText(page, { setIsOcring }),
+                preparePageText: (page) => getPageText(page, { setIsOcring }),
             });
             setPageText(text);
             pageTextRef.current = text;
@@ -1616,6 +1771,7 @@ export default function PdfViewer({ onDirty }) {
     const activateBookFile = (f, book = null) => {
         if (!f) return;
         const preparedProfile = activePreparedProfile(book);
+        const nextSourceKind = book?.sourceKind || sourceKindFromName(f.name);
         cancelPrefetch();
         const nextDocumentId = documentFingerprint(f);
         const progress = loadReadingProgress(nextDocumentId);
@@ -1625,8 +1781,16 @@ export default function PdfViewer({ onDirty }) {
         setTransportRate(progress.playbackRate);
         setFile(f);
         fileRef.current = f;
+        setSourceKind(nextSourceKind);
+        isTextBookRef.current = nextSourceKind !== 'pdf';
         resetDocument();
-        setNumPages(null);
+        setNumPages(
+            isTextBookRef.current
+                ? Number(book?.pageCount ?? book?.chapterCount) || null
+                : null
+        );
+
+        serverPagesRef.current.clear();
         setPageNumber(progress.page);
         pageNumberRef.current = progress.page;
         setAudioUrl(null);
@@ -1682,7 +1846,7 @@ export default function PdfViewer({ onDirty }) {
                 missingPages,
                 3,
                 async (page) => {
-                    const text = await preparePageText(page, { quiet: true });
+                    const text = await getPageText(page, { quiet: true });
                     await savePreparedPage(libraryBookId, page, text, numPages);
                 },
                 (completed, total) => setStatusHint(`Extracted ${completed} of ${total} pages…`)
@@ -1731,14 +1895,100 @@ export default function PdfViewer({ onDirty }) {
         }
     };
 
-    const openLibraryBook = async (book) => {
+    const stopAudiobookPolling = () => {
+        if (audiobookPollRef.current) {
+            clearInterval(audiobookPollRef.current);
+            audiobookPollRef.current = null;
+        }
+    };
+
+    const handleExportAudiobook = async () => {
+        if (!libraryBookId || !activeProfileId || isExportingAudiobook) return;
+        setIsExportingAudiobook(true);
         try {
-            const source = await preparedBookSource(book.id);
-            const pdf = new File([source], `${book.title || 'Prepared book'}.pdf`, {
-                type: 'application/pdf',
-                lastModified: Number(book.updatedAt || Date.now()) * 1000,
-            });
-            activateBookFile(pdf, book);
+            const job = await createBookAudiobook(libraryBookId, activeProfileId);
+            setAudiobook({ jobId: job.jobId, pagesDone: 0, pageCount: job.pageCount });
+            const bookTitle = file?.name
+                ? file.name.replace(/\.(pdf|epub|txt|md)$/i, '')
+                : 'book';
+            stopAudiobookPolling();
+            audiobookPollRef.current = setInterval(async () => {
+                try {
+                    const status = await getBookAudiobook(libraryBookId, job.jobId);
+                    if (!isMountedRef.current) return;
+                    setAudiobook({
+                        jobId: job.jobId,
+                        pagesDone: status.pagesDone,
+                        pageCount: status.pageCount,
+                    });
+                    if (status.status === 'COMPLETED') {
+                        stopAudiobookPolling();
+                        setAudiobook(null);
+                        setIsExportingAudiobook(false);
+                        const link = document.createElement('a');
+                        link.href = bookAudiobookContentUrl(libraryBookId, job.jobId);
+                        link.download = `${bookTitle}.m4b`;
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                    } else if (status.status === 'FAILED' || status.status === 'CANCELLED') {
+                        stopAudiobookPolling();
+                        setAudiobook(null);
+                        setIsExportingAudiobook(false);
+                        toast.error(status.error || 'The audiobook export failed.');
+                    }
+                } catch (error) {
+                    stopAudiobookPolling();
+                    if (isMountedRef.current) {
+                        setAudiobook(null);
+                        setIsExportingAudiobook(false);
+                        toast.error(error.message || 'The audiobook export failed.');
+                    }
+                }
+            }, 1500);
+        } catch (error) {
+            setIsExportingAudiobook(false);
+            toast.error(error.message || 'Could not start the audiobook export.');
+        }
+    };
+
+    const handleCancelAudiobook = async () => {
+        stopAudiobookPolling();
+        if (audiobook?.jobId) {
+            try {
+                await cancelBookAudiobook(libraryBookId, audiobook.jobId);
+            } catch {
+                // The one-shot download or a finished job may already be gone.
+            }
+        }
+        setAudiobook(null);
+        setIsExportingAudiobook(false);
+    };
+
+    useEffect(() => () => {
+        isMountedRef.current = false;
+        stopAudiobookPolling();
+    }, []);
+
+    const openLibraryBook = async (book) => {
+        const kind = book.sourceKind || 'pdf';
+        try {
+            let f;
+            if (kind === 'pdf') {
+                const source = await preparedBookSource(book.id);
+                f = new File([source], `${book.title || 'Prepared book'}.pdf`, {
+                    type: 'application/pdf',
+                    lastModified: Number(book.updatedAt || Date.now()) * 1000,
+                });
+            } else {
+                // Text books read their pages from the server manifest; no
+                // PDF source blob is needed or fetched.
+                f = new File([], `${book.title || 'Prepared book'}.${kind}`, {
+                    type: 'text/plain',
+                    lastModified: Number(book.updatedAt || Date.now()) * 1000,
+                });
+            }
+            activateBookFile(f, book);
         } catch (error) {
             toast.error(error.message || 'Could not open the prepared book.');
         }
@@ -1749,9 +1999,21 @@ export default function PdfViewer({ onDirty }) {
         const selected = e.target.files[0];
         if (!selected) return;
         const isArchive = selected.name.toLowerCase().endsWith('.bookvoice');
-        if (!isArchive) activateBookFile(selected, null);
+        // Text books must land in the library before opening: their pages are
+        // served from the server manifest, not read from the local file.
+        const needsImportFirst = !isArchive && !/\.pdf$/i.test(selected.name);
         try {
             setStatusHint('Adding book to your library…');
+            if (needsImportFirst) {
+                const book = await importPreparedBook(selected);
+                setLibraryBooks(await listPreparedBooks());
+                setLibraryBookId(book.id);
+                setActiveProfileId(book.activeProfileId || book.profiles?.[0]?.id || null);
+                setPreparation(book.preparation || null);
+                activateBookFile(selected, book);
+                return;
+            }
+            if (!isArchive) activateBookFile(selected, null);
             const book = await importPreparedBook(selected);
             setLibraryBooks(await listPreparedBooks());
             if (isArchive) {
@@ -1763,7 +2025,7 @@ export default function PdfViewer({ onDirty }) {
             }
         } catch (error) {
             if (isArchive) toast.error(error.message || 'Could not open this book.');
-            else toast.error('The PDF is open, but it could not be added to the prepared library.');
+            else toast.error('The book is open, but it could not be added to the prepared library.');
         } finally {
             setStatusHint('');
             e.target.value = '';
@@ -1775,12 +2037,14 @@ export default function PdfViewer({ onDirty }) {
         if (!searchQuery.trim() || !numPages) return;
         setIsSearching(true);
         try {
-            const found = await findTextInDocument(searchQuery, pageNumber + 1);
+            const found = isTextBookRef.current
+                ? await findTextInServerPages(searchQuery)
+                : await findTextInDocument(searchQuery, pageNumber + 1);
             if (found) {
                 await browsePageIntoView(found);
                 toast.success(`Found on page ${found}`);
             } else {
-                toast.info('Text was not found in the PDF text layer.');
+                toast.info('Text was not found in this book.');
             }
         } catch (error) {
             toast.error(error.message || 'Search failed');
@@ -1884,13 +2148,20 @@ export default function PdfViewer({ onDirty }) {
 
     const playBtn = getPlayButtonState();
 
+    // Whole-book scrubber timeline: the streamed-chunk playlist's total span
+    // when narration is active, otherwise null (scrubber stays hidden).
+    const playlistTotalDurationS = Number(buildPlaylist(playlistRef.current).totalDurationS);
+    const scrubberDurationS = Number.isFinite(playlistTotalDurationS) && playlistTotalDurationS > 0
+        ? playlistTotalDurationS
+        : null;
+
     return (
         <div className="pdf-viewer-container" data-transport-state={transportState}>
             {!file ? (
                 <div className="upload-state pdf-upload-state">
                     <input
                         type="file"
-                        accept=".pdf,.bookvoice,application/pdf,application/zip"
+                        accept=".pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip"
                         onChange={handleFileChange}
                         id="pdf-upload"
                         className="file-input"
@@ -1912,23 +2183,41 @@ export default function PdfViewer({ onDirty }) {
                         {libraryBooks.length ? (
                             <div className="prepared-library">
                                 <p className="prepared-library-title">Prepared library</p>
-                                {libraryBooks.slice(0, 5).map((book) => {
-                                    const details = preparedBookDetails(book);
-                                    return (
-                                        <button
-                                            type="button"
-                                            className="prepared-book-row"
-                                            key={book.id}
-                                            onClick={() => openLibraryBook(book)}
-                                        >
-                                            <span>{book.title}</span>
-                                            <small>
-                                                Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
-                                                {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
-                                            </small>
-                                        </button>
-                                    );
-                                })}
+                                <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+                                    {libraryBooks.map((book) => {
+                                        const details = preparedBookDetails(book);
+                                        return (
+                                            <button
+                                                type="button"
+                                                className="prepared-book-row"
+                                                key={book.id}
+                                                onClick={() => openLibraryBook(book)}
+                                            >
+                                                <span className="prepared-book-row-heading">
+                                                    <span className="source-kind-badge">
+                                                        {(book.sourceKind || 'pdf').toUpperCase()}
+                                                    </span>
+                                                    {book.title}
+                                                </span>
+                                                <small>
+                                                    Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
+                                                    {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
+                                                </small>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : libraryPending ? (
+                            <div className="prepared-library" aria-busy="true">
+                                <p className="prepared-library-title">Prepared library</p>
+                                {[0, 1, 2].map((row) => (
+                                    <div
+                                        key={row}
+                                        className="skeleton skeleton--block"
+                                        style={{ height: 54, marginBottom: 'var(--space-2)' }}
+                                    />
+                                ))}
                             </div>
                         ) : null}
                     </div>
@@ -1980,79 +2269,122 @@ export default function PdfViewer({ onDirty }) {
                         onToggleBookmark={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
                         isExporting={isExporting}
                         onExportThroughCurrentPage={handleExportThroughCurrentPage}
-                        showReadingOptions={showReadingOptions}
-                        onToggleReadingOptions={() => setShowReadingOptions((open) => !open)}
+                        isTextBook={isTextBook}
                     />
 
-                    {showReadingOptions ? (
-                        <ReadingOptionsPanel
-                            modelReady={modelReady}
-                            activeVoiceId={activeVoiceId}
-                            onVoiceChange={handleVoiceChange}
-                            targetLanguage={targetLanguage}
-                            onLanguageChange={handleLanguageChange}
-                            disabled={isGenerating || isOcring}
-                            isOcring={isOcring}
-                            onForceOcr={handleForceOcr}
-                            isEditingText={isEditingText}
-                            pageText={pageText}
-                            onToggleEditText={() => {
-                                setEditTextDraft(pageText);
-                                setIsEditingText((value) => !value);
-                            }}
-                            onTranslatePage={handleTranslatePage}
-                            isGenerating={isGenerating}
-                            canPrepareBook={!!modelReady && !!libraryBookId}
-                            preparationRunning={preparation?.status === 'RUNNING'}
-                            onPrepareWholeBook={handlePrepareWholeBook}
-                            hasProfile={!!activeProfileId}
-                            onCreatePreparedFile={handleCreatePreparedFile}
-                        />
-                    ) : null}
+                    <ReadingOptionsPanel
+                        modelReady={modelReady}
+                        activeVoiceId={activeVoiceId}
+                        onVoiceChange={handleVoiceChange}
+                        targetLanguage={targetLanguage}
+                        onLanguageChange={handleLanguageChange}
+                        disabled={isGenerating || isOcring}
+                        isOcring={isOcring}
+                        onForceOcr={handleForceOcr}
+                        isEditingText={isEditingText}
+                        pageText={pageText}
+                        onToggleEditText={() => {
+                            setEditTextDraft(pageText);
+                            setIsEditingText((value) => !value);
+                        }}
+                        onTranslatePage={handleTranslatePage}
+                        isGenerating={isGenerating}
+                        canPrepareBook={!!modelReady && !!libraryBookId}
+                        preparationRunning={preparation?.status === 'RUNNING'}
+                        onPrepareWholeBook={handlePrepareWholeBook}
+                        hasProfile={!!activeProfileId}
+                        onCreatePreparedFile={handleCreatePreparedFile}
+                        onExportAudiobook={handleExportAudiobook}
+                        onCancelExportAudiobook={handleCancelAudiobook}
+                        isExportingAudiobook={isExportingAudiobook}
+                        audiobookProgress={audiobook}
+                        isTextBook={isTextBook}
+                    />
 
                     <div className="pdf-layout">
                         <div className="pdf-main">
-                            <h3 className="reader-section-label">Original PDF</h3>
+                            <h3 className="reader-section-label">
+                                {isTextBook ? 'Original book' : 'Original PDF'}
+                            </h3>
                             <div
                                 className={`pdf-scroll-area ${zoom > 1.02 ? 'zoomable' : ''}`}
                                 ref={containerRef}
                             >
-                                <Document
-                                    file={file}
-                                    onLoadSuccess={(pdf) => {
-                                        adoptPdfDocument(pdf);
-                                        setNumPages(pdf.numPages);
-                                        const restoredPage = Math.max(
-                                            1,
-                                            Math.min(pdf.numPages, pageNumberRef.current)
-                                        );
-                                        setPageNumber(restoredPage);
-                                        pageNumberRef.current = restoredPage;
-                                        schedulePrefetchSafe(restoredPage, pdf.numPages);
-                                        loadPageIntoView(restoredPage, { autoplay: false });
-                                    }}
-                                    loading={
-                                        <div className="pdf-loading">
-                                            <Loader2 className="spinner" size={40} />
+                                {isTextBook ? (
+                                    isLoadingPageText ? (
+                                        <div aria-busy="true">
+                                            {[96, 100, 92, 98, 88, 94, 70].map((width, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="skeleton skeleton--line"
+                                                    style={{ width: `${width}%`, marginBottom: 'var(--space-3)' }}
+                                                />
+                                            ))}
                                         </div>
-                                    }
-                                >
-                                    <div
-                                        className="pdf-page-wrapper pdf-page-current"
-                                        style={{
-                                            zoom: displayZoom,
-                                        }}
-                                    >
-                                        <Page
+                                    ) : (
+                                        <TextPageColumn
+                                            pageWords={pageWords}
+                                            currentWord={currentWord}
+                                            audioPage={audioPage}
                                             pageNumber={pageNumber}
-                                            width={basePageWidth}
-                                            renderAnnotationLayer={false}
-                                            renderTextLayer={true}
-                                            onRenderSuccess={onPageRenderSuccess}
-                                            className="pdf-page-fit"
+                                            isPlaying={isPlaying}
+                                            audioUrl={audioUrl}
+                                            targetLanguage={targetLanguage}
+                                            onWordActivate={handleWordActivate}
+                                            statusHint={statusHint}
+                                            followNarration={followNarration}
                                         />
-                                    </div>
-                                </Document>
+                                    )
+                                ) : (
+                                    <Document
+                                        file={file}
+                                        onLoadSuccess={(pdf) => {
+                                            adoptPdfDocument(pdf);
+                                            setNumPages(pdf.numPages);
+                                            const restoredPage = Math.max(
+                                                1,
+                                                Math.min(pdf.numPages, pageNumberRef.current)
+                                            );
+                                            setPageNumber(restoredPage);
+                                            pageNumberRef.current = restoredPage;
+                                            schedulePrefetchSafe(restoredPage, pdf.numPages);
+                                            loadPageIntoView(restoredPage, { autoplay: false });
+                                        }}
+                                        loading={
+                                            <div className="pdf-loading" aria-busy="true">
+                                                <div
+                                                    className="skeleton skeleton--block"
+                                                    style={{ width: 'min(640px, 85%)', height: '70vh' }}
+                                                />
+                                            </div>
+                                        }
+                                    >
+                                        <div
+                                            className="pdf-page-wrapper pdf-page-current"
+                                            style={{
+                                                zoom: displayZoom,
+                                            }}
+                                        >
+                                            <Page
+                                                pageNumber={pageNumber}
+                                                width={basePageWidth}
+                                                renderAnnotationLayer={false}
+                                                loading={
+                                                    <div
+                                                        className="skeleton skeleton--block"
+                                                        style={{
+                                                            width: basePageWidth,
+                                                            height: Math.round(basePageWidth * 1.414),
+                                                        }}
+                                                    />
+                                                }
+                                                renderTextLayer={true}
+                                                onRenderSuccess={onPageRenderSuccess}
+                                                className="pdf-page-fit"
+                                            />
+                                        </div>
+                                    </Document>
+                                )}
                             </div>
                         </div>
                         <div className="pdf-transcript">
@@ -2088,9 +2420,12 @@ export default function PdfViewer({ onDirty }) {
                                 transport={{ ...transport, isPlaying }}
                                 onToggle={handlePlay}
                                 onStop={stopPlayback}
+                                sleepRef={sleepTimerRef}
                                 disabled={playBtn.disabled}
                                 generating={isGenerating}
                                 hasMedia={!!audioRef.current?.src || !!audioUrl}
+                                duration={scrubberDurationS}
+                                onSeek={seekTransportTo}
                                 pageLabel={
                                     audioPage
                                         ? `Narrating page ${audioPage}`
