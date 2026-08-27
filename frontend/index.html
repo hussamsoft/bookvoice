@@ -12,15 +12,30 @@
       (function () {
         try {
           var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var palette = 'paper';
           try {
-            var stored = window.localStorage.getItem('bookvoice.theme');
-            if (stored !== 'dark' && stored !== 'light') {
-              stored = window.localStorage.getItem('bookvoice:theme');
+            var storedMode = window.localStorage.getItem('bookvoice.mode');
+            if (storedMode !== 'dark' && storedMode !== 'light') {
+              storedMode = window.localStorage.getItem('bookvoice:mode');
             }
-            if (stored === 'dark' || stored === 'light') dark = stored === 'dark';
+            if (storedMode !== 'dark' && storedMode !== 'light') {
+              storedMode = window.localStorage.getItem('bookvoice.theme');
+            }
+            if (storedMode === 'dark' || storedMode === 'light') dark = storedMode === 'dark';
+            var storedPalette = window.localStorage.getItem('bookvoice.palette');
+            if (!storedPalette) storedPalette = window.localStorage.getItem('bookvoice:palette');
+            if (storedPalette) palette = storedPalette;
           } catch (e) { /* storage unavailable; keep system preference */ }
-          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#161513' : '#F7F5F1');
+          document.documentElement.setAttribute('data-palette', palette);
+          document.documentElement.setAttribute('data-mode', dark ? 'dark' : 'light');
+          var bgColors = {
+            paper: dark ? '#161513' : '#f7f5f1',
+            blue: dark ? '#0f172a' : '#f0f4f8',
+            sage: dark ? '#052e16' : '#f0fdf4',
+            plum: dark ? '#1e0a2e' : '#faf5ff',
+            sand: dark ? '#1c0f08' : '#fef7ed'
+          };
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', bgColors[palette] || '#f7f5f1');
         } catch (e) { /* non-browser env */ }
       })();
     </script>

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Moon, Palette, Sun } from 'lucide-react';
 import { readStoredString, writeStoredString } from '../utils/storage';
 
@@ -30,7 +30,41 @@ function TitleBar({ currentMode, modeLabels }) {
             fallback: prefersColorSchemeDark() ? 'dark' : 'light',
         })
     );
+    const menuRef = useRef(null);
     const [showPaletteMenu, setShowPaletteMenu] = useState(false);
+    useEffect(() => {
+        if (!showPaletteMenu) return undefined;
+        const closeOnOutside = (event) => {
+            if (!menuRef.current?.contains(event.target)) setShowPaletteMenu(false);
+        };
+        const closeOnEscape = (event) => {
+            if (event.key === 'Escape') setShowPaletteMenu(false);
+        };
+        const handleKeyDown = (event) => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const items = Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || []);
+                const index = items.indexOf(document.activeElement);
+                if (index === -1) return;
+                const next = event.key === 'ArrowDown'
+                    ? (index + 1) % items.length
+                    : (index - 1 + items.length) % items.length;
+                items[next]?.focus();
+            }
+        };
+        document.addEventListener('click', closeOnOutside);
+        document.addEventListener('keydown', closeOnEscape);
+        document.addEventListener('keydown', handleKeyDown);
+        const firstOption = menuRef.current?.querySelector('[role="menuitem"]');
+        if (firstOption) firstOption.focus();
+        return () => {
+            document.removeEventListener('click', closeOnOutside);
+            document.removeEventListener('keydown', closeOnEscape);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [showPaletteMenu]);
+
+
 
     useEffect(() => {
         document.documentElement.dataset.palette = palette;
@@ -79,7 +113,7 @@ function TitleBar({ currentMode, modeLabels }) {
                         <ChevronDown size={12} className={`theme-selector-chevron ${showPaletteMenu ? 'open' : ''}`} />
                     </button>
                     {showPaletteMenu && (
-                        <div className="theme-selector-menu" role="menu">
+                        <div className="theme-selector-menu" role="menu" ref={menuRef}>
                             {PALETTES.map(p => (
                                 <div key={p.id} className="theme-selector-palette-group">
                                     <button

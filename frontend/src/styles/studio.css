@@ -559,7 +559,7 @@
   background-position: right var(--space-3) center;
 }
 
-[data-theme="dark"] .studio-main select {
+[data-mode="dark"] .studio-main select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 4.5 5-4.5' fill='none' stroke='%23a1a1aa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 

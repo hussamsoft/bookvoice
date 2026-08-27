@@ -15,7 +15,7 @@ import { formatClock as timeLabel } from '../utils/format';
  */
 const AudioPlayer = forwardRef(function AudioPlayer(
     { src, onTimeUpdate, onError, className = '', label = 'Audio', compact = false },
-    ref,
+    ref
 ) {
     const audioRef = useRef(null);
     const [playing, setPlaying] = useState(false);
@@ -110,6 +110,7 @@ const AudioPlayer = forwardRef(function AudioPlayer(
                 value={progress}
                 onChange={seek}
                 aria-label={`Seek ${label}`}
+                aria-valuetext={`${timeLabel(current)} elapsed, ${timeLabel(Math.max(duration - current, 0))} remaining`}
             />
             <span className="audio-transport-time">
                 {timeLabel(current)}<span aria-hidden="true"> / </span>{timeLabel(duration)}
