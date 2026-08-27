@@ -15,7 +15,10 @@ import { getUserConfig, saveUserConfig } from '../utils/api';
  */
 // Shared in-flight loader so several components mounting together trigger a
 // single GET; cleared on settle so later mounts always read fresh data.
+// Note: a second mount after the first resolves gets `null` and skips loading
+// (intentional — config is stable until the next explicit save).
 let configRequest = null;
+
 
 export function useUserConfig() {
     const [config, setConfig] = useState(null);

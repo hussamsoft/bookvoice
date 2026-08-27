@@ -129,8 +129,11 @@ function App() {
         else if (key === 'Home') nextIndex = 0;
         else nextIndex = tabs.length - 1;
         tabs[nextIndex]?.focus();
+        // Directly update tabindex for immediate effect (avoids render timing issues)
+        tabs.forEach((tab, i) => { tab.tabIndex = i === nextIndex ? 0 : -1; });
         tabs[nextIndex]?.click();
     };
+
 
     return (
         <div className="app-shell">

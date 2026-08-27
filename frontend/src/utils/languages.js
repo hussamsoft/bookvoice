@@ -4,10 +4,3 @@ export const SUPPORTED_LANGUAGES = [
     { code: 'ar', name: 'Arabic' },
 ];
 
-export function isSupportedLanguage(code) {
-    return SUPPORTED_LANGUAGES.some((l) => l.code === code);
-}
-
-export function languageName(code) {
-    return SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name || code;
-}

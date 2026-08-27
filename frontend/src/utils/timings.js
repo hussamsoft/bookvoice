@@ -151,7 +151,8 @@ function wordWeight(word, lang) {
 // HTMLMediaElement.currentTime can lead the sound reaching the speakers by a
 // small output-buffer interval. Delay the visual change so it follows the
 // audible onset instead of anticipating it.
-export const HIGHLIGHT_LAG_MS = { en: -20, ar: -25, default: -20 };
+const HIGHLIGHT_LAG_MS = { en: -20, ar: -25, default: -20 };
+
 
 export function highlightLagMs(languageId = 'en') {
     const lang = (languageId || 'en').toLowerCase();

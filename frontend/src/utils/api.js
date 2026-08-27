@@ -598,14 +598,6 @@ export async function signIn(password) {
     return response.json();
 }
 
-export async function signOut() {
-    const response = await fetch(`${API_BASE_URL}/access/`, { method: 'DELETE' });
-    if (!response.ok) {
-        throw new Error('Failed to sign out');
-    }
-    return response.json();
-}
-
 export function createStudioConversion(projectId, input) {
     return studioRequest(`/projects/${encodeURIComponent(projectId)}/conversions`, {
         method: 'POST',

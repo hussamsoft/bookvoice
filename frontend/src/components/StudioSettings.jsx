@@ -31,7 +31,8 @@ function NumberControl({
                     max={max}
                     step={step}
                     value={value}
-                    onChange={(e) => onChange(Number(e.target.value))}
+                    onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(n); }}
+
                     disabled={disabled}
                     aria-describedby={helpId}
                 />

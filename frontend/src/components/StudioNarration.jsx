@@ -217,11 +217,9 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
             )}
 
             <StudioOutputs
-                projectId={project.id}
                 outputs={project.outputs || []}
-                onRunJob={onRunJob}
-                disabled={disabled}
             />
+
         </div>
     );
 }

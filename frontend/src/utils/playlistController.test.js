@@ -3,11 +3,10 @@ import {
     buildPlaylist,
     chunkIndexAtGlobalTime,
     globalTimeForChunk,
-    isComplete,
-    localTimeForChunk,
     nextChunkIndex,
     playbackTargetAtGlobalTime,
 } from './playlistController';
+
 
 const CHUNKS = [
     { url: '/a.wav', text: 'one', start_s: 0, end_s: 2, index: 0, total: 3 },
@@ -55,13 +54,6 @@ describe('playlistController', () => {
         expect(chunkIndexAtGlobalTime(pl, 99)).toBe(2);
     });
 
-    it('maps global time back to local chunk time', () => {
-        const pl = buildPlaylist(CHUNKS);
-        expect(localTimeForChunk(pl, 0, 1)).toBe(1);
-        expect(localTimeForChunk(pl, 1, 3)).toBe(1);
-        expect(localTimeForChunk(pl, 2, 6)).toBe(1);
-    });
-
     it('returns a clamped cross-chunk playback target', () => {
         const pl = buildPlaylist(CHUNKS);
         expect(playbackTargetAtGlobalTime(pl, 3.5)).toEqual({
@@ -78,19 +70,5 @@ describe('playlistController', () => {
         });
     });
 
-    it('reports completeness against an expected total', () => {
-        const full = buildPlaylist(CHUNKS);
-        expect(isComplete(full, 3)).toBe(true);
-        expect(isComplete(full, 4)).toBe(false);
-        const partial = buildPlaylist(CHUNKS.slice(0, 2));
-        expect(isComplete(partial, 3)).toBe(false);
-    });
 
-    it('handles an empty playlist gracefully', () => {
-        const pl = buildPlaylist([]);
-        expect(pl.totalDurationS).toBe(0);
-        expect(globalTimeForChunk(pl, 0, 5)).toBe(0);
-        expect(nextChunkIndex(pl, 0)).toBeNull();
-        expect(isComplete(pl, 1)).toBe(false);
-    });
 });

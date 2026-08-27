@@ -95,17 +95,13 @@ export default function NarrationPlayback({
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio || !audioUrl) return;
-        const changedSource = audio.src !== audioUrl;
         audio.src = audioUrl;
         // Browsers reject programmatic autoplay without a user gesture; the
         // failed play() only surfaced as a transport error string. Load the
         // page ready-to-play and let the transport's play button start it.
-        if (changedSource && !audio.autoplay) {
-            audio.load();
-            return;
-        }
-        togglePlayback();
-    }, [audioUrl, togglePlayback]);
+        audio.load();
+    }, [audioUrl]);
+
 
     return (
         <div className="narration-playback">
