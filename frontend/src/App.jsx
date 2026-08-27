@@ -55,7 +55,11 @@ function App() {
             }, 200);
             return () => clearTimeout(timer);
         }
+        // Rapid double-switch: mode returned to previous before timer fired.
+        // Reset transitioning so the stage doesn't stay invisible.
+        setTransitioning(false);
     }, [mode]);
+
 
     useEffect(() => {
         const track = document.querySelector('.mode-switcher-track');

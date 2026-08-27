@@ -170,11 +170,11 @@ export default function BookSession({ epoch, onDirty }) {
                         const stepLabel = STEP_LABELS[stepName];
                         return (
                             <div
+                                key={stepName}
                                 className={`step-track-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
                                 style={{
                                     '--step-color': isActive ? 'var(--signal)' : isComplete ? 'var(--success)' : 'var(--ink-muted)',
                                 }}
-                                aria-current={isActive ? 'step' : undefined}
                             >
                                 <div className="step-dot" aria-hidden="true">
                                     {isComplete ? '✓' : index + 1}

@@ -161,12 +161,12 @@ export default function StudioSettings({
                     className="studio-section-header"
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     aria-expanded={showAdvanced}
-                >
-                    <div className="studio-section-kicker">Advanced delivery</div>
-                    <h3>Speed & Expression</h3>
-                    <span className="studio-section-toggle" aria-hidden="true">
-                        {showAdvanced ? '−' : '+'}
-                    </span>
+                    >
+                        <span className="studio-section-kicker">Advanced delivery</span>
+                        <span className="studio-section-title">Speed & Expression</span>
+                        <span className="studio-section-toggle" aria-hidden="true">
+                            {showAdvanced ? '−' : '+'}
+                        </span>
                 </button>
 
                 {showAdvanced && (
@@ -234,12 +234,12 @@ export default function StudioSettings({
                     className="studio-section-header"
                     onClick={() => setShowVariation(!showVariation)}
                     aria-expanded={showVariation}
-                >
-                    <div className="studio-section-kicker">Variation</div>
-                    <h3>Guidance & Randomness</h3>
-                    <span className="studio-section-toggle" aria-hidden="true">
-                        {showVariation ? '−' : '+'}
-                    </span>
+                    >
+                        <span className="studio-section-kicker">Variation</span>
+                        <span className="studio-section-title">Guidance & Randomness</span>
+                        <span className="studio-section-toggle" aria-hidden="true">
+                            {showVariation ? '−' : '+'}
+                        </span>
                 </button>
 
                 {showVariation && (

@@ -353,6 +353,12 @@
   flex: none;
 }
 
+.studio-section-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .studio-section-kicker {
   font-size: var(--text-xs);
   font-weight: 600;
@@ -361,6 +367,7 @@
   color: var(--ink-muted);
   margin-right: auto;
 }
+
 
 .studio-setting-item {
   display: flex;

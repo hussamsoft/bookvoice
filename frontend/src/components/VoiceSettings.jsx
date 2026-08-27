@@ -18,7 +18,6 @@ export default function VoiceSettings({
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [fetchFailed, setFetchFailed] = useState(false);
 
-    const streamRef = useRef(null);
     const backendReadyRef = useRef(backendReady);
     // Avoid re-clearing the same missing id (prevents update loops).
     const clearedMissingRef = useRef(null);
@@ -107,10 +106,6 @@ export default function VoiceSettings({
         return () => {
             cancelled = true;
             clearTimeout(timer);
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach((t) => t.stop());
-            }
-
         };
     }, [fetchVoices]);
 
