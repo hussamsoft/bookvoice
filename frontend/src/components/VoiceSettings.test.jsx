@@ -1,10 +1,12 @@
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import VoiceSettings from './VoiceSettings';
+import { getVoices } from '../utils/api';
 
 vi.mock('../utils/api', () => ({
   getVoices: vi.fn(),
   uploadVoice: vi.fn(),
+  deleteVoice: vi.fn(),
 }));
 
 vi.mock('./Toast', () => ({
@@ -14,8 +16,6 @@ vi.mock('./Toast', () => ({
     info: vi.fn(),
   }),
 }));
-
-import { getVoices } from '../utils/api';
 
 const VOICES = [
   { id: 'Ryan', name: 'Ryan' },
@@ -110,5 +110,64 @@ describe('VoiceSettings saved-voice revalidation', () => {
     });
 
     await waitFor(() => expect(getVoices.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+});
+
+describe('VoiceSettings compact dropdown', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getVoices.mockResolvedValue(VOICES);
+  });
+
+  it('renders a pill button in compact mode', async () => {
+    render(<VoiceSettings compact activeVoiceId="Ryan" onVoiceChange={vi.fn()} />);
+    expect(await screen.findByText('Ryan')).toBeInTheDocument();
+    expect(screen.getByText('Voice:')).toBeInTheDocument();
+  });
+
+  it('expands dropdown on pill click', async () => {
+    render(<VoiceSettings compact activeVoiceId="Ryan" onVoiceChange={vi.fn()} />);
+    const pill = await screen.findByText('Ryan');
+    fireEvent.click(pill);
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+  });
+
+  it('closes dropdown on Escape and returns focus to pill', async () => {
+    render(<VoiceSettings compact activeVoiceId="Ryan" onVoiceChange={vi.fn()} />);
+    const pill = await screen.findByText('Ryan');
+    fireEvent.click(pill);
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('combobox')).toBeNull();
+    });
+    expect(document.activeElement).toBe(pill.closest('button'));
+  });
+
+  it('closes dropdown on outside click', async () => {
+    render(<VoiceSettings compact activeVoiceId="Ryan" onVoiceChange={vi.fn()} />);
+    const pill = await screen.findByText('Ryan');
+    fireEvent.click(pill);
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByRole('combobox')).toBeNull();
+    });
+  });
+
+  it('shows delete button when voice is selected', async () => {
+    render(<VoiceSettings compact activeVoiceId="Ryan" onVoiceChange={vi.fn()} />);
+    const pill = await screen.findByText('Ryan');
+    fireEvent.click(pill);
+    expect(await screen.findByLabelText('Delete selected voice')).toBeInTheDocument();
+  });
+
+  it('hides delete button when no voice is selected', async () => {
+    render(<VoiceSettings compact activeVoiceId={null} onVoiceChange={vi.fn()} />);
+    const pill = await screen.findByText('BookVoice Natural');
+    fireEvent.click(pill);
+    expect(screen.queryByLabelText('Delete selected voice')).toBeNull();
   });
 });

@@ -107,9 +107,9 @@ export default function StudioSettings({
         onSettingsChange(newSettings);
     };
 
-    const voiceSettings = settings.voiceCloning?.enabled ? settings.voiceCloning : {};
     const deliverySettings = { pace: settings.pace, expression: settings.expression, temperature: settings.temperature };
     const variationSettings = { guidance: settings.guidance ?? null, seed: settings.seed ?? null };
+
 
     return (
         <div className="studio-settings" role="region" aria-label="Generation settings">

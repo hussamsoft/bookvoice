@@ -56,7 +56,6 @@ export default function VoiceSettings({
                 setFetchFailed(false);
                 return data;
             } catch (error) {
-                console.error(error);
                 if (announceFailure) {
                     toast.error(
                         backendReadyRef.current
@@ -67,6 +66,7 @@ export default function VoiceSettings({
                 if (retry) setFetchFailed(true);
                 return null;
             }
+
         },
         [activeVoiceId, toast, validateActiveVoice]
     );
@@ -228,7 +228,8 @@ export default function VoiceSettings({
                 <ConfirmDialog
                     open={confirmDeleteOpen}
                     title="Delete voice?"
-                    message={activeVoiceId ? `This will permanently delete the voice "${activeVoiceId}". This cannot be undone.` : ''}
+                    message={activeVoiceId ? `This will permanently delete the voice "${voices.find((v) => v.id === activeVoiceId)?.name || activeVoiceId}". This cannot be undone.` : ''}
+
                     confirmLabel="Delete"
                     confirmVariant="danger"
                     onConfirm={confirmDelete}

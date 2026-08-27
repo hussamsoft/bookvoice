@@ -67,13 +67,46 @@ describe('App Component', () => {
     expect(localStorage.getItem('bookvoice.app.mode')).toBe('studio');
   });
 
-  it('restores the workspace selected on this device', async () => {
-    localStorage.setItem('bookvoice.app.mode', 'studio');
 
+  it('supports arrow-key navigation between modes with roving tabindex', async () => {
     renderApp();
 
-    expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'voice studio mode' })).toHaveAttribute('aria-selected', 'true');
+    const readerTab = screen.getByRole('tab', { name: 'reader mode' });
+    const scannerTab = screen.getByRole('tab', { name: 'scanner mode' });
+    const studioTab = screen.getByRole('tab', { name: 'voice studio mode' });
+
+    // Reader starts active with tabindex=0, others -1
+    expect(readerTab).toHaveAttribute('tabindex', '0');
+    expect(scannerTab).toHaveAttribute('tabindex', '-1');
+
+    // Focus reader, press ArrowRight -> scanner
+    readerTab.focus();
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+    expect(scannerTab).toHaveFocus();
+    expect(scannerTab).toHaveAttribute('aria-selected', 'true');
+    expect(readerTab).toHaveAttribute('tabindex', '-1');
+    expect(scannerTab).toHaveAttribute('tabindex', '0');
+
+    // ArrowRight again -> studio
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+    expect(studioTab).toHaveFocus();
+    expect(studioTab).toHaveAttribute('aria-selected', 'true');
+
+    // ArrowRight wraps to reader
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+    expect(readerTab).toHaveFocus();
+
+    // ArrowLeft wraps to studio
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' });
+    expect(studioTab).toHaveFocus();
+
+    // Home -> reader
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'Home' });
+    expect(readerTab).toHaveFocus();
+
+    // End -> studio
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'End' });
+    expect(studioTab).toHaveFocus();
   });
 
 });

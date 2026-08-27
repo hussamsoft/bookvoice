@@ -95,10 +95,10 @@ export default function BookSession({ epoch, onDirty }) {
             onDirty?.();
         } catch (error) {
             if (epochRef.current !== startEpoch) return;
-            console.error(error);
             toast.error('Failed to process image: ' + error.message);
             setStep('capture');
         }
+
     };
 
     const handleNarrate = async (text) => {
@@ -135,10 +135,10 @@ export default function BookSession({ epoch, onDirty }) {
             toast.success('Narration ready');
         } catch (error) {
             if (epochRef.current !== startEpoch) return;
-            console.error('TTS Generation Error:', error);
             toast.error(error.message || 'Failed to generate audio.');
             setStep('review');
         } finally {
+
             setIsNarratingUi(false);
         }
     };

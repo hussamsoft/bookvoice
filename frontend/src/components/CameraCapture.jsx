@@ -79,7 +79,6 @@ export default function CameraCapture({ onCapture }) {
 
     const handleZoomChange = async (e) => {
         const newZoom = parseFloat(e.target.value);
-        setZoom(newZoom);
         const stream = streamRef.current;
         if (!stream) return;
         const track = stream.getVideoTracks()[0];
@@ -87,15 +86,20 @@ export default function CameraCapture({ onCapture }) {
             await track.applyConstraints({
                 advanced: [{ zoom: newZoom }],
             });
+            setZoom(newZoom);
         } catch (err) {
             console.error('Failed to apply zoom', err);
         }
     };
 
+
+
     const captureImage = () => {
-        if (!videoRef.current || !cutoutRef.current) return;
+        const video = videoRef.current;
+        if (!video || !cutoutRef.current || !video.videoWidth || !video.videoHeight) return;
 
         // Prefer crop to the portrait page frame; fall back to full frame.
+
         let imageDataUrl = capturePageRegion(videoRef.current, cutoutRef.current, 0.92);
         if (!imageDataUrl) {
             const video = videoRef.current;

@@ -6,12 +6,12 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 
 1. Start BookVoice from `dist/BookVoice-Dev.exe` (or the installed app).
 2. Wait for the launcher to show "Model ready on CPU/CUDA" in the status area — the TTS model loads asynchronously on startup; narration is unavailable until it finishes.
-3. Open the app window. The default mode is **Read a book**.
+3. Open the app window. The default mode is **Read**.
+
 
 ---
 
 ## 1. Reader — PDF
-
 1. Click **Select PDF Book** and pick `tests/fixtures/english.pdf` (or any PDF).
 2. The PDF renders in the left pane; the transcript column appears on the right.
 3. Press **Play** in the narration transport — audio starts, the current word highlights in both the PDF text layer and the transcript.
@@ -20,7 +20,7 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 6. Test page navigation: click the page input, type a page number, press Enter — the page changes. The input clamps to `[1, numPages]`.
 7. Test Ctrl+wheel zoom: the PDF scales. Plain wheel scrolls the page vertically.
 8. Test Ctrl+drag pan: the page pans; releasing leaves it where you dropped it.
-9. Test bookmarks: click the bookmark icon on the toolbar — it toggles. Open the bookmark list, click a bookmark — jumps to that page.
+9. Test bookmarks: click the "More reader actions" overflow menu (chevron icon) on the toolbar, then click the bookmark toggle — it toggles. Open the bookmark list, click a bookmark — jumps to that page.
 10. Test progress: close and reopen the book — it restores the last page and position.
 11. Test follow-narration: the "Follow" toggle on — narrated page changes automatically. Click a different page manually — Follow turns off (no disruptive jump back).
 
@@ -120,7 +120,8 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 1. Tab through the reader toolbar — every control is reachable, focus rings are visible.
 2. Open Reading Options (popover on desktop) — focus moves to the first interactive control inside. Tab cycles within the panel; Escape closes it and returns focus to the trigger.
 3. Open a modal dialog (ConfirmDialog, settings dropdown) — `aria-labelledby` points to the visible `<h2>`. Focus is trapped inside; Tab wraps at the edges. Escape closes and returns focus to the trigger.
-4. The mode buttons (Read a book / Scan a page / Voice Studio) use `aria-current="page"` on the active one, not `aria-pressed`.
+4. The mode buttons (Read / Scan / Studio) use `role="tab"` with `aria-selected` on the active one, not `aria-current="page"`. Arrow keys move between tabs; Home/End jump to first/last.
+
 5. Toast notifications appear in a polite live region; errors appear in an assertive region. Both are announced without re-triggering fetches or polling loops.
 
 ## 14. Touch Targets (Coarse Pointer)
