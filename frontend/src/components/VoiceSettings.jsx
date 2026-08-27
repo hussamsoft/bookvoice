@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getVoices, uploadVoice, deleteVoice } from '../utils/api';
-import { recordStreamToWav } from '../utils/wav';
+import { getVoices, deleteVoice } from '../utils/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ui/ConfirmDialog';
-import { Mic, Upload, StopCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { RefreshCw, Trash2 } from 'lucide-react';
 
 const MAX_FETCH_RETRIES = 10;
 
@@ -15,20 +14,15 @@ export default function VoiceSettings({
 }) {
     const toast = useToast();
     const [voices, setVoices] = useState([]);
-    const [isRecording, setIsRecording] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [newVoiceName, setNewVoiceName] = useState('');
-    const [uploadName, setUploadName] = useState('');
-    const [consentConfirmed, setConsentConfirmed] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [fetchFailed, setFetchFailed] = useState(false);
 
-    const recorderRef = useRef(null);
     const streamRef = useRef(null);
-    const fileInputRef = useRef(null);
     const backendReadyRef = useRef(backendReady);
     // Avoid re-clearing the same missing id (prevents update loops).
     const clearedMissingRef = useRef(null);
+
 
     useEffect(() => {
         backendReadyRef.current = backendReady;
@@ -131,96 +125,6 @@ export default function VoiceSettings({
         validateActiveVoice(voices, activeVoiceId);
     }, [activeVoiceId, voices, validateActiveVoice]);
 
-    const handleFileUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        // Validate file type client-side against the accept list.
-        const isWav =
-            file.type === 'audio/wav' ||
-            file.type === 'audio/x-wav' ||
-            file.name.toLowerCase().endsWith('.wav');
-        if (!isWav) {
-            toast.error('Please upload a WAV file.');
-            e.target.value = null;
-            return;
-        }
-
-        const name = uploadName.trim();
-        if (!name) {
-            toast.error('Enter a name for this voice profile first.');
-            e.target.value = null;
-            return;
-        }
-        if (!consentConfirmed) {
-            toast.error('Confirm that you own or have permission to clone this voice.');
-            e.target.value = null;
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const result = await uploadVoice(file, name, true);
-            await fetchVoices({ announceFailure: true });
-            onVoiceChange(result.id);
-            setUploadName('');
-            setConsentConfirmed(false);
-            toast.success(`Voice "${name}" saved`);
-        } catch (error) {
-            toast.error(error.message);
-        } finally {
-            setLoading(false);
-            e.target.value = null;
-        }
-    };
-
-    const startRecording = async () => {
-        if (!newVoiceName.trim()) {
-            toast.error('Voice name is required.');
-            return;
-        }
-        if (!consentConfirmed) {
-            toast.error('Confirm that you own or have permission to clone this voice.');
-            return;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            streamRef.current = stream;
-            recorderRef.current = await recordStreamToWav(stream, { maxSeconds: 30 });
-            setIsRecording(true);
-            toast.info('Recording… speak clearly for a few seconds, then stop.');
-        } catch (err) {
-            console.error(err);
-            toast.error('Could not access microphone.');
-        }
-    };
-
-    const stopRecording = async () => {
-        if (!recorderRef.current || !isRecording) return;
-        setIsRecording(false);
-        setLoading(true);
-        try {
-            const blob = await recorderRef.current.stop();
-            recorderRef.current = null;
-
-            if (!blob || blob.size < 1000) {
-                toast.error('Recording too short. Try again.');
-                return;
-            }
-
-            const result = await uploadVoice(blob, newVoiceName.trim(), true);
-            const savedName = result.name || newVoiceName;
-            await fetchVoices({ announceFailure: true });
-            onVoiceChange(result.id);
-            setNewVoiceName('');
-            setConsentConfirmed(false);
-            toast.success(`Voice "${savedName}" saved`);
-        } catch (error) {
-            toast.error(error.message);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleDeleteVoice = async () => {
         if (!activeVoiceId) return;
@@ -237,10 +141,108 @@ export default function VoiceSettings({
             toast.success('Voice deleted');
         } catch (error) {
             toast.error(error.message);
-        } finally {
-            setLoading(false);
         }
     };
+
+    const [expanded, setExpanded] = useState(false);
+    const dropdownRef = useRef(null);
+    const pillRef = useRef(null);
+
+    const activeVoiceName = voices.find((v) => v.id === activeVoiceId)?.name || 'BookVoice Natural';
+
+    // Compact dropdown: Escape closes, outside click closes, focus returns to pill.
+    useEffect(() => {
+        if (!compact || !expanded) return undefined;
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setExpanded(false);
+                pillRef.current?.focus();
+            }
+        };
+        const onMouseDown = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)
+                && pillRef.current && !pillRef.current.contains(event.target)) {
+                setExpanded(false);
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('mousedown', onMouseDown);
+        return () => {
+            document.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('mousedown', onMouseDown);
+        };
+    }, [compact, expanded]);
+
+    if (compact) {
+        return (
+            <div className="voice-settings compact">
+                <button
+                    ref={pillRef}
+                    className="voice-pill"
+                    onClick={() => setExpanded(!expanded)}
+                    aria-expanded={expanded}
+                    aria-label={`Voice: ${activeVoiceName}`}
+                >
+                    <span className="voice-pill-label">Voice:</span>
+                    <span className="voice-pill-name">{activeVoiceName}</span>
+                    <span className={`voice-pill-chevron ${expanded ? 'open' : ''}`}>▾</span>
+                </button>
+                {expanded && (
+                    <div className="voice-dropdown" ref={dropdownRef}>
+                        <div className="voice-selector">
+                            <select
+                                id="voice-select"
+                                value={activeVoiceId || ''}
+                                onChange={(e) => onVoiceChange(e.target.value || null)}
+                            >
+                                <option value="">BookVoice Natural</option>
+                                {voices.map((v) => (
+                                    <option key={v.id} value={v.id}>
+                                        {v.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                className="icon-btn"
+                                onClick={() => fetchVoices({ announceFailure: true, retry: true })}
+                                aria-label="Refresh voices"
+                                title="Refresh voices"
+                                disabled={loading}
+                            >
+                                <RefreshCw size={16} />
+                            </button>
+                            {fetchFailed && !voices.length && (
+                                <span className="voice-fetch-error" role="status">
+                                    Couldn't load voices
+                                </span>
+                            )}
+                            {activeVoiceId && (
+                                <button
+                                    className="icon-btn danger"
+                                    onClick={handleDeleteVoice}
+                                    disabled={loading}
+                                    aria-label="Delete selected voice"
+                                    title="Delete selected voice"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+                <ConfirmDialog
+                    open={confirmDeleteOpen}
+                    title="Delete voice?"
+                    message={activeVoiceId ? `This will permanently delete the voice "${activeVoiceId}". This cannot be undone.` : ''}
+                    confirmLabel="Delete"
+                    confirmVariant="danger"
+                    onConfirm={confirmDelete}
+                    onCancel={() => setConfirmDeleteOpen(false)}
+                />
+            </div>
+        );
+    }
+
 
     return (
         <div className="voice-settings">
@@ -269,7 +271,7 @@ export default function VoiceSettings({
                 </button>
                 {fetchFailed && !voices.length && (
                     <span className="voice-fetch-error" role="status">
-                        Couldn’t load voices
+                        Couldn't load voices
                     </span>
                 )}
                 {activeVoiceId && (
@@ -294,70 +296,6 @@ export default function VoiceSettings({
                 onConfirm={confirmDelete}
                 onCancel={() => setConfirmDeleteOpen(false)}
             />
-
-            {!compact && <div className="voice-creation">
-                <h4>Create new voice</h4>
-                <label className="voice-consent">
-                    <input
-                        type="checkbox"
-                        checked={consentConfirmed}
-                        onChange={(event) => setConsentConfirmed(event.target.checked)}
-                        disabled={loading || isRecording}
-                    />
-                    <span>I own or have permission to clone this voice.</span>
-                </label>
-                <div className="creation-controls">
-                    <div className="record-section">
-                        <input
-                            type="text"
-                            placeholder="Voice name"
-                            aria-label="Voice name"
-                            value={uploadName}
-                            onChange={(e) => setUploadName(e.target.value)}
-                            disabled={loading}
-                        />
-                        <button
-                            className="btn secondary file-upload"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={loading || !uploadName.trim() || !consentConfirmed}
-                        >
-                            <Upload size={16} /> Upload .wav
-                        </button>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="audio/wav,audio/x-wav,.wav"
-                            onChange={handleFileUpload}
-                            hidden
-                        />
-                    </div>
-
-                    <div className="record-section">
-                        <input
-                            type="text"
-                            placeholder="Voice name"
-                            aria-label="Voice name"
-                            value={newVoiceName}
-                            onChange={(e) => setNewVoiceName(e.target.value)}
-                            disabled={isRecording || loading}
-                        />
-                        {!isRecording ? (
-                            <button
-                                className="btn secondary"
-                                onClick={startRecording}
-                                disabled={loading || !newVoiceName.trim() || !consentConfirmed}
-                            >
-                                <Mic size={16} /> Record
-                            </button>
-                        ) : (
-                            <button className="btn primary danger" onClick={stopRecording}>
-                                <StopCircle size={16} /> Stop & save
-                            </button>
-                        )}
-                    </div>
-                </div>
-                {loading && <p className="hint">Saving voice profile…</p>}
-            </div>}
         </div>
     );
 }

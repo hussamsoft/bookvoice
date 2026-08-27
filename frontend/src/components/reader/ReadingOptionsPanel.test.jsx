@@ -82,6 +82,7 @@ describe('ReadingOptionsPanel audiobook export', () => {
 
         renderPanel({ hasProfile: true });
         openPanel();
+        fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
         expect(screen.getByRole('button', { name: /export audiobook/i })).toBeTruthy();
     });
 
@@ -94,6 +95,7 @@ describe('ReadingOptionsPanel audiobook export', () => {
             onCancelExportAudiobook: cancel,
         });
         openPanel();
+        fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
 
         fireEvent.click(screen.getByRole('button', { name: /cancel export \(2\/5\)/i }));
         expect(cancel).toHaveBeenCalledTimes(1);

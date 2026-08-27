@@ -80,8 +80,40 @@
   --text-xl: 28px;
   --text-2xl: 34px;
   --text-3xl: 44px;
-  --leading-tight: 1.25;
-  --leading-normal: 1.55;
+
+  /* Semantic type roles — map to the scale above. Use these in components
+   * so the underlying size can change without breaking the role grammar. */
+  --text-display: var(--text-3xl);
+  --text-headline: var(--text-xl);
+  --text-title: var(--text-lg);
+  --text-subtitle: var(--text-base);
+  --text-body: var(--text-base);
+  --text-ui: var(--text-md);
+  --text-caption: var(--text-sm);
+  --text-micro: var(--text-xs);
+
+  /* Line-heights — headings tight, body relaxed for readability. */
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.7;
+
+  /* Semantic spacing — relationship-based gaps, not ad-hoc values.
+   * Rule: space between things that belong together is small; space
+   * between things that don't is large. */
+  --gap-inline: var(--space-2);      /* within a component (button padding, input gaps) */
+  --gap-stack: var(--space-3);       /* between related items (label above input) */
+  --gap-section: var(--space-5);     /* between sections (card to card) */
+  --gap-group: var(--space-6);       /* between groups of sections */
+  --gap-page: var(--space-5);        /* page margins (desktop) */
+
+  /* Surface doctrine — flat sections use hairlines + whitespace;
+   * floating things (menus, popovers) use --shadow-pop; modals use
+   * --shadow-overlay. No card gets a shadow unless it floats. */
+  --surface-card: var(--surface);
+  --surface-raised: var(--surface-raised);
+  --border-hairline: 1px solid var(--hairline);
+  --border-hairline-strong: 1px solid var(--hairline-strong);
 
   /* Spacing (4px grid) */
   --space-1: 4px;
@@ -111,9 +143,11 @@
   --dur-word-underline: 180ms;
   --dur-fast: 140ms;
   --dur: 200ms;
+  --dur-slow: 300ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Control heights */
   --control-h-sm: 28px;

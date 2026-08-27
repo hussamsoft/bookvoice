@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, RotateCcw, Languages, Loader2, Undo2 } from 'lucide-react';
+import { Play, RotateCcw, Languages, Undo2 } from 'lucide-react';
 import { translateText } from '../utils/api';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
 import { useToast } from './Toast';
@@ -89,7 +89,10 @@ export default function TextEditor({
                 >
                     {isTranslating ? (
                         <>
-                            <Loader2 className="spinner" size={16} /> Translating...
+                            <span className="loading-waveform" aria-hidden="true">
+                                <span /><span /><span /><span /><span />
+                            </span>
+                            Translating...
                         </>
                     ) : (
                         `Translate to ${targetLanguage === 'ar' ? 'Arabic' : 'English'}`
@@ -134,7 +137,10 @@ export default function TextEditor({
                 >
                     {isNarrating ? (
                         <>
-                            <Loader2 className="spinner" size={16} /> Generating audio...
+                            <span className="loading-waveform" aria-hidden="true">
+                                <span /><span /><span /><span /><span />
+                            </span>
+                            Narrating...
                         </>
                     ) : (
                         <>

@@ -109,6 +109,17 @@ describe('styles parity', () => {
             '--control-h-sm', '--control-h-md', '--control-h-lg',
             '--z-raised', '--z-nav', '--z-panel', '--z-overlay', '--z-toast',
             '--bp-sm', '--bp-md',
+            // Semantic type roles
+            '--text-display', '--text-headline', '--text-title', '--text-subtitle',
+            '--text-body', '--text-ui', '--text-caption', '--text-micro',
+            // Line-heights
+            '--leading-tight', '--leading-snug', '--leading-normal', '--leading-relaxed',
+            // Semantic spacing
+            '--gap-inline', '--gap-stack', '--gap-section', '--gap-group', '--gap-page',
+            // Surface doctrine
+            '--surface-card', '--border-hairline',
+            // Motion extensions
+            '--dur-slow', '--ease-in-out', '--ease-spring',
         ]) {
             expect(count(token)).toBeGreaterThanOrEqual(1);
         }

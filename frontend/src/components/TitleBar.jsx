@@ -4,17 +4,17 @@ import { readStoredString, writeStoredString } from '../utils/storage';
 
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 
-/**
+/***
  * Application identity and status strip. The native shell deliberately uses
  * the standard Windows frame so snapping, resizing, and maximize behavior are
  * handled by the operating system.
- */
+ ****/
 function prefersColorSchemeDark() {
     if (typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function TitleBar() {
+function TitleBar({ currentMode, modeLabels }) {
     const [theme, setTheme] = useState(() =>
         readStoredString('bookvoice.theme', {
             legacyKeys: ['bookvoice:theme'],
@@ -34,6 +34,9 @@ function TitleBar() {
         <div className="titlebar">
             <div className="titlebar-brand">
                 <h1>BookVoice</h1>
+            </div>
+            <div className="titlebar-current-mode">
+                {currentMode && <span className="current-mode-label">{modeLabels[currentMode] || currentMode}</span>}
             </div>
             <div className="titlebar-tools">
                 <Sparkles className="titlebar-sparkle" data-testid="titlebar-sparkle" size={16} aria-hidden="true" />
@@ -55,3 +58,4 @@ function TitleBar() {
 }
 
 export default TitleBar;
+

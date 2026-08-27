@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { BookOpen } from 'lucide-react';
 import TranscriptWord from './TranscriptWord';
 
 function updatePlaybackClasses(container, previousWord, currentWord) {
@@ -177,10 +178,13 @@ export default React.memo(function Transcript({
                 <div className="transcript-header">
                     <h3>Follow along</h3>
                 </div>
-                <p className="transcript-empty">
-                    {statusHint ||
-                        'Press Read to generate narration. Words here stay linked to the spoken voice — click any word to hear it.'}
-                </p>
+                <div className="empty-state empty-state--plain">
+                    <BookOpen size={28} className="empty-state-icon" aria-hidden="true" />
+                    <p className="empty-state-title">No narration yet</p>
+                    <p className="empty-state-hint">
+                        {statusHint || 'Press Read to generate narration. Words here stay linked to the spoken voice.'}
+                    </p>
+                </div>
             </div>
         );
     }

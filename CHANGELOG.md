@@ -1,4 +1,29 @@
-# Changelog
+## 2.5.0 - 2026-08-27
+
+### Changed
+
+- **UX Redesign Phase 1-6**: Complete visual and interaction overhaul of the app shell, reader, and Voice Studio. Collapsed header to 56px, segmented mode switcher with sliding indicator and arrow-key keyboard navigation, two-tier reader toolbar with overflow menu, inline voice/language settings with "Book actions" dropdown, card-based Studio settings with collapsible sections, 4-step camera wizard stepper, contextual loading states, empty state pattern, and comprehensive reduced-motion support.
+- Extended design tokens with semantic type roles (`--text-display` through `--text-micro`), line-heights (`--leading-tight` through `--leading-relaxed`), semantic spacing (`--gap-inline` through `--gap-page`), surface doctrine (`--surface-card`, `--border-hairline`), and motion extensions (`--dur-slow`, `--ease-in-out`, `--ease-spring`).
+
+### Fixed
+
+- **Critical**: Focus-stealing bug in Reading Options panel — opening/closing "Book actions" dropdown no longer yanks focus from trigger to panel's first control.
+- **Critical**: Step tracker accessibility — restored `aria-live="polite"` announcements ("Step X of N: label"), `role="group"`, and `aria-current="step"` on active step.
+- **Critical**: Studio settings collapsible headers — converted from `<div role="button">` with nested interactive elements to proper `<button>` elements with keyboard support.
+- **Critical**: Guidance/seed sliders — fixed uncontrolled-to-controlled React warning on default null values; sliders now stay controlled with `value={v ?? min}` while preserving null state for Auto/Random display.
+- **Major**: Removed ~90 lines of dead recorder/upload code from VoiceSettings (consent, WAV validation, Mic/Upload/StopCircle pipeline orphaned after Phase 5 migration to Studio).
+- **Major**: Mode switcher ARIA tabs — implemented roving tabindex + arrow/Home/End keyboard handler (matches VoiceStudio's existing pattern).
+- Removed unused imports: `Loader2` (TextEditor), `Box` (StudioOutputs), `DEFAULT_STUDIO_SETTINGS` (StudioSettings), `onCloseFocusRef` (useReaderToolbar hook).
+- Removed unused `isTextBook` prop from ReaderToolbar and PdfViewer call site.
+- Transcript empty state uses `.empty-state--plain` CSS modifier instead of inline style override.
+- BookSession step color uses `var(--success)` token instead of hardcoded `#10b981`.
+- Mode indicator positioning guarded with `ResizeObserver` availability check for test environments.
+- Compact VoiceSettings dropdown now handles Escape, outside-click dismissal, and focus return to pill (consistent with other popovers).
+
+### Test results
+
+- Frontend unit: 241/241 passing
+- Build: entry 221.48 kB (69.94 kB gzipped), budget 260 kB
 
 ## 2.4.1 - 2026-08-26
 

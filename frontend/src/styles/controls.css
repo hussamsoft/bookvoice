@@ -24,16 +24,17 @@ button:disabled {
   font-weight: 600;
   line-height: 1.2;
   transition: background var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-instant) var(--ease-out);
   white-space: nowrap;
 }
-
 .btn:not(:disabled):active {
-  transform: translateY(1px);
+  transform: scale(0.97);
 }
 
 .btn.primary:not(:disabled):active {
   filter: brightness(0.96);
+  transform: scale(0.97);
 }
 
 .btn.primary {
@@ -100,6 +101,17 @@ button:disabled {
   min-height: var(--control-h-sm);
   font-size: var(--text-xs);
 }
+.btn.btn-large {
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--control-h-lg);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.btn.btn-large svg {
+  width: 20px;
+  height: 20px;
+}
 
 @media (pointer: coarse) {
   .icon-btn {
@@ -112,7 +124,6 @@ button:disabled {
   }
 }
 
-
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -123,13 +134,19 @@ button:disabled {
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-secondary);
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-instant) var(--ease-out);
 }
 
 .icon-btn:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--ink);
 }
+
+.icon-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+
 .icon-btn.danger {
   color: var(--live);
 }
@@ -144,11 +161,16 @@ button:disabled {
   border: 1px solid var(--hairline-strong);
   background: var(--surface-raised);
   color: var(--ink-secondary);
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-instant) var(--ease-out);
 }
 
 .control-btn:hover:not(:disabled) {
   color: var(--ink);
+}
+
+.control-btn:not(:disabled):active {
+  transform: scale(0.97);
 }
 
 .control-btn.active {
@@ -325,7 +347,6 @@ input[type="checkbox"] {
     width: 100%;
   }
 }
-
 /* --- Narration transport --------------------------------------------------- */
 
 :root {
@@ -335,6 +356,22 @@ input[type="checkbox"] {
   --transport-fixed-h: calc(
     (2 * var(--control-h-lg)) + var(--space-4) + env(safe-area-inset-bottom, 0px) + 1px
   );
+}
+
+.transport-primary,
+.transport-secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.transport-secondary {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.transport-play.is-playing {
+  background: var(--signal);
 }
 
 .transport-rate-control,
@@ -475,4 +512,106 @@ input[type="checkbox"] {
   .btn.btn-compact {
     min-height: var(--control-h-md);
   }
+}
+
+/* --- Empty state pattern ---------------------------------------------------- */
+/* Every empty state shares: icon (28px, --ink-muted) + title (--text-subtitle,
+ * 500) + one-line hint (--text-caption, --ink-muted) + (optional) action.
+ * Centered in a --radius-md card with --space-5 padding. */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  padding: var(--space-5);
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  color: var(--ink-muted);
+}
+
+.empty-state-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--ink-muted);
+  flex: none;
+}
+
+.empty-state-title {
+  font-size: var(--text-subtitle);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.empty-state-hint {
+  font-size: var(--text-caption);
+  color: var(--ink-muted);
+  max-width: 40ch;
+}
+
+.empty-state--plain {
+  background: transparent;
+  box-shadow: none;
+}
+
+
+/* --- Contextual loading vocabulary ------------------------------------------- */
+/* Replace spinner-only states: skeletons for page prep, Signal waveform for
+ * narration, progress bar for audio loading. */
+
+/* Signal-hue animated waveform bars for narration-in-progress. */
+.loading-waveform {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+}
+
+.loading-waveform span {
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: var(--signal);
+  border-radius: 1px;
+  transform-origin: center;
+  animation: bv-waveform var(--dur-slow) var(--ease-in-out) infinite;
+}
+
+.loading-waveform span:nth-child(1) { animation-delay: 0ms; }
+.loading-waveform span:nth-child(2) { animation-delay: 100ms; }
+.loading-waveform span:nth-child(3) { animation-delay: 200ms; }
+.loading-waveform span:nth-child(4) { animation-delay: 300ms; }
+.loading-waveform span:nth-child(5) { animation-delay: 400ms; }
+
+@keyframes bv-waveform {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+/* Thin indeterminate progress bar for audio-loading / page-prep. */
+.loading-progress {
+  width: 100%;
+  max-width: 240px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--hairline-strong);
+  overflow: hidden;
+  position: relative;
+}
+
+.loading-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--signal);
+  border-radius: inherit;
+  animation: bv-progress 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes bv-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }

@@ -1,5 +1,5 @@
-import React from 'react';
-import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
+import React, { useState } from 'react';
+
 
 function NumberControl({
     id,
@@ -19,9 +19,11 @@ function NumberControl({
     const helpId = `${id}-help`;
     return (
         <label className="studio-setting" htmlFor={id}>
-            <span>{label}<small>{hint}</small></span>
-            <p id={helpId} className="studio-setting-help">{description}</p>
-            <div>
+            <div className="studio-setting-label">
+                <span className="studio-setting-label-text">{label}</span>
+                {hint && <span className="studio-setting-hint" id={helpId}>{hint}</span>}
+            </div>
+            <div className="studio-setting-control">
                 <input
                     id={id}
                     type="range"
@@ -29,16 +31,18 @@ function NumberControl({
                     max={max}
                     step={step}
                     value={value}
-                    onChange={(event) => onChange(Number(event.target.value))}
+                    onChange={(e) => onChange(Number(e.target.value))}
                     disabled={disabled}
                     aria-describedby={helpId}
-                    aria-valuetext={`${valueLabel}, ${Number(value).toFixed(step < 0.1 ? 2 : 1)}`}
                 />
-                <output htmlFor={id}>{Number(value).toFixed(step < 0.1 ? 2 : 1)}</output>
+                <span className="studio-setting-value" aria-live="polite">
+                    {valueLabel ? valueLabel(value) : value}
+                </span>
             </div>
+            {description && <div className="studio-setting-description">{description}</div>}
             <div className="studio-setting-scale" aria-hidden="true">
                 <span>{lowLabel}</span>
-                <strong>{valueLabel}</strong>
+                <strong>{valueLabel ? valueLabel(value) : value}</strong>
                 <span>{highLabel}</span>
             </div>
         </label>
@@ -59,10 +63,10 @@ function expressionLabel(value) {
 }
 
 function temperatureLabel(value) {
-    if (value < 0.5) return 'Consistent';
-    if (value < 0.9) return 'Natural';
-    if (value < 1.2) return 'Varied';
-    return 'Experimental';
+    if (value < 0.5) return 'Cold';
+    if (value < 0.8) return 'Natural';
+    if (value < 1.2) return 'Balanced';
+    return 'Warm';
 }
 
 export default function StudioSettings({
@@ -75,150 +79,209 @@ export default function StudioSettings({
     onSettingsChange,
     disabled,
 }) {
-    const current = { ...DEFAULT_STUDIO_SETTINGS, ...(settings || {}) };
-    const selectedVoice = voices.find((voice) => voice.id === voiceId);
-    const update = (key, value) => onSettingsChange({ ...current, [key]: value });
+    const [showAdvanced, setShowAdvanced] = useState(true);
+    const [showVariation, setShowVariation] = useState(true);
+
+    const handlePaceChange = (value) => {
+        const newSettings = { ...settings, pace: value };
+        onSettingsChange(newSettings);
+    };
+
+    const handleExpressionChange = (value) => {
+        const newSettings = { ...settings, expression: value };
+        onSettingsChange(newSettings);
+    };
+
+    const handleTemperatureChange = (value) => {
+        const newSettings = { ...settings, temperature: value };
+        onSettingsChange(newSettings);
+    };
+
+    const handleGuidanceChange = (value) => {
+        const newSettings = { ...settings, guidance: value };
+        onSettingsChange(newSettings);
+    };
+
+    const handleSeedChange = (value) => {
+        const newSettings = { ...settings, seed: value };
+        onSettingsChange(newSettings);
+    };
+
+    const voiceSettings = settings.voiceCloning?.enabled ? settings.voiceCloning : {};
+    const deliverySettings = { pace: settings.pace, expression: settings.expression, temperature: settings.temperature };
+    const variationSettings = { guidance: settings.guidance ?? null, seed: settings.seed ?? null };
 
     return (
-        <section className="studio-settings" aria-labelledby="studio-voice-settings">
-            <div className="studio-section-heading">
-                <div>
-                    <span className="studio-kicker">Voice direction</span>
-                    <h3 id="studio-voice-settings">Voice and delivery</h3>
+        <div className="studio-settings" role="region" aria-label="Generation settings">
+            {/* Essential Settings Section */}
+            <section className="studio-settings-section" aria-labelledby="essential-heading">
+                <div className="studio-section-header">
+                    <div className="studio-section-kicker">Core settings</div>
+                    <h3 id="essential-heading">Voice & Language</h3>
                 </div>
-                <button
-                    className="btn text"
-                    type="button"
-                    onClick={() => onSettingsChange({ ...DEFAULT_STUDIO_SETTINGS })}
-                    disabled={disabled}
-                >
-                    Reset controls
-                </button>
-            </div>
 
-            <div className="studio-select-row">
-                <label>
-                    <span>Voice profile</span>
-                    <select value={voiceId || ''} onChange={(e) => onVoiceChange(e.target.value || null)} disabled={disabled}>
-                        <option value="">BookVoice Natural</option>
-                        {voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
-                    </select>
-                </label>
-                <label>
-                    <span>Language</span>
-                    <select value={languageId || 'en'} onChange={(e) => onLanguageChange(e.target.value)} disabled={disabled}>
-                        <option value="en">English</option>
-                        <option value="ar">Arabic</option>
-                    </select>
-                </label>
-            </div>
-
-            {selectedVoice?.quality && (
-                <div className={`studio-voice-quality ${(selectedVoice.quality.warnings || []).length ? 'has-warnings' : ''}`}>
-                    <strong>Reference quality</strong>
-                    <span>{selectedVoice.quality.durationSec.toFixed(1)}s · {selectedVoice.quality.rmsDb.toFixed(1)} dB RMS · {selectedVoice.quality.clippingPercent.toFixed(2)}% clipped</span>
-                    {(selectedVoice.quality.warnings || []).map((warning) => <p key={warning}>{warning}</p>)}
-                </div>
-            )}
-
-            <details className="studio-advanced" open>
-                <summary>Advanced delivery controls</summary>
-                <p>These shape the generated performance. They cannot reproduce exact original inflection.</p>
                 <div className="studio-settings-grid">
-                    <NumberControl
-                        id="studio-pace"
-                        label="Pace"
-                        hint="0.75–1.25×"
-                        description="Slower keeps the original pitch and adds time; faster shortens the delivery without raising the pitch."
-                        lowLabel="Slower"
-                        highLabel="Faster"
-                        valueLabel={paceLabel(current.pace)}
-                        value={current.pace}
-                        min="0.75"
-                        max="1.25"
-                        step="0.05"
-                        onChange={(v) => update('pace', v)}
-                        disabled={disabled}
-                    />
-                    <NumberControl
-                        id="studio-expression"
-                        label="Expression"
-                        hint="Performance intensity"
-                        description="Increase for stronger emphasis and emotion. The safe range avoids the doubled, hall-like sound of extreme model exaggeration."
-                        lowLabel="Calmer delivery"
-                        highLabel="More animated delivery"
-                        valueLabel={expressionLabel(current.expression)}
-                        value={current.expression}
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        onChange={(v) => update('expression', v)}
-                        disabled={disabled}
-                    />
-                    <NumberControl
-                        id="studio-temperature"
-                        label="Temperature"
-                        hint="Performance variation"
-                        description="Lower values repeat a steadier reading; higher values introduce more variation between generations."
-                        lowLabel="More consistent"
-                        highLabel="More varied"
-                        valueLabel={temperatureLabel(current.temperature)}
-                        value={current.temperature}
-                        min="0.1"
-                        max="1.5"
-                        step="0.05"
-                        onChange={(v) => update('temperature', v)}
-                        disabled={disabled}
-                    />
-                    <label className="studio-setting studio-guidance">
-                        <span>Guidance<small>Auto is recommended</small></span>
-                        <p id="studio-guidance-help" className="studio-setting-help">
-                            Lower guidance gives the voice more freedom; higher guidance follows the selected voice more strictly. Auto adapts safely to Expression.
-                        </p>
-                        <input
-                            id="studio-guidance"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={current.guidance ?? ''}
-                            placeholder="Auto"
-                            onChange={(e) => update('guidance', e.target.value === '' ? null : Number(e.target.value))}
+                    <div className="studio-setting-item">
+                        <label className="studio-setting-label" htmlFor="voice-select">Voice</label>
+                        <select
+                            id="voice-select"
+                            value={voiceId}
+                            onChange={(e) => onVoiceChange(e.target.value)}
                             disabled={disabled}
-                            aria-describedby="studio-guidance-help"
-                        />
-                        <div className="studio-setting-scale" aria-hidden="true">
-                            <span>More freedom</span>
-                            <strong>{current.guidance == null ? 'Auto' : 'Manual'}</strong>
-                            <span>Stricter match</span>
-                        </div>
-                    </label>
-                    <label className="studio-setting studio-seed">
-                        <span>Variation seed<small>Blank creates a fresh variation</small></span>
-                        <p id="studio-seed-help" className="studio-setting-help">
-                            Enter the same number to repeat a variation on the same BookVoice runtime and hardware. Leave blank for a new random performance.
-                        </p>
-                        <input
-                            id="studio-seed"
-                            type="number"
-                            min="0"
-                            max="4294967295"
-                            step="1"
-                            value={current.seed ?? ''}
-                            placeholder="Random"
-                            onChange={(e) => update('seed', e.target.value === '' ? null : Number(e.target.value))}
+                            className="studio-select"
+                        >
+                            {(voices || []).map((voice) => (
+                                <option key={voice.id} value={voice.id}>{voice.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="studio-setting-item">
+                        <label className="studio-setting-label" htmlFor="language-select">Language</label>
+                        <select
+                            id="language-select"
+                            value={languageId}
+                            onChange={(e) => onLanguageChange(e.target.value)}
                             disabled={disabled}
-                            aria-describedby="studio-seed-help"
-                        />
-                        <div className="studio-setting-scale" aria-hidden="true">
-                            <span>Fresh take</span>
-                            <strong>{current.seed == null ? 'Random' : 'Repeatable'}</strong>
-                            <span>Same seed</span>
-                        </div>
-                    </label>
+                            className="studio-select"
+                        >
+                            <option value="en">English</option>
+                            <option value="es">Spanish</option>
+                            <option value="fr">French</option>
+                            <option value="de">German</option>
+                        </select>
+                    </div>
                 </div>
-            </details>
-        </section>
+            </section>
+
+            {/* Advanced Delivery Section */}
+            <section className="studio-settings-section">
+                <button
+                    type="button"
+                    className="studio-section-header"
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    aria-expanded={showAdvanced}
+                >
+                    <div className="studio-section-kicker">Advanced delivery</div>
+                    <h3>Speed & Expression</h3>
+                    <span className="studio-section-toggle" aria-hidden="true">
+                        {showAdvanced ? '−' : '+'}
+                    </span>
+                </button>
+
+                {showAdvanced && (
+                    <div className="studio-settings-grid">
+                        <div className="studio-setting-item">
+                            <NumberControl
+                                id="pace"
+                                label="Pace"
+                                value={deliverySettings.pace}
+                                min={0.5}
+                                max={1.5}
+                                step={0.01}
+                                onChange={handlePaceChange}
+                                hint={paceLabel(deliverySettings.pace)}
+                                description="Slower keeps the original pitch and adds time; faster shortens the delivery without raising the pitch."
+                                lowLabel="Slower"
+                                highLabel="Faster"
+                                valueLabel={paceLabel}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="studio-setting-item">
+                            <NumberControl
+                                id="expression"
+                                label="Expression"
+                                value={deliverySettings.expression}
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                onChange={handleExpressionChange}
+                                hint={expressionLabel(deliverySettings.expression)}
+                                description="Increase for stronger emphasis and emotion. The safe range avoids the doubled, hall-like sound of extreme model exaggeration."
+                                lowLabel="Calmer delivery"
+                                highLabel="More animated delivery"
+                                valueLabel={expressionLabel}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="studio-setting-item">
+                            <NumberControl
+                                id="temperature"
+                                label="Temperature"
+                                value={deliverySettings.temperature}
+                                min={0}
+                                max={2}
+                                step={0.01}
+                                onChange={handleTemperatureChange}
+                                hint={temperatureLabel(deliverySettings.temperature)}
+                                description="Lower values repeat a steadier reading; higher values introduce more variation between generations."
+                                lowLabel="More consistent"
+                                highLabel="More varied"
+                                valueLabel={temperatureLabel}
+                                disabled={disabled}
+                            />
+                        </div>
+                    </div>
+                )}
+            </section>
+            {/* Variation Section */}
+            <section className="studio-settings-section">
+                <button
+                    type="button"
+                    className="studio-section-header"
+                    onClick={() => setShowVariation(!showVariation)}
+                    aria-expanded={showVariation}
+                >
+                    <div className="studio-section-kicker">Variation</div>
+                    <h3>Guidance & Randomness</h3>
+                    <span className="studio-section-toggle" aria-hidden="true">
+                        {showVariation ? '−' : '+'}
+                    </span>
+                </button>
+
+                {showVariation && (
+                    <div className="studio-settings-grid">
+                        <div className="studio-setting-item">
+                            <NumberControl
+                                id="guidance"
+                                label="Guidance"
+                                value={variationSettings.guidance ?? 0.5}
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                onChange={handleGuidanceChange}
+                                hint={variationSettings.guidance == null ? 'Auto' : variationSettings.guidance.toFixed(2)}
+                                description="Lower guidance gives the voice more freedom; higher guidance follows the selected voice more strictly. Auto adapts safely to Expression."
+                                lowLabel="Loose"
+                                highLabel="Strict"
+                                valueLabel={(v) => variationSettings.guidance == null ? 'Auto' : v.toFixed(2)}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="studio-setting-item">
+                            <NumberControl
+                                id="seed"
+                                label="Seed"
+                                value={variationSettings.seed ?? 0}
+                                min={0}
+                                max={1000000}
+                                step={1}
+                                onChange={handleSeedChange}
+                                hint={variationSettings.seed == null ? 'Random' : variationSettings.seed}
+                                description="Reproducible random seed"
+                                lowLabel="Low"
+                                highLabel="High"
+                                valueLabel={(v) => variationSettings.seed == null ? 'Random' : v}
+                                disabled={disabled}
+                            />
+                        </div>
+                    </div>
+                )}
+            </section>
+        </div>
     );
 }

@@ -2173,13 +2173,21 @@ export default function PdfViewer({ onDirty }) {
             return {
                 text: 'Warming up…',
                 disabled: true,
-                icon: <Loader2 className="spinner" size={16} />,
+                icon: (
+                    <span className="loading-waveform" aria-hidden="true">
+                        <span /><span /><span /><span /><span />
+                    </span>
+                ),
             };
         if (isOcring)
             return {
                 text: ' OCR…',
                 disabled: true,
-                icon: <Loader2 className="spinner" size={16} />,
+                icon: (
+                    <span className="loading-waveform" aria-hidden="true">
+                        <span /><span /><span /><span /><span />
+                    </span>
+                ),
             };
         if (shouldDisableNarrationStart({
             isPlaying,
@@ -2192,7 +2200,11 @@ export default function PdfViewer({ onDirty }) {
             return {
                 text: statusHint ? ` ${statusHint}` : ' Generating…',
                 disabled: true,
-                icon: <Loader2 className="spinner" size={16} />,
+                icon: (
+                    <span className="loading-waveform" aria-hidden="true">
+                        <span /><span /><span /><span /><span />
+                    </span>
+                ),
             };
         if (audioUrl && audioPage === pageNumber)
             return { text: ' Resume', disabled: false, icon: <Play size={16} /> };
@@ -2313,8 +2325,8 @@ export default function PdfViewer({ onDirty }) {
                         onPageJumpInput={setPageJumpInput}
                         onPageJumpSubmit={handlePageJump}
                         onGoToPage={goToPage}
-                        audioPage={audioPage}
-                        onReturnToNarrated={() => browsePageIntoView(audioPage)}
+                        onTogglePlay={handlePlay}
+                        isPlaying={isPlaying}
                         zoom={zoom}
                         onZoom={setZoom}
                         followNarration={followNarration}
@@ -2327,7 +2339,6 @@ export default function PdfViewer({ onDirty }) {
                         onToggleBookmark={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
                         isExporting={isExporting}
                         onExportThroughCurrentPage={handleExportThroughCurrentPage}
-                        isTextBook={isTextBook}
                     />
 
                     <ReadingOptionsPanel
@@ -2339,14 +2350,6 @@ export default function PdfViewer({ onDirty }) {
                         disabled={isGenerating || isOcring}
                         isOcring={isOcring}
                         onForceOcr={handleForceOcr}
-                        isEditingText={isEditingText}
-                        pageText={pageText}
-                        onToggleEditText={() => {
-                            setEditTextDraft(pageText);
-                            setIsEditingText((value) => !value);
-                        }}
-                        onTranslatePage={handleTranslatePage}
-                        isGenerating={isGenerating}
                         canPrepareBook={!!modelReady && !!libraryBookId}
                         preparationRunning={preparation?.status === 'RUNNING'}
                         onPrepareWholeBook={handlePrepareWholeBook}

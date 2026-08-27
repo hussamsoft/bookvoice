@@ -73,9 +73,10 @@ export default function StudioProjectSidebar({
 
                 <div className="studio-project-list" role="list">
                 {projects.length === 0 ? (
-                    <div className="studio-empty compact" role="status">
-                        <p>No Studio projects yet.</p>
-                        <small>Create one to save scripts, media, and outputs locally.</small>
+                    <div className="empty-state" role="status">
+                        <FolderPlus size={28} className="empty-state-icon" aria-hidden="true" />
+                        <p className="empty-state-title">No Studio projects yet</p>
+                        <p className="empty-state-hint">Create one to save scripts, media, and outputs locally.</p>
                     </div>
                 ) : projects.map((project) => (
                     <article

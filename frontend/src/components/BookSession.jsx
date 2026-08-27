@@ -160,21 +160,43 @@ export default function BookSession({ epoch, onDirty }) {
                     <div className="page-indicator">Page {currentPageIndex + 1}</div>
                 </div>
 
-                <p className="step-indicator" aria-live="polite">
-                    Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[step] || ''}
-                </p>
+                <div className="step-tracker" role="group" aria-label="Progress">
+                    <span className="sr-only" aria-live="polite">
+                        Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[STEPS[stepIndex]]}
+                    </span>
+                    {STEPS.map((stepName, index) => {
+                        const isActive = index === stepIndex;
+                        const isComplete = index < stepIndex;
+                        const stepLabel = STEP_LABELS[stepName];
+                        return (
+                            <div
+                                className={`step-track-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
+                                style={{
+                                    '--step-color': isActive ? 'var(--signal)' : isComplete ? 'var(--success)' : 'var(--ink-muted)',
+                                }}
+                                aria-current={isActive ? 'step' : undefined}
+                            >
+                                <div className="step-dot" aria-hidden="true">
+                                    {isComplete ? '✓' : index + 1}
+                                </div>
+                                <div className="step-label">{stepLabel}</div>
+                            </div>
+                        );
+                    })}
+                </div>
 
 
                 <VoiceSettings compact backendReady={modelReady} activeVoiceId={activeVoiceId} onVoiceChange={handleVoiceChange} />
 
                 {!modelReady && modelStatusDetail && (
-                    <StatusBanner tone="loading">
+                    <StatusBanner tone="loading" className="compact-banner">
                         <Loader2 className="spinner" size={14} aria-hidden="true" /> {modelStatusDetail}
                     </StatusBanner>
                 )}
                 {modelError && (
                     <StatusBanner
                         tone="error"
+                        className="compact-banner"
                         action={
                             <Button variant="secondary" size="sm" onClick={retryLoad}>
                                 Retry
@@ -185,7 +207,7 @@ export default function BookSession({ epoch, onDirty }) {
                     </StatusBanner>
                 )}
                 {deviceInfo === 'cpu' && modelReady && (
-                    <StatusBanner tone="warning">
+                    <StatusBanner tone="warning" className="compact-banner">
                         Narration is running on the CPU, so it will be much slower than with a GPU.
                     </StatusBanner>
                 )}

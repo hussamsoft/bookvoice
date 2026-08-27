@@ -40,11 +40,11 @@ describe('App Component', () => {
 
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scan a page' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'scanner mode' }));
     expect(await screen.findByTestId('book-session-mock')).toBeInTheDocument();
     expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Read a book' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'reader mode' }));
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
@@ -54,16 +54,16 @@ describe('App Component', () => {
     expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
     expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
     expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Read a book' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('tab', { name: 'reader mode' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('opens Voice Studio as a third persistent workspace', async () => {
     renderApp();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Voice Studio' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'voice studio mode' }));
 
     expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('tab', { name: 'voice studio mode' })).toHaveAttribute('aria-selected', 'true');
     expect(localStorage.getItem('bookvoice.app.mode')).toBe('studio');
   });
 
@@ -73,6 +73,7 @@ describe('App Component', () => {
     renderApp();
 
     expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Voice Studio' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('tab', { name: 'voice studio mode' })).toHaveAttribute('aria-selected', 'true');
   });
+
 });

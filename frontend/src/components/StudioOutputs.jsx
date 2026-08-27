@@ -23,9 +23,10 @@ export default function StudioOutputs({
                 <span>{outputs.length}</span>
             </div>
             {ordered.length === 0 ? (
-                <div className="studio-empty compact" role="status">
-                    <p>No outputs yet.</p>
-                    <small>Generated narration and accepted repairs appear here.</small>
+                <div className="empty-state" role="status">
+                    <Music2 size={28} className="empty-state-icon" aria-hidden="true" />
+                    <p className="empty-state-title">No outputs yet</p>
+                    <p className="empty-state-hint">Generated narration and accepted repairs appear here.</p>
                 </div>
             ) : (
                 <div className="studio-output-list">
