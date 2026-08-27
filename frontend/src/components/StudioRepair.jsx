@@ -1,5 +1,5 @@
 import AudioPlayer from './AudioPlayer';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileAudio, Scissors, ShieldCheck, Upload } from 'lucide-react';
 import {
     createStudioProfile,
@@ -21,7 +21,13 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
     const [consent, setConsent] = useState(false);
     const [replacement, setReplacement] = useState('');
     const [loopSelection, setLoopSelection] = useState(false);
-    const settings = { ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) };
+    const settings = useMemo(() => ({ ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) }), [project.generationSettings]);
+
+    const handleRangeChange = useCallback((start, end) => setRange({ start, end }), []);
+    const handleVoiceChange = useCallback((voiceId) => onPatch({ voiceId }), [onPatch]);
+    const handleLanguageChange = useCallback((languageId) => onPatch({ languageId }), [onPatch]);
+    const handleSettingsChange = useCallback((generationSettings) => onPatch({ generationSettings }), [onPatch]);
+
     const source = useMemo(
         () => (project.sources || []).find((item) => item.id === sourceId) || null,
         [project.sources, sourceId],
@@ -134,7 +140,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                         <button className="btn secondary" onClick={playSelection}>Play selected range</button>
                         <label><input type="checkbox" checked={loopSelection} onChange={(event) => setLoopSelection(event.target.checked)} /> Loop selection</label>
                     </div>
-                    <WaveformRange peaks={source.waveformPeaks} duration={source.durationSec} start={range.start} end={range.end} onChange={(start, end) => setRange({ start, end })} disabled={disabled} />
+                    <WaveformRange peaks={source.waveformPeaks} duration={source.durationSec} start={range.start} end={range.end} onChange={handleRangeChange} disabled={disabled} />
                 </section>
 
                 <section className="studio-profile-builder" aria-labelledby="studio-profile-heading">
@@ -150,7 +156,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                     </div>
                 </section>
 
-                <StudioSettings voices={voices} voiceId={project.voiceId} languageId={project.languageId} settings={settings} onVoiceChange={(voiceId) => onPatch({ voiceId })} onLanguageChange={(languageId) => onPatch({ languageId })} onSettingsChange={(generationSettings) => onPatch({ generationSettings })} disabled={disabled} />
+                <StudioSettings voices={voices} voiceId={project.voiceId} languageId={project.languageId} settings={settings} onVoiceChange={handleVoiceChange} onLanguageChange={handleLanguageChange} onSettingsChange={handleSettingsChange} disabled={disabled} />
 
                 <section className="studio-repair-card" aria-labelledby="studio-repair-heading">
                     <div className="studio-section-heading"><div><span className="studio-kicker">Waveform-guided edit</span><h3 id="studio-repair-heading">Replace selected speech</h3></div><Scissors size={20} /></div>

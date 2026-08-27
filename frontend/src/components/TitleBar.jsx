@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Moon, Sparkles, Sun } from 'lucide-react';
 import { readStoredString, writeStoredString } from '../utils/storage';
 

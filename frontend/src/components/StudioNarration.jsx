@@ -32,7 +32,11 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
     );
     const [correction, setCorrection] = useState(null);
     const [transcriptRange, setTranscriptRange] = useState({ from: 0, to: WORD_WINDOW * 2 });
-    const settings = { ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) };
+    const settings = useMemo(() => ({ ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) }), [project.generationSettings]);
+    const handleVoiceChange = useCallback((voiceId) => onPatch({ voiceId }), [onPatch]);
+    const handleLanguageChange = useCallback((languageId) => onPatch({ languageId }), [onPatch]);
+    const handleSettingsChange = useCallback((generationSettings) => onPatch({ generationSettings }), [onPatch]);
+
 
     useEffect(() => {
         setScript(studioSession.getScript(project.id) ?? project.script ?? '');
@@ -120,11 +124,12 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                 voiceId={project.voiceId}
                 languageId={project.languageId}
                 settings={settings}
-                onVoiceChange={(voiceId) => onPatch({ voiceId })}
-                onLanguageChange={(languageId) => onPatch({ languageId })}
-                onSettingsChange={(generationSettings) => onPatch({ generationSettings })}
+                onVoiceChange={handleVoiceChange}
+                onLanguageChange={handleLanguageChange}
+                onSettingsChange={handleSettingsChange}
                 disabled={disabled}
             />
+
 
             <section className="studio-editor" aria-labelledby="studio-script-heading">
                 <div className="studio-section-heading">
@@ -163,10 +168,12 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                     </div>
                     <AudioPlayer src={latest.contentUrl} label="the narration" />
                     {wordTimings.length > 0 && (
-                        <div className="studio-transcript" aria-label="Select a word to correct">
+                        <div className="studio-transcript" aria-label="Select a word to correct" role="group">
                             {transcriptWindowed && transcriptRange.from > 0 && (
+
                                 <button
                                     type="button"
+
                                     className="studio-transcript-more"
                                     aria-label={`Show ${transcriptRange.from.toLocaleString()} earlier words`}
                                     onClick={() => setTranscriptRange((current) => ({

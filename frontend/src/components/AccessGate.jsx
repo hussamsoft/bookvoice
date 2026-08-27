@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyRound, RotateCw } from 'lucide-react';
 import { signIn } from '../utils/api';
 import { loadAccessState, resetCapabilities } from '../utils/capabilities';

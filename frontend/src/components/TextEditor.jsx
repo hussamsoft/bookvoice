@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw, Languages, Undo2 } from 'lucide-react';
 import { translateText } from '../utils/api';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
@@ -28,15 +28,10 @@ export default function TextEditor({
         if (!text.trim()) return;
         setIsTranslating(true);
         try {
-            if (!hasTranslated) {
-                baseTextRef.current = text;
-                setHasTranslated(true);
-            }
-            const translated = await translateText(text, targetLanguage);
-            setText(translated);
-            toast.success(
-                targetLanguage === 'ar' ? 'Translated to Arabic' : 'Translated to English'
-            );
+            const result = await translateText(text, targetLanguage);
+            baseTextRef.current = text;
+            setText(result.translatedText);
+            setHasTranslated(true);
         } catch (error) {
             toast.error(error.message);
         } finally {
@@ -45,14 +40,14 @@ export default function TextEditor({
     };
 
     const handleRestore = () => {
-        setText(baseTextRef.current);
-        setHasTranslated(false);
-        toast.info('Restored original text');
+        if (hasTranslated) {
+            setText(baseTextRef.current);
+            setHasTranslated(false);
+        }
     };
 
     const handleNarrate = async () => {
         if (!text.trim()) return;
-
         setIsNarrating(true);
         try {
             await onNarrate(text);
@@ -65,12 +60,14 @@ export default function TextEditor({
 
     return (
         <div className="text-editor">
-            <h3>Review extracted text</h3>
+            <h3 id="text-editor-heading">Review extracted text</h3>
 
             <div className="translation-toolbar">
                 <div className="lang-select-group">
-                    <Languages size={16} />
+                    <Languages size={16} aria-hidden="true" />
+                    <label className="sr-only" htmlFor="translation-lang">Translation language</label>
                     <select
+                        id="translation-lang"
                         value={targetLanguage}
                         onChange={(e) => onTranslateChange(e.target.value)}
                         disabled={isTranslating || isNarrating}
@@ -115,7 +112,9 @@ export default function TextEditor({
                 <strong>{targetLanguage === 'ar' ? 'Arabic' : 'English'}</strong>.
             </p>
 
+            <label className="sr-only" htmlFor="editor-textarea">Extracted text</label>
             <textarea
+                id="editor-textarea"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={12}

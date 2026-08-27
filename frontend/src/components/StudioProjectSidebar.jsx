@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
 import { useCapabilities } from '../hooks/useCapabilities';
 
@@ -85,6 +85,7 @@ export default function StudioProjectSidebar({
                     >
                         <button
                             className="studio-project-open"
+                            aria-current={project.id === activeId ? 'true' : undefined}
                             onClick={() => {
                                 // Collapse after choosing, so the work is on screen.
                                 setExpanded(false);

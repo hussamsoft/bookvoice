@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 
 /**
  * The single button primitive. Variants map to the design-system classes;

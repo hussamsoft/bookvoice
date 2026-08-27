@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getVoices, deleteVoice } from '../utils/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ui/ConfirmDialog';
@@ -138,8 +138,11 @@ export default function VoiceSettings({
             toast.success('Voice deleted');
         } catch (error) {
             toast.error(error.message);
+        } finally {
+            setLoading(false);
         }
     };
+
 
     const [expanded, setExpanded] = useState(false);
     const dropdownRef = useRef(null);
@@ -190,6 +193,7 @@ export default function VoiceSettings({
                         <div className="voice-selector">
                             <select
                                 id="voice-select"
+                                aria-label="Voice"
                                 value={activeVoiceId || ''}
                                 onChange={(e) => onVoiceChange(e.target.value || null)}
                             >

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { cacheKey } from '../utils/pageAudioCache';
 
-export const PREFETCH_AHEAD = 2;
-export const PREFETCH_BEHIND = 1;
+const PREFETCH_AHEAD = 2;
+const PREFETCH_BEHIND = 1;
+
 
 /**
  * Background prefetch queue for adjacent PDF pages.

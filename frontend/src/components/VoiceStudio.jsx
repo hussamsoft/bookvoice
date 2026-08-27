@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
 import {
     cancelStudioJob,

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from './Button';
 
 const FOCUSABLE = [
@@ -20,6 +20,8 @@ let modalTitleId = 0;
 export default function Modal({ open, onClose, title, children, actions }) {
     const panelRef = useRef(null);
     const previouslyFocused = useRef(null);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
     const [titleId] = useState(() => `modal-title-${++modalTitleId}`);
     const [shown, setShown] = useState(false);
 
@@ -56,7 +58,7 @@ export default function Modal({ open, onClose, title, children, actions }) {
         const handleKey = (event) => {
             if (event.key === 'Escape') {
                 event.stopPropagation();
-                onClose?.();
+                onCloseRef.current?.();
                 return;
             }
             if (event.key !== 'Tab' || !panel) return;
@@ -80,7 +82,7 @@ export default function Modal({ open, onClose, title, children, actions }) {
             document.removeEventListener('keydown', handleKey, true);
             if (previouslyFocused.current?.focus) previouslyFocused.current.focus();
         };
-    }, [open, onClose]);
+    }, [open]);
 
     if (!open) return null;
 
@@ -88,7 +90,7 @@ export default function Modal({ open, onClose, title, children, actions }) {
         <div
             className={`modal-overlay${shown ? ' is-shown' : ''}`}
             onMouseDown={(event) => {
-                if (event.target === event.currentTarget) onClose?.();
+                if (event.target === event.currentTarget) onCloseRef.current?.();
             }}
         >
             <div
@@ -114,5 +116,3 @@ export default function Modal({ open, onClose, title, children, actions }) {
         </div>
     );
 }
-
-export { FOCUSABLE };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AudioLines, FolderOpen, FolderPlus, HardDrive, ShieldCheck } from 'lucide-react';
 
 function diskLabel(bytes = 0) {

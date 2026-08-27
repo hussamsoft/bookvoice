@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Mic, Square, Trash2 } from 'lucide-react';
 import { recordStreamToWav } from '../utils/wav';
 import { canRecord, STUDIO_MIC_CONSTRAINTS } from '../utils/media';
@@ -29,7 +29,9 @@ export default function StudioRecorder({ onRecorded, disabled, label = 'Record w
 
     useEffect(() => () => {
         streamRef.current?.getTracks().forEach((track) => track.stop());
+        recorderRef.current?.stop();
     }, []);
+
 
     // The object URL backs the review player; revoke it when the take goes away.
     useEffect(() => {

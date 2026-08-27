@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import CameraCapture from './CameraCapture';
 import TextEditor from './TextEditor';
 import NarrationPlayback from './NarrationPlayback';
@@ -259,7 +259,9 @@ export default function BookSession({ epoch, onDirty }) {
                                     className={`history-item ${
                                         i === currentPageIndex ? 'active' : ''
                                     }`}
+                                    aria-current={i === currentPageIndex ? 'true' : undefined}
                                     onClick={() => {
+
                                         setCurrentPageIndex(i);
                                         setStep('playback');
                                     }}

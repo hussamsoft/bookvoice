@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Repeat2, ShieldCheck, Wand2 } from 'lucide-react';
 import { createStudioConversion, uploadStudioSource } from '../utils/api';
 import StudioOutputs from './StudioOutputs';
@@ -18,6 +18,9 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
     const [targetSourceId, setTargetSourceId] = useState('');
     const [targetRange, setTargetRange] = useState({ start: 0, end: 10 });
     const [consent, setConsent] = useState(false);
+
+    const handleRangeChange = useCallback((start, end) => setRange({ start, end }), []);
+    const handleTargetRangeChange = useCallback((start, end) => setTargetRange({ start, end }), []);
 
     const source = useMemo(
         () => sources.find((item) => item.id === sourceId) || null,
@@ -149,11 +152,11 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                     emptyPromptTitle="Choose the recording you want re-voiced"
                     range={{
                         ...range,
-                        onChange: (start, end) => setRange({ start, end }),
+                        onChange: handleRangeChange,
                         idPrefix: 'studio-convert-source',
                         label: 'Region to convert',
                         note: (
-                            <p className={validSource ? 'studio-range-note' : 'studio-range-note is-error'}>
+                            <p className={validSource ? 'studio-range-note' : 'studio-range-note is-error'} aria-live="polite">
                                 Converting {sourceSpan.toFixed(1)} seconds. Leave the full range selected to
                                 convert the whole recording.
                             </p>
@@ -239,12 +242,12 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                                     duration={targetSource.durationSec}
                                     start={targetRange.start}
                                     end={targetRange.end}
-                                    onChange={(start, end) => setTargetRange({ start, end })}
+                                    onChange={handleTargetRangeChange}
                                     disabled={disabled}
                                     idPrefix="studio-convert-target"
                                     label="Voice reference range"
                                 />
-                                <p className={validTarget ? 'studio-range-note' : 'studio-range-note is-error'}>
+                                <p className={validTarget ? 'studio-range-note' : 'studio-range-note is-error'} aria-live="polite">
                                     Select {MIN_TARGET_CLIP_SEC}–{MAX_TARGET_CLIP_SEC} seconds of the target
                                     speaker alone. Current selection: {targetSpan.toFixed(1)} seconds.
                                 </p>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Mic2, ShieldCheck } from 'lucide-react';
 import { createStudioProfile, uploadStudioSource } from '../utils/api';
 import MediaWorkbench from './studio/MediaWorkbench';
@@ -88,6 +88,13 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
         setConsent(false);
     };
 
+    const handleRangeChange = useCallback((start, end) => setRange({ start, end }), []);
+
+    const rangeProps = useMemo(() => ({
+        ...range,
+        onChange: handleRangeChange,
+    }), [range, handleRangeChange]);
+
     const duration = range.end - range.start;
     const validRange = duration >= 5 && duration <= 30;
 
@@ -127,15 +134,15 @@ export default function StudioVoiceCloner({ project, voices, onPatch, onRunJob, 
                 previewPlayerLabel="the voice source"
                 playSelectionLabel="Play selected voice sample"
                 emptyPromptTitle="Choose a recording of the voice to replicate"
-                range={{
-                    ...range,
-                    onChange: (start, end) => setRange({ start, end }),
-                    note: (
-                        <p className={validRange ? 'studio-range-note' : 'studio-range-note is-error'}>
-                            Select 5–30 seconds containing one person speaking clearly. Current selection: {duration.toFixed(1)} seconds.
-                        </p>
-                    ),
-                }}
+                range={rangeProps}
+                note={
+                    <p
+                        className={validRange ? 'studio-range-note' : 'studio-range-note is-error'}
+                        aria-live="polite"
+                    >
+                        Select 5–30 seconds containing one person speaking clearly. Current selection: {duration.toFixed(1)} seconds.
+                    </p>
+                }
             />
 
             {source && (
