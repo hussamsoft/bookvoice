@@ -152,7 +152,7 @@ export default function CameraCapture({ onCapture }) {
                         {capabilities?.torch && (
                             <button
                                 onClick={toggleTorch}
-                                className={`control-btn ${torchOn ? 'active' : ''}`}
+                                className={`camera-btn ${torchOn ? 'active' : ''}`}
                                 aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
                                 aria-pressed={torchOn}
                             >

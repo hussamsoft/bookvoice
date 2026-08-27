@@ -172,9 +172,6 @@ export default function BookSession({ epoch, onDirty }) {
                             <div
                                 key={stepName}
                                 className={`step-track-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
-                                style={{
-                                    '--step-color': isActive ? 'var(--signal)' : isComplete ? 'var(--success)' : 'var(--ink-muted)',
-                                }}
                             >
                                 <div className="step-dot" aria-hidden="true">
                                     {isComplete ? '✓' : index + 1}

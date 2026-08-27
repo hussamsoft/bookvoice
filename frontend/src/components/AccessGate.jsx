@@ -57,19 +57,19 @@ export default function AccessGate({ children }) {
         <div className="access-gate">
             <form className="access-card" onSubmit={submit}>
                 <KeyRound size={28} aria-hidden="true" />
-                <h1>BookVoice</h1>
-                <p>This deployment is private. Enter the access password to continue.</p>
+                <p className="access-gate-message">This deployment is private. Enter the access password to continue.</p>
                 <label htmlFor="access-password">Access password</label>
                 <input
                     id="access-password"
                     type="password"
                     autoComplete="current-password"
+                    aria-describedby="access-error"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     disabled={submitting}
                     autoFocus
                 />
-                {error && <p className="access-error" role="alert">{error}</p>}
+                {error && <p className="access-error" id="access-error" role="alert">{error}</p>}
                 <button className="btn primary" type="submit" disabled={submitting || !password}>
                     {submitting ? 'Signing in…' : 'Sign in'}
                 </button>

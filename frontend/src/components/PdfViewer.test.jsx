@@ -155,10 +155,8 @@ describe('PdfViewer Component', () => {
     expect(rows[6]).toHaveTextContent('Prepared volume 6');
     expect(rows[6]).toHaveTextContent('Bookmarks 2, 7');
 
-    const scrollArea = container.querySelector('.prepared-library > div');
+    const scrollArea = container.querySelector('.prepared-library-list');
     expect(scrollArea).not.toBeNull();
-    expect(scrollArea.style.maxHeight).toBe('40vh');
-    expect(scrollArea.style.overflowY).toBe('auto');
   });
 
   it('routes scrubber seeks through the transport with a null-safe duration', async () => {

@@ -124,7 +124,7 @@ export function ToastProvider({ children }) {
     return (
         <ToastContext.Provider value={toast}>
             {children}
-            <div className="toast-region" aria-live="polite" aria-label="Notifications">
+            <div className="toast-region" aria-label="Notifications">
                 {toasts.map(renderToast)}
             </div>
         </ToastContext.Provider>

@@ -15,7 +15,19 @@ export default function PreparationProgress({ preparation, onCancel, cancelling 
                 Prepare book: {String(preparation.status || 'paused').toLowerCase()} ·{' '}
                 {completed}/{total} pages
             </span>
-            <progress max={total || 1} value={completed} />
+            <progress
+                max={total || 1}
+                value={completed}
+                aria-label={`Preparation progress: ${completed} of ${total} pages`}
+                style={{
+                    width: '100%',
+                    height: '8px',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'var(--surface-raised)',
+                    accentColor: 'var(--signal)',
+                    overflow: 'hidden',
+                }}
+            />
             {canCancel ? (
                 <button
                     className="btn secondary btn-compact"

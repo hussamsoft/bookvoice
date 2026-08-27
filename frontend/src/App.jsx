@@ -134,9 +134,9 @@ function App() {
         tabs[nextIndex]?.click();
     };
 
-
-    return (
+        return (
         <div className="app-shell">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
             <header className="main-header">
                 <TitleBar currentMode={mode} modeLabels={MODE_LABELS} />
                 <nav className="mode-switcher" aria-label="Reading mode">
@@ -166,7 +166,7 @@ function App() {
                 </nav>
             </header>
 
-            <main className="main-content reading-stage">
+            <main id="main-content" className="main-content reading-stage">
                 <Suspense fallback={
                     <div className="loading-state" role="status">
                         Loading {MODE_LABELS[mode] || 'app'}…

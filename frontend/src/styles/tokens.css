@@ -36,7 +36,9 @@
   --ink: #211f1b;
   --ink-secondary: #5c5a54;
   --ink-muted: #6e6b64;
-  --ink-faint: var(--gray-400);
+  --ink-faint: #6e6b64;
+  --text-secondary: var(--ink-secondary);
+  --transition-fast: var(--dur-fast) var(--ease-out);
   --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
   --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
 
@@ -158,6 +160,7 @@
   --z-raised: 3;
   --z-nav: 10;
   --z-panel: 60;
+  --z-sheet: 70;
   --z-overlay: 80;
   --z-toast: 90;
 
@@ -182,7 +185,9 @@
   --ink: #ece9e3;
   --ink-secondary: #b8b4ac;
   --ink-muted: var(--gray-400);
-  --ink-faint: var(--gray-600);
+  --ink-faint: var(--gray-500);
+  --text-secondary: var(--ink-secondary);
+  --transition-fast: var(--dur-fast) var(--ease-out);
   --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
   --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
   --accent: #9dbbd6;

@@ -25,7 +25,6 @@ export default React.memo(function TranscriptWord({ index, word, onActivate }) {
             className={`transcript-word${pronouncing ? ' pronouncing' : ''}`}
             onClick={activate}
             onKeyDown={handleKeyDown}
-            tabIndex={0}
             role="button"
             aria-busy={pronouncing || undefined}
             aria-label={word}

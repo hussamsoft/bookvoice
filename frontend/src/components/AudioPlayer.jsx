@@ -59,6 +59,7 @@ const AudioPlayer = forwardRef(function AudioPlayer(
                 ref={audioRef}
                 src={src}
                 preload="metadata"
+                aria-label={label || "Audio playback"}
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={(event) => {
                     const value = event.target.duration;
@@ -95,6 +96,7 @@ const AudioPlayer = forwardRef(function AudioPlayer(
                 type="button"
                 className="audio-transport-toggle"
                 onClick={toggle}
+                disabled={!src}
                 aria-label={playing ? `Pause ${label}` : `Play ${label}`}
             >
                 {playing ? <Pause size={18} /> : <Play size={18} />}

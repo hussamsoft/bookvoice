@@ -168,6 +168,17 @@ a {
   border-radius: var(--radius-md);
 }
 
+.skeleton--book-row {
+  min-height: 64px;
+  border-radius: var(--radius-md);
+}
+
+.skeleton--page {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius-md);
+}
+
 /* Button primitive sizes (ui/Button.jsx) mapped to control-height tokens. */
 .btn-sm {
   height: var(--control-h-sm);

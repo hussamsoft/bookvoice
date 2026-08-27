@@ -2277,7 +2277,7 @@ export default function PdfViewer({ onDirty }) {
                         {libraryBooks.length ? (
                             <div className="prepared-library">
                                 <p className="prepared-library-title">Prepared library</p>
-                                <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+                                <div className="prepared-library-list">
                                     {libraryBooks.map((book) => (
                                         <PreparedBookRow key={book.id} book={book} onOpen={openLibraryBook} />
                                     ))}
@@ -2290,8 +2290,7 @@ export default function PdfViewer({ onDirty }) {
                                 {[0, 1, 2].map((row) => (
                                     <div
                                         key={row}
-                                        className="skeleton skeleton--block"
-                                        style={{ height: 54, marginBottom: 'var(--space-2)' }}
+                                        className="skeleton skeleton--block skeleton--book-row"
                                     />
                                 ))}
                             </div>
@@ -2384,7 +2383,6 @@ export default function PdfViewer({ onDirty }) {
                                                 <div
                                                     key={index}
                                                     className="skeleton skeleton--line"
-                                                    style={{ width: `${width}%`, marginBottom: 'var(--space-3)' }}
                                                 />
                                             ))}
                                         </div>
@@ -2447,8 +2445,7 @@ export default function PdfViewer({ onDirty }) {
                                         loading={
                                             <div className="pdf-loading" aria-busy="true">
                                                 <div
-                                                    className="skeleton skeleton--block"
-                                                    style={{ width: 'min(640px, 85%)', height: '70vh' }}
+                                                    className="skeleton skeleton--block skeleton--page"
                                                 />
                                             </div>
                                         }
@@ -2465,11 +2462,7 @@ export default function PdfViewer({ onDirty }) {
                                                 renderAnnotationLayer={false}
                                                 loading={
                                                     <div
-                                                        className="skeleton skeleton--block"
-                                                        style={{
-                                                            width: basePageWidth,
-                                                            height: Math.round(basePageWidth * 1.414),
-                                                        }}
+                                                        className="skeleton skeleton--block skeleton--page"
                                                     />
                                                 }
                                                 renderTextLayer={true}
@@ -2541,8 +2534,8 @@ export default function PdfViewer({ onDirty }) {
                     </div>
                 </>
             )}
-            <audio ref={audioRef} style={{ display: 'none' }} preload="auto" />
-            <audio ref={pronounceRef} style={{ display: 'none' }} preload="auto" />
+            <audio ref={audioRef} className="audio-hidden" preload="auto" />
+            <audio ref={pronounceRef} className="audio-hidden" preload="auto" />
         </div>
     );
 }

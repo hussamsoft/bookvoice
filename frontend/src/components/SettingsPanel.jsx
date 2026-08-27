@@ -29,7 +29,7 @@ export default function SettingsPanel() {
         const trapFocus = (event) => {
             if (event.key !== 'Tab' || !panelRef.current) return;
             const focusable = panelRef.current.querySelectorAll(
-                'button:not(:disabled), select:not(:disabled), input:not([type="disabled"]), a[href]'
+                'button:not(:disabled), select:not(:disabled), input:not([type="disabled"]), textarea, a[href]'
             );
             if (!focusable.length) return;
             const first = focusable[0];

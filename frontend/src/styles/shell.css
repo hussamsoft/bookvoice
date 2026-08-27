@@ -48,6 +48,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .titlebar-tools {
@@ -59,10 +60,12 @@
 
 .titlebar-sparkle {
   color: var(--ink-faint);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .theme-toggle {
   color: var(--ink-secondary);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 /* --- Settings dropdown -------------------------------------------------- */
@@ -242,6 +245,12 @@
   gap: var(--space-4);
 }
 
+.access-gate-message {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin: 0;
+}
+
 .access-card h2 {
   font-size: var(--text-lg);
 }
@@ -335,10 +344,15 @@
   border-radius: var(--radius-sm);
   padding: 2px;
   display: inline-flex;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 
 .toast-dismiss:hover {
   color: var(--ink);
+}
+.toast-dismiss:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
 }
 
 /* --- Error boundary ----------------------------------------------------- */
@@ -381,4 +395,24 @@
     transform: none;
     opacity: 1;
   }
+}
+
+/* --- Skip link (accessibility) ---------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: var(--space-3);
+  z-index: calc(var(--z-toast) + 1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--accent);
+  color: var(--accent-on);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--dur-fast) var(--ease-out);
+}
+
+.skip-link:focus {
+  top: var(--space-3);
 }

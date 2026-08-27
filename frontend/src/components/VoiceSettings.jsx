@@ -192,7 +192,7 @@ export default function VoiceSettings({
                     <div className="voice-dropdown" ref={dropdownRef}>
                         <div className="voice-selector">
                             <select
-                                id="voice-select"
+                                id="voice-select-compact"
                                 aria-label="Voice"
                                 value={activeVoiceId || ''}
                                 onChange={(e) => onVoiceChange(e.target.value || null)}
@@ -293,7 +293,7 @@ export default function VoiceSettings({
             <ConfirmDialog
                 open={confirmDeleteOpen}
                 title="Delete voice?"
-                message={activeVoiceId ? `This will permanently delete the voice "${activeVoiceId}". This cannot be undone.` : ''}
+                message={activeVoiceId ? `This will permanently delete the voice "${voices.find((v) => v.id === activeVoiceId)?.name || activeVoiceId}". This cannot be undone.` : ''}
                 confirmLabel="Delete"
                 confirmVariant="danger"
                 onConfirm={confirmDelete}

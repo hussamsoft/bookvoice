@@ -116,17 +116,17 @@ export default function NarrationPlayback({
                 isPaused={!transport.isPlaying && !!audioUrl}
                 languageId={languageId}
             />
-            <div className="playback-controls">
-                <PlaybackControls transport={transport} />
+            <PlaybackControls transport={transport} />
+            {audioUrl && (
                 <a className="btn secondary" href={audioUrl} download={downloadName}>
                     Download audio
                 </a>
-                {onNextPage && (
-                    <button className="btn secondary" onClick={onNextPage}>
-                        Next page
-                    </button>
-                )}
-            </div>
+            )}
+            {onNextPage && audioUrl && (
+                <button className="btn secondary" onClick={onNextPage}>
+                    Next page
+                </button>
+            )}
             <audio ref={audioRef} preload="auto" />
         </div>
     );

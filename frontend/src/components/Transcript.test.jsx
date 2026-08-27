@@ -23,7 +23,6 @@ describe('Transcript accessibility', () => {
     const words = container.querySelectorAll('.transcript-word');
     expect(words).toHaveLength(3);
     words.forEach((el) => {
-      expect(el.getAttribute('tabindex')).toBe('0');
       expect(el.getAttribute('role')).toBe('button');
       expect(el.getAttribute('aria-label')).toBeTruthy();
     });

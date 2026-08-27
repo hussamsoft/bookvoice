@@ -35,7 +35,7 @@ const NumberControl = memo(function NumberControl({
                     disabled={disabled}
                     aria-describedby={helpId}
                 />
-                <span className="studio-setting-value" aria-live="polite">
+                <span className="studio-setting-value">
                     {valueLabel ? valueLabel(value) : value}
                 </span>
             </div>
@@ -123,9 +123,9 @@ export default function StudioSettings({
 
                 <div className="studio-settings-grid">
                     <div className="studio-setting-item">
-                        <label className="studio-setting-label" htmlFor="voice-select">Voice</label>
+                        <label className="studio-setting-label" htmlFor="studio-voice-select">Voice</label>
                         <select
-                            id="voice-select"
+                            id="studio-voice-select"
                             value={voiceId}
                             onChange={(e) => onVoiceChange(e.target.value)}
                             disabled={disabled}

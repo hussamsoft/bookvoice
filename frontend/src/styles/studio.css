@@ -31,6 +31,7 @@
   gap: var(--space-2);
   font-size: var(--text-sm);
   font-weight: 600;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .studio-sidebar-toggle:hover {
@@ -106,6 +107,7 @@
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .studio-project-row:hover,
@@ -126,6 +128,11 @@
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   text-align: left;
   cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.studio-project-open:hover {
+  background: var(--accent-soft);
 }
 
 .studio-project-open strong,
@@ -288,6 +295,9 @@
 .studio-start-project:hover {
   border-color: var(--accent-ring);
 }
+.studio-start-project:active {
+  transform: scale(0.98);
+}
 
 .studio-start-hint {
   font-size: var(--text-sm);
@@ -340,6 +350,13 @@
 }
 
 .studio-section-header:hover {
+  background: var(--surface-raised);
+}
+.studio-section-header:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+.studio-section-header:active {
   background: var(--surface-raised);
 }
 
@@ -496,10 +513,12 @@
   color: var(--ink-secondary);
   padding: var(--space-3);
   text-align: left;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .studio-workflow-tabs button:hover {
   color: var(--ink);
+  border-color: var(--hairline-strong);
 }
 
 .studio-workflow-tabs button.is-active {
@@ -507,6 +526,13 @@
   background: var(--surface-raised);
   color: var(--ink);
   box-shadow: inset 0 -2px var(--accent);
+}
+.studio-workflow-tabs button:active {
+  transform: scale(0.98);
+}
+.studio-workflow-tabs button:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
 }
 
 .studio-workflow-tabs small {
@@ -640,6 +666,7 @@
   font-size: var(--text-sm);
   line-height: 1.4;
   text-align: left;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 
 .studio-transcript button:hover {
@@ -650,6 +677,11 @@
 .studio-transcript-more {
   color: var(--ink-muted);
   padding: 2px 8px;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.studio-transcript-more:hover {
+  color: var(--ink);
+  background: var(--surface-raised);
 }
 
 /* Touch screens get larger tap targets without denser typography. */
@@ -731,6 +763,36 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+.studio-target-modes button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.studio-target-modes button:hover {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+  background: var(--surface-raised);
+}
+.studio-target-modes button:active {
+  transform: scale(0.98);
+}
+.studio-target-modes button.is-active {
+  border-color: var(--accent-ring);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.studio-target-modes button:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
 
 .studio-select-row {
   display: flex;
@@ -768,6 +830,13 @@
   font-size: var(--text-sm);
   text-align: center;
   padding: var(--space-4);
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.studio-drop-prompt:hover {
+  color: var(--ink);
+  background: var(--surface-raised);
 }
 
 .studio-media-preview,
@@ -798,6 +867,7 @@
 
 .studio-recorder.is-recording {
   border-color: var(--live);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .studio-record-review-actions {
