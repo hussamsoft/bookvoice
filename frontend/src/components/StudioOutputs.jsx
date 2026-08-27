@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Download, Film, Music2 } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
 
@@ -12,9 +12,10 @@ function outputLabel(output) {
 export default function StudioOutputs({
     outputs = [],
 }) {
-    const ordered = [...outputs].reverse();
+    const ordered = useMemo(() => [...outputs].reverse(), [outputs]);
     return (
         <section className="studio-output-history" aria-labelledby="studio-output-heading">
+
             <div className="studio-section-heading">
                 <div>
                     <span className="studio-kicker">Immutable versions</span>

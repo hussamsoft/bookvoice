@@ -184,9 +184,9 @@ function App() {
                         ) : (
                             <PdfViewer
                                 key={`pdf-${epochRef.current}`}
-                                epoch={epochRef.current}
                                 onDirty={() => setSessionDirty(true)}
                             />
+
                         )}
                     </div>
                 </Suspense>

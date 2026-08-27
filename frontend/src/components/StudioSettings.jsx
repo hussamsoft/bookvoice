@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo, memo } from 'react';
 
 
-function NumberControl({
+const NumberControl = memo(function NumberControl({
     id,
     label,
     value,
@@ -32,7 +32,6 @@ function NumberControl({
                     step={step}
                     value={value}
                     onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(n); }}
-
                     disabled={disabled}
                     aria-describedby={helpId}
                 />
@@ -48,7 +47,8 @@ function NumberControl({
             </div>
         </label>
     );
-}
+});
+
 
 function paceLabel(value) {
     if (value < 0.93) return 'Slower';
@@ -83,33 +83,33 @@ export default function StudioSettings({
     const [showAdvanced, setShowAdvanced] = useState(true);
     const [showVariation, setShowVariation] = useState(true);
 
-    const handlePaceChange = (value) => {
+    const handlePaceChange = useCallback((value) => {
         const newSettings = { ...settings, pace: value };
         onSettingsChange(newSettings);
-    };
+    }, [settings, onSettingsChange]);
 
-    const handleExpressionChange = (value) => {
+    const handleExpressionChange = useCallback((value) => {
         const newSettings = { ...settings, expression: value };
         onSettingsChange(newSettings);
-    };
+    }, [settings, onSettingsChange]);
 
-    const handleTemperatureChange = (value) => {
+    const handleTemperatureChange = useCallback((value) => {
         const newSettings = { ...settings, temperature: value };
         onSettingsChange(newSettings);
-    };
+    }, [settings, onSettingsChange]);
 
-    const handleGuidanceChange = (value) => {
+    const handleGuidanceChange = useCallback((value) => {
         const newSettings = { ...settings, guidance: value };
         onSettingsChange(newSettings);
-    };
+    }, [settings, onSettingsChange]);
 
-    const handleSeedChange = (value) => {
+    const handleSeedChange = useCallback((value) => {
         const newSettings = { ...settings, seed: value };
         onSettingsChange(newSettings);
-    };
+    }, [settings, onSettingsChange]);
 
-    const deliverySettings = { pace: settings.pace, expression: settings.expression, temperature: settings.temperature };
-    const variationSettings = { guidance: settings.guidance ?? null, seed: settings.seed ?? null };
+    const deliverySettings = useMemo(() => ({ pace: settings.pace, expression: settings.expression, temperature: settings.temperature }), [settings.pace, settings.expression, settings.temperature]);
+    const variationSettings = useMemo(() => ({ guidance: settings.guidance ?? null, seed: settings.seed ?? null }), [settings.guidance, settings.seed]);
 
 
     return (
@@ -162,16 +162,17 @@ export default function StudioSettings({
                     className="studio-section-header"
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     aria-expanded={showAdvanced}
-                    >
-                        <span className="studio-section-kicker">Advanced delivery</span>
-                        <span className="studio-section-title">Speed & Expression</span>
-                        <span className="studio-section-toggle" aria-hidden="true">
-                            {showAdvanced ? '−' : '+'}
-                        </span>
+                    aria-controls="advanced-delivery-section"
+                >
+                    <span className="studio-section-kicker">Advanced delivery</span>
+                    <span className="studio-section-title">Speed & Expression</span>
+                    <span className="studio-section-toggle" aria-hidden="true">
+                        {showAdvanced ? '−' : '+'}
+                    </span>
                 </button>
 
                 {showAdvanced && (
-                    <div className="studio-settings-grid">
+                    <div id="advanced-delivery-section" className="studio-settings-grid">
                         <div className="studio-setting-item">
                             <NumberControl
                                 id="pace"
@@ -235,16 +236,17 @@ export default function StudioSettings({
                     className="studio-section-header"
                     onClick={() => setShowVariation(!showVariation)}
                     aria-expanded={showVariation}
-                    >
-                        <span className="studio-section-kicker">Variation</span>
-                        <span className="studio-section-title">Guidance & Randomness</span>
-                        <span className="studio-section-toggle" aria-hidden="true">
-                            {showVariation ? '−' : '+'}
-                        </span>
+                    aria-controls="variation-section"
+                >
+                    <span className="studio-section-kicker">Variation</span>
+                    <span className="studio-section-title">Guidance & Randomness</span>
+                    <span className="studio-section-toggle" aria-hidden="true">
+                        {showVariation ? '−' : '+'}
+                    </span>
                 </button>
 
                 {showVariation && (
-                    <div className="studio-settings-grid">
+                    <div id="variation-section" className="studio-settings-grid">
                         <div className="studio-setting-item">
                             <NumberControl
                                 id="guidance"

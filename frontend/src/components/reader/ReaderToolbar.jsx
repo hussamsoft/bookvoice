@@ -21,11 +21,11 @@ const ZOOM_LIMITS = { min: 0.7, max: 2.6, step: 0.15 };
 /**
  * Reader toolbar, two-tier structure:
  *  - Tier 1 (always visible, single row): page navigation (prev / page X of N /
- *    zoom-fit) + Play/Pause (the ONE primary action).
- *  - Tier 2 (overflow "…" popout): search, follow-narration, bookmark, export,
- *    bookmark-jump.
+ *    next) + zoom (out / value / in) + fullscreen.
+ *  - Tier 2 (overflow menu via "More" button): search, bookmark, prepared
+ *    library, export.
  */
-export default function ReaderToolbar({
+function ReaderToolbar({
     pageNumber,
     numPages,
     pageJumpInput,
@@ -81,7 +81,7 @@ export default function ReaderToolbar({
                         onBlur={onPageJumpSubmit}
                         aria-label={`Go to page between 1 and ${numPages || 1}`}
                     />
-                    <span className="page-jump-total">/ {numPages || '—'}</span>
+                    <span className="page-jump-total">/ {numPages || '\u2014'}</span>
                 </form>
                 <button
                     type="button"
@@ -203,7 +203,7 @@ export default function ReaderToolbar({
                                     title={`Export cached audio for pages 1 through ${pageNumber}`}
                                 >
                                     {isExporting ? <Loader2 className="spinner" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
-                                    Export 1–{pageNumber}
+                                    Export 1\u2013{pageNumber}
                                 </button>
                             ) : null}
                         </div>
@@ -235,3 +235,5 @@ export default function ReaderToolbar({
         </div>
     );
 }
+
+export default ReaderToolbar;

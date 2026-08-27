@@ -22,7 +22,6 @@ export function inferNarratorGender(voiceId) {
     return null;
 }
 
-/** Keep the clicked word intact while dropping PDF/transcript punctuation. */
 export function normalizePronunciationText(value) {
     return String(value || '')
         .replace(/[\u2018\u2019]/g, "'")

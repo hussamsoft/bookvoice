@@ -37,8 +37,9 @@ export default function CameraCapture({ onCapture }) {
                         setZoom(track.getSettings().zoom || caps.zoom.min);
                     }
                 } catch (e) {
-                    console.warn('Could not get track capabilities', e);
+                    // Non-critical: capabilities detection failed
                 }
+
             }
         } catch (err) {
             console.error('Error accessing camera:', err);
@@ -73,8 +74,9 @@ export default function CameraCapture({ onCapture }) {
             });
             setTorchOn(newTorchState);
         } catch (err) {
-            console.error('Failed to toggle torch', err);
+            // Non-critical: torch toggle failed
         }
+
     };
 
     const handleZoomChange = async (e) => {
@@ -88,9 +90,10 @@ export default function CameraCapture({ onCapture }) {
             });
             setZoom(newZoom);
         } catch (err) {
-            console.error('Failed to apply zoom', err);
+            // Non-critical: zoom apply failed
         }
     };
+
 
 
 

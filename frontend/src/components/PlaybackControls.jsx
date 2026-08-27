@@ -1,5 +1,6 @@
 import React, { useImperativeHandle } from 'react';
 import { ChevronDown, RotateCcw, RotateCw, Square } from 'lucide-react';
+
 import { formatClock as formatTime } from '../utils/format';
 import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../hooks/useSleepTimer';
 
@@ -9,7 +10,7 @@ import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../ho
  *    playing) + scrubber + time.
  *  - Secondary row (muted, --ink-muted): rate, sleep, page-label.
  */
-export default function PlaybackControls({
+function PlaybackControls({
     transport,
     onToggle = transport.toggle,
     compact = false,
@@ -176,3 +177,5 @@ export default function PlaybackControls({
         </div>
     );
 }
+
+export default PlaybackControls;

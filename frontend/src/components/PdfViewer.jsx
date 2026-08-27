@@ -2,11 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import {
-    Download,
-    Pause,
-    Play,
-} from 'lucide-react';
+
 import {
     createBookArchive,
     createBookAudiobook,
@@ -100,7 +96,30 @@ function sourceKindFromName(name = '') {
     return 'pdf';
 }
 
+const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
+    const details = preparedBookDetails(book);
+    return (
+        <button
+            type="button"
+            className="prepared-book-row"
+            onClick={() => onOpen(book)}
+        >
+            <span className="prepared-book-row-heading">
+                <span className="source-kind-badge">
+                    {(book.sourceKind || 'pdf').toUpperCase()}
+                </span>
+                {book.title}
+            </span>
+            <small>
+                Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
+                {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
+            </small>
+        </button>
+    );
+});
+
 export default function PdfViewer({ onDirty }) {
+
     const toast = useToast();
     const [isGenerating, setIsGenerating] = useState(false);
     const isGeneratingRef = useRef(false);
@@ -235,6 +254,7 @@ export default function PdfViewer({ onDirty }) {
 
     useEffect(() => {
         listPreparedBooks().then((books) => {
+            if (!isMountedRef.current) return;
             setLibraryBooks(books);
             setLibraryPending(false);
             const startupBookId = new URLSearchParams(window.location.search).get('book');
@@ -244,10 +264,12 @@ export default function PdfViewer({ onDirty }) {
                 openLibraryBookRef.current(startupBook);
             }
         }).catch((error) => {
+            if (!isMountedRef.current) return;
             setLibraryPending(false);
             toast.error(error.message || 'Could not load the prepared-book library.');
         });
     }, [toast]);
+
 
     useEffect(() => {
         if (!preparation?.id || !['QUEUED', 'RUNNING'].includes(preparation.status)) return;
@@ -566,10 +588,13 @@ export default function PdfViewer({ onDirty }) {
             libraryBookId,
             preparation.voiceId || null,
             preparation.languageId || 'en'
-        ).then(setPreparation).catch(() => {
+        ).then((result) => {
+            if (isMountedRef.current) setPreparation(result);
+        }).catch(() => {
             autoResumedPreparationRef.current = '';
         });
     }, [libraryBookId, modelReady, preparation]);
+
 
     const clearPlaybackState = useCallback(() => {
         setIsPlaying(false);
@@ -2253,31 +2278,13 @@ export default function PdfViewer({ onDirty }) {
                             <div className="prepared-library">
                                 <p className="prepared-library-title">Prepared library</p>
                                 <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-                                    {libraryBooks.map((book) => {
-                                        const details = preparedBookDetails(book);
-                                        return (
-                                            <button
-                                                type="button"
-                                                className="prepared-book-row"
-                                                key={book.id}
-                                                onClick={() => openLibraryBook(book)}
-                                            >
-                                                <span className="prepared-book-row-heading">
-                                                    <span className="source-kind-badge">
-                                                        {(book.sourceKind || 'pdf').toUpperCase()}
-                                                    </span>
-                                                    {book.title}
-                                                </span>
-                                                <small>
-                                                    Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
-                                                    {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
-                                                </small>
-                                            </button>
-                                        );
-                                    })}
+                                    {libraryBooks.map((book) => (
+                                        <PreparedBookRow key={book.id} book={book} onOpen={openLibraryBook} />
+                                    ))}
                                 </div>
                             </div>
                         ) : libraryPending ? (
+
                             <div className="prepared-library" aria-busy="true">
                                 <p className="prepared-library-title">Prepared library</p>
                                 {[0, 1, 2].map((row) => (

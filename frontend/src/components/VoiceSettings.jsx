@@ -114,6 +114,8 @@ export default function VoiceSettings({
         fetchVoices({ announceFailure: false });
     }, [backendReady, fetchVoices]);
 
+
+
     // Revalidate after async config restores a saved voice (or user selection).
     useEffect(() => {
         if (!voices.length) return;
@@ -178,10 +180,11 @@ export default function VoiceSettings({
                     aria-expanded={expanded}
                     aria-label={`Voice: ${activeVoiceName}`}
                 >
-                    <span className="voice-pill-label">Voice:</span>
-                    <span className="voice-pill-name">{activeVoiceName}</span>
-                    <span className={`voice-pill-chevron ${expanded ? 'open' : ''}`}>▾</span>
+                    <span className="voice-pill-label" aria-hidden="true">Voice:</span>
+                    <span className="voice-pill-name" aria-hidden="true">{activeVoiceName}</span>
+                    <span className={`voice-pill-chevron ${expanded ? 'open' : ''}`} aria-hidden="true">▾</span>
                 </button>
+
                 {expanded && (
                     <div className="voice-dropdown" ref={dropdownRef}>
                         <div className="voice-selector">

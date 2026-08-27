@@ -26,13 +26,32 @@ export default function SettingsPanel() {
         const closeOnEscape = (event) => {
             if (event.key === 'Escape') closeSettings();
         };
+        const trapFocus = (event) => {
+            if (event.key !== 'Tab' || !panelRef.current) return;
+            const focusable = panelRef.current.querySelectorAll(
+                'button:not(:disabled), select:not(:disabled), input:not([type="disabled"]), a[href]'
+            );
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
         document.addEventListener('click', closeOnOutside);
         document.addEventListener('keydown', closeOnEscape);
+        document.addEventListener('keydown', trapFocus);
         return () => {
             document.removeEventListener('click', closeOnOutside);
             document.removeEventListener('keydown', closeOnEscape);
+            document.removeEventListener('keydown', trapFocus);
         };
     }, [open, closeSettings]);
+
 
     if (!config) {
         return (

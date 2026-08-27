@@ -120,26 +120,6 @@ export async function getVoices() {
     return data.voices;
 }
 
-export async function uploadVoice(audioBlob, name, consentConfirmed = false) {
-    const formData = new FormData();
-    const filename = name.endsWith('.wav') ? name : `${name}.wav`;
-    formData.append('file', audioBlob, filename);
-    formData.append('name', name);
-    formData.append('consent_confirmed', String(Boolean(consentConfirmed)));
-
-    const response = await fetch(`${API_BASE_URL}/voices/`, {
-        method: 'POST',
-        body: formData,
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(detailMessage(errorData, 'Failed to upload voice'));
-    }
-
-    return await response.json();
-}
-
 export async function translateText(text, targetLang) {
     const response = await fetch(`${API_BASE_URL}/translate/`, {
         method: 'POST',

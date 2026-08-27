@@ -182,9 +182,10 @@ export default function ReadingOptionsPanel({
                                 <ChevronDown size={14} aria-hidden="true" className={`book-actions-chevron ${bookActionsOpen ? 'open' : ''}`} />
                             </button>
                             {bookActionsOpen ? (
-                                <div className="book-actions-menu" role="menu">
+                                <div className="book-actions-menu" role="menu" aria-label="Book actions">
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         className="btn primary btn-compact"
                                         onClick={() => {
                                             onPrepareWholeBook();
@@ -198,6 +199,7 @@ export default function ReadingOptionsPanel({
                                         <>
                                             <button
                                                 type="button"
+                                                role="menuitem"
                                                 className="btn secondary btn-compact"
                                                 onClick={() => {
                                                     onCreatePreparedFile();
@@ -209,27 +211,28 @@ export default function ReadingOptionsPanel({
                                             {isExportingAudiobook ? (
                                                 <button
                                                     type="button"
+                                                    role="menuitem"
                                                     className="btn secondary btn-compact"
                                                     onClick={() => {
                                                         onCancelExportAudiobook();
                                                         closeBookActions();
                                                     }}
                                                 >
-                                                    Cancel export
-                                                    {audiobookProgress && audiobookProgress.pageCount
-                                                        ? ` (${audiobookProgress.pagesDone}/${audiobookProgress.pageCount})`
-                                                        : ''}
+                                                    {audiobookProgress
+                                                        ? `Cancel export (${audiobookProgress.pagesDone}/${audiobookProgress.pageCount})`
+                                                        : 'Cancel export'}
                                                 </button>
                                             ) : (
                                                 <button
                                                     type="button"
+                                                    role="menuitem"
                                                     className="btn secondary btn-compact"
                                                     onClick={() => {
                                                         onExportAudiobook();
                                                         closeBookActions();
                                                     }}
                                                 >
-                                                    <Download size={15} aria-hidden="true" /> Export audiobook (.m4b)
+                                                    Export audiobook
                                                 </button>
                                             )}
                                         </>
@@ -238,6 +241,7 @@ export default function ReadingOptionsPanel({
                             ) : null}
                         </div>
                     </section>
+
                 </>
             ) : null}
         </div>

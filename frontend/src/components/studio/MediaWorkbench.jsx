@@ -1,10 +1,10 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useMemo } from 'react';
 import { Play, Upload } from 'lucide-react';
 import AudioPlayer from '../AudioPlayer';
 import StudioRecorder from '../StudioRecorder';
 import WaveformRange from '../WaveformRange';
 
-const ACCEPT = 'audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg';
+const ACCEPT = 'audio/*,video/mp4,video/webm,.mov,.mkv,.m4a,.aac,.flac,.ogg,.mp3';
 
 /**
  * The import / record / select / preview / range workbench shared by every
@@ -35,7 +35,7 @@ export default function MediaWorkbench({
     const fileRef = useRef(null);
     const mediaRef = useRef(null);
 
-    const source = sources.find((item) => item.id === sourceId) || null;
+    const source = useMemo(() => sources.find((item) => item.id === sourceId) || null, [sources, sourceId]);
 
     const playSelection = useCallback(() => {
         if (!mediaRef.current) return;

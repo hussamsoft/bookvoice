@@ -13,7 +13,7 @@ describe('Transcript accessibility', () => {
     languageId: 'en',
   };
 
-  it('exposes the transcript as a single tab stop with plain word spans', () => {
+  it('exposes the transcript as a single tab stop with accessible word spans', () => {
     const { container } = render(<Transcript {...baseProps} />);
     const wordsContainer = container.querySelector('.transcript-words');
     expect(wordsContainer.getAttribute('tabindex')).toBe('0');
@@ -23,11 +23,12 @@ describe('Transcript accessibility', () => {
     const words = container.querySelectorAll('.transcript-word');
     expect(words).toHaveLength(3);
     words.forEach((el) => {
-      expect(el.getAttribute('tabindex')).toBeNull();
-      expect(el.getAttribute('role')).toBeNull();
-      expect(screen.queryAllByRole('button')).toHaveLength(0);
+      expect(el.getAttribute('tabindex')).toBe('0');
+      expect(el.getAttribute('role')).toBe('button');
+      expect(el.getAttribute('aria-label')).toBeTruthy();
     });
   });
+
 
   it('moves the cursor with arrow keys and activates with Enter or Space', () => {
     const onWordActivate = vi.fn();

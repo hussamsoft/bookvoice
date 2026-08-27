@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronDown, Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
 import { useCapabilities } from '../hooks/useCapabilities';
 
@@ -28,7 +28,7 @@ export default function StudioProjectSidebar({
         setName('');
     };
 
-    const activeName = projects.find((item) => item.id === activeId)?.name || 'No project';
+    const activeName = useMemo(() => projects.find((item) => item.id === activeId)?.name || 'No project', [projects, activeId]);
 
     return (
         <aside className={`studio-sidebar ${expanded ? 'is-expanded' : ''}`} aria-label="Voice Studio projects">

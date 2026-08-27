@@ -100,20 +100,22 @@ export function ToastProvider({ children }) {
 
     const renderToast = ({ id, message, type, leaving }) => {
         const Icon = icons[type];
+        const isUrgent = type === 'error';
         return (
             <div
                 key={id}
                 className={`toast toast-${type}${leaving ? ' toast-leaving' : ''}`}
-                role="alert"
+                role={isUrgent ? 'alert' : 'status'}
+                aria-live={isUrgent ? 'assertive' : 'polite'}
             >
-                <Icon size={18} className="toast-icon" />
+                <Icon size={18} className="toast-icon" aria-hidden="true" />
                 <span className="toast-message">{message}</span>
                 <button
                     className="toast-dismiss"
                     onClick={() => dismiss(id)}
                     aria-label="Dismiss"
                 >
-                    <X size={16} />
+                    <X size={16} aria-hidden="true" />
                 </button>
             </div>
         );

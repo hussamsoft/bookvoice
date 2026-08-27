@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, memo } from 'react';
 import { formatClockTenths as timeLabel } from '../utils/format';
 
-export default function WaveformRange({
+const WaveformRange = memo(function WaveformRange({
     peaks = [],
     duration = 0,
     start,
@@ -81,4 +81,7 @@ export default function WaveformRange({
             <p>{(end - start).toFixed(2)} seconds selected. Use the arrow keys for precise adjustments.</p>
         </fieldset>
     );
-}
+});
+
+export default WaveformRange;
+

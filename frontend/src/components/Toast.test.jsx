@@ -43,7 +43,7 @@ describe('Toast', () => {
         });
         await fire();
 
-        expect(screen.getAllByRole('alert')).toHaveLength(1);
+        expect(screen.getAllByRole('status')).toHaveLength(1);
 
         // Outside the window a fresh entry stacks.
         await act(async () => {
@@ -51,8 +51,9 @@ describe('Toast', () => {
         });
         await fire();
 
-        expect(screen.getAllByRole('alert')).toHaveLength(2);
+        expect(screen.getAllByRole('status')).toHaveLength(2);
     });
+
     it('does not coalesce different messages or tones', async () => {
         const view = render(
             <ToastProvider>
@@ -68,7 +69,7 @@ describe('Toast', () => {
         );
         await fire();
 
-        expect(screen.getAllByRole('alert')).toHaveLength(2);
+        expect(screen.getAllByRole('status')).toHaveLength(2);
     });
 
     it('bumps the timestamp on coalesce, restarting the auto-dismiss clock', async () => {
@@ -87,7 +88,7 @@ describe('Toast', () => {
         });
         await fire(); // coalesces with the second, bumps timestamp to t=4000
 
-        let alerts = screen.getAllByRole('alert');
+        let alerts = screen.getAllByRole('status');
         expect(alerts).toHaveLength(2);
 
         // Original duration is 5s: without the bump both entries would be
@@ -95,31 +96,32 @@ describe('Toast', () => {
         await act(async () => {
             vi.advanceTimersByTime(4100); // t=8100
         });
-        alerts = screen.getAllByRole('alert');
+        alerts = screen.getAllByRole('status');
         expect(alerts).toHaveLength(1);
 
         await act(async () => {
             vi.advanceTimersByTime(1300); // t=9400: past 9000 + exit window
         });
-        expect(screen.queryAllByRole('alert')).toHaveLength(0);
+        expect(screen.queryAllByRole('status')).toHaveLength(0);
     });
 
     it('plays the exit animation before removing a dismissed toast', async () => {
         setup();
         await fire();
 
-        const toastEl = screen.getByRole('alert');
+        const toastEl = screen.getByRole('status');
         expect(toastEl).not.toHaveClass('toast-leaving');
 
         await act(async () => {
             fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
         });
 
-        expect(screen.getByRole('alert')).toHaveClass('toast-leaving');
+        expect(screen.getByRole('status')).toHaveClass('toast-leaving');
 
         await act(async () => {
             vi.advanceTimersByTime(EXIT_MS + 50);
         });
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 });
+

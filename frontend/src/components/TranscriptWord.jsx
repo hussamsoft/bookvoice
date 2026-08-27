@@ -12,15 +12,27 @@ export default React.memo(function TranscriptWord({ index, word, onActivate }) {
         }
     };
 
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            activate();
+        }
+    };
+
     return (
         <span
             data-word-index={index}
             className={`transcript-word${pronouncing ? ' pronouncing' : ''}`}
             onClick={activate}
+            onKeyDown={handleKeyDown}
+            tabIndex={0}
+            role="button"
             aria-busy={pronouncing || undefined}
+            aria-label={word}
             title="Hear this word or jump to it during narration"
         >
             {word}
         </span>
     );
 });
+

@@ -77,13 +77,13 @@ describe('ReadingOptionsPanel audiobook export', () => {
     it('offers the export only when a narration profile is active', () => {
         const noProfile = renderPanel({ hasProfile: false });
         openPanel();
-        expect(screen.queryByRole('button', { name: /export audiobook/i })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: /export audiobook/i })).toBeNull();
         noProfile.unmount();
 
         renderPanel({ hasProfile: true });
         openPanel();
         fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
-        expect(screen.getByRole('button', { name: /export audiobook/i })).toBeTruthy();
+        expect(screen.getByRole('menuitem', { name: /export audiobook/i })).toBeTruthy();
     });
 
     it('switches to a cancel control with progress while exporting', () => {
@@ -97,7 +97,8 @@ describe('ReadingOptionsPanel audiobook export', () => {
         openPanel();
         fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
 
-        fireEvent.click(screen.getByRole('button', { name: /cancel export \(2\/5\)/i }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /cancel export \(2\/5\)/i }));
+
         expect(cancel).toHaveBeenCalledTimes(1);
     });
 });

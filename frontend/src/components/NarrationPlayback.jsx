@@ -28,6 +28,7 @@ export default function NarrationPlayback({
     const togglePlayback = transport.toggle;
 
     useEffect(() => {
+        let cancelled = false;
         buildTimingsFromEntry({
             text,
             segments,
@@ -36,10 +37,13 @@ export default function NarrationPlayback({
             audioUrl,
             languageId,
         }).then(({ words: w, times }) => {
+            if (cancelled) return;
             setWords(w);
             wordTimesRef.current = times;
         });
+        return () => { cancelled = true; };
     }, [audioUrl, text, segments, duration_s, word_timings, languageId]);
+
 
     const syncHighlight = useCallback(
         (t) => {

@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+
 import { BookOpen } from 'lucide-react';
 import TranscriptWord from './TranscriptWord';
 
@@ -61,13 +62,15 @@ export default React.memo(function Transcript({
     languageId,
     followNarration = false,
 }) {
-    const wordsContainerRef = useRef(null);
+    const [cursorAnnouncement, setCursorAnnouncement] = useState('');
     const previousWordRef = useRef(-1);
     const cursorIndexRef = useRef(-1);
     const currentWordValueRef = useRef(currentWord);
     const interactionRef = useRef({ onWordActivate, isPlaying, isPaused });
+    const wordsContainerRef = useRef(null);
     currentWordValueRef.current = currentWord;
     interactionRef.current = { onWordActivate, isPlaying, isPaused };
+
 
     const handleWordActivate = useCallback(async (index, word) => {
         const interaction = interactionRef.current;
@@ -120,7 +123,11 @@ export default React.memo(function Transcript({
         event.preventDefault();
         moveCursor(container, cursorIndexRef.current, next);
         cursorIndexRef.current = next;
+        if (next >= 0 && next < list.length) {
+            setCursorAnnouncement(list[next]);
+        }
     }, [handleWordActivate, words]);
+
 
     const handleWordsBlur = useCallback(() => {
         clearCursor(wordsContainerRef.current);
@@ -218,6 +225,9 @@ export default React.memo(function Transcript({
             >
                 {wordElements}
             </div>
+            <span className="sr-only" aria-live="polite" role="status">
+                {cursorAnnouncement}
+            </span>
         </div>
     );
 });
