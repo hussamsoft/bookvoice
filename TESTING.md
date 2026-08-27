@@ -211,3 +211,26 @@ Verify each: background, accent, text contrast, borders, focus rings.
 - Each palette has sufficient text contrast (WCAG AA).
 - No hardcoded hex colors remain in the stylesheets.
 - All 60 simulation journeys pass (`python scripts/simulate_app.py`).
+## 18. Theme Keyboard Navigation (NEW)
+
+1. Click the palette selector button to open the dropdown.
+2. Press Arrow Down — focus moves to the first palette option.
+3. Press Arrow Down again — focus moves to the next option.
+4. Press Arrow Up — focus moves back.
+5. Press Enter/Space on a palette option — selects it, dropdown closes, app rethemes.
+6. Press Escape — dropdown closes without changing the palette.
+7. Tab past the dropdown when open — dropdown closes (focus moves naturally).
+
+## 19. AudioPlayer Accessibility (NEW)
+
+1. Tab to the AudioPlayer seek slider.
+2. Screen reader announces the current time as the value text (e.g., "1 of 5 minutes").
+3. Arrow Left/Right seeks backward/forward in small increments.
+4. Arrow Up/Down seeks in larger increments.
+
+## 20. EXE Build Verification (NEW)
+
+1. `dist/BookVoice.exe` exists (234MB portable build).
+2. `dist/VERSION` reads `2.6.0`.
+3. The EXE launches without error dialogs.
+4. All 5 palettes are available and render correctly in the built EXE.

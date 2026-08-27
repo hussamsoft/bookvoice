@@ -1,3 +1,23 @@
+## 2.6.0 - 2026-08-27
+
+### Added
+
+- **5 Relaxing UI Themes**: Paper Slate, Ethereal Blue, Sage Green, Muted Plum, and Sand Clay — each with light and dark modes. The theme system uses `data-palette` and `data-mode` attributes on `<html>` with a shared semantic token layer (`--bg`, `--ink`, `--accent`, etc.) that components consume, so color values change per palette without touching component code.
+- Theme selector in the title bar with arrow-key keyboard navigation and `aria-valuetext` on the AudioPlayer seek control.
+
+### Fixed
+
+- **WCAG AA contrast**: Fixed accent colors in Ethereal Blue, Sage Green, Muted Plum, and Sand Clay light modes to meet WCAG AA contrast ratios (ink/bg ≥ 4.5, accent-on/accent ≥ 4.5).
+- Added missing `--radius-full` design token (used by PreparationProgress).
+- Fixed legacy `data-theme` reference in studio.css → `data-mode`.
+- Updated index.html inline script for the new `data-palette`/`data-mode` theme system.
+
+### Test results
+
+- Frontend unit: 251/251 passing
+- Build: entry 224.83 kB (70.87 kB gzipped)
+
+
 ## 2.5.0 - 2026-08-27
 
 ### Changed
