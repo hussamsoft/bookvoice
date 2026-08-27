@@ -53,7 +53,7 @@ describe('App Component', () => {
 
     expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
     expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
-    expect(screen.getByTestId('titlebar-sparkle')).toBeInTheDocument();
+        expect(screen.getByTestId('titlebar-palette')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'reader mode' })).toHaveAttribute('aria-selected', 'true');
   });
 

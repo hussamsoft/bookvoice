@@ -10,10 +10,10 @@ Thumbs.db
 # Node
 node_modules/
 frontend/dist/
+frontend/release/
 dist-ssr/
 *.local
 frontend/tmp/
-
 # Python
 __pycache__/
 *.py[cod]

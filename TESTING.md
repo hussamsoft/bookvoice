@@ -96,12 +96,47 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 
 ## 10. Settings & Theme
 
-1. Open Settings (gear icon in the title bar).
-2. The gear is stable during config loading — it doesn't flash in/out (it renders a disabled placeholder until config resolves).
-3. The settings panel opens on click, closes when clicking outside — focus returns to the gear button.
-4. The gear's `aria-label` toggles between "Open settings" and "Close settings".
-5. Toggle the dark/light theme button — the entire app rethemes immediately (both light and dark modes render correctly with warm paper / warm dark paper).
-6. Test that all semantic tokens resolve: no hardcoded `#f7f5f1` or `#161513` remains in the stylesheets (check via the styles-parity test).
+### Light/Dark Mode Toggle
+1. Open the app — the default mode is light (`data-mode="light"`).
+2. Click the moon/sun icon in the title bar — mode toggles between light and dark.
+3. Both modes render correctly: light has warm paper/chrome; dark has deep tones per palette.
+
+### Palette Selection
+1. Click the palette selector button (left of the moon/sun icon, shows current palette name).
+2. A dropdown opens with 5 palettes: **Paper Slate**, **Ethereal Blue**, **Sage Green**, **Muted Plum**, **Sand Clay**.
+3. Each palette offers a **Light** and **Dark** variant.
+4. Click any palette + mode combo — the entire app rethemes immediately.
+5. Selected palette persists across app restarts (stored as `bookvoice.palette`).
+6. Selected mode persists across app restarts (stored as `bookvoice.mode`).
+
+### Palette Visual Verification
+
+| Palette | Light BG | Light Accent | Dark BG | Dark Accent |
+|---------|----------|--------------|---------|-------------|
+| Paper Slate | `#f7f5f1` (warm paper) | `#3a5a78` (slate) | `#161513` (charcoal) | `#9dbbd6` (soft blue) |
+| Ethereal Blue | `#f0f4f8` (denim) | `#3b82f6` (blue) | `#0f172a` (navy) | `#60a5fa` (sky) |
+| Sage Green | `#f0fdf4` (mint) | `#16a34a` (green) | `#052e16` (forest) | `#4ade80` (mint) |
+| Muted Plum | `#faf5ff` (lavender) | `#8b5cf6` (violet) | `#1e0a2e` (plum) | `#c084fc` (lilac) |
+| Sand Clay | `#fef7ed` (mocha) | `#ea580c` (orange) | `#1c0f08` (warm mocha) | `#fb923c` (peach) |
+
+For each palette × mode combination:
+- Background is the palette's BG color.
+- Text has sufficient contrast (WCAG AA).
+- Buttons/links use the palette's accent color.
+- Borders and hairlines remain visible but subtle.
+- Focus rings are visible on tab navigation.
+
+### Theme Persistence
+1. Select "Sage Green / Dark" palette.
+2. Close and reopen the app — palette is still "Sage Green / Dark".
+3. Open DevTools → Application → Local Storage:
+   - `bookvoice.palette` = `"sage"`
+   - `bookvoice.mode` = `"dark"`
+
+### Legacy Key Migration
+1. Set `localStorage.setItem('bookvoice.theme', 'dark')` in a fresh browser context.
+2. Reload the app — the legacy key is read as fallback, mode is dark.
+
 
 ## 11. Error Handling — PDF
 
@@ -144,11 +179,35 @@ This is hard to test on a desktop; verify via code review or by resizing to a ph
 
 ---
 
+## 17. Theme System (NEW)
+
+### Light/Dark Mode
+1. Click the moon/sun icon — mode toggles between light and dark.
+2. Both modes render correctly for the current palette.
+3. Mode persists across app restarts (`bookvoice.mode`).
+
+### Palette Selection
+1. Click the palette selector (shows current palette name).
+2. Dropdown opens with 5 palettes: Paper Slate, Ethereal Blue, Sage Green, Muted Plum, Sand Clay.
+3. Each palette offers Light and Dark variants.
+4. Selection rethemes the app immediately.
+5. Palette persists across restarts (`bookvoice.palette`).
+
+### All 10 Combinations (5 palettes × 2 modes)
+| Paper Slate Light | Paper Slate Dark |
+| Ethereal Blue Light | Ethereal Blue Dark |
+| Sage Green Light | Sage Green Dark |
+| Muted Plum Light | Muted Plum Dark |
+| Sand Clay Light | Sand Clay Dark |
+
+Verify each: background, accent, text contrast, borders, focus rings.
+
 ## Pass Criteria
 
 - All steps execute without console errors or uncaught exceptions.
 - All toasts are meaningful and in the correct region.
 - All focus changes are visible and sensible.
-- Both light and dark themes render with full contrast (WCAG AA on text).
+- All 5 palettes render correctly in both light and dark modes (10 combinations total).
+- Each palette has sufficient text contrast (WCAG AA).
 - No hardcoded hex colors remain in the stylesheets.
 - All 60 simulation journeys pass (`python scripts/simulate_app.py`).

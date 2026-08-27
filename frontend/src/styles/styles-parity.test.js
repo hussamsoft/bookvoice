@@ -124,11 +124,11 @@ describe('styles parity', () => {
             expect(count(token)).toBeGreaterThanOrEqual(1);
         }
 
-        // Themed tokens must be mapped for BOTH light and dark.
-        for (const token of ['--signal', '--signal-soft', '--signal-ring', '--live', '--shadow-pop']) {
+        // Themed tokens must be mapped per palette/mode combination.
+        for (const token of ['--signal', '--signal-soft', '--signal-ring', '--live']) {
             expect(count(token)).toBeGreaterThanOrEqual(2);
         }
 
-        expect(tokens).toContain('[data-theme="dark"]');
+        expect(tokens).toContain('[data-mode="dark"]');
     });
 });

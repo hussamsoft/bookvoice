@@ -5,15 +5,303 @@
  * all interactivity (buttons, links, selection, focus), ONE teal Signal
  * hue is reserved for narration/live-audio state, and Live-red appears
  * ONLY for recording/destructive affordances. Error/success/warning stay
- * as functional pairs. Light and dark share the same structure; only the
- * mapped values differ. Components must never hardcode colors — consume
- * semantic tokens only.
+ * as functional pairs.
+ *
+ * Five palettes × two modes (light/dark). The semantic layer (--bg, --ink,
+ * --accent, etc.) is shared; each palette only remaps the color values.
+ * Components must never hardcode colors — consume semantic tokens only.
  */
 
-:root {
+/* =========================================================================
+ * 1. PAPER SLATE — warm paper + deep charcoal (default)
+ * ========================================================================= */
+:root,
+:root[data-palette="paper"][data-mode="light"] {
   color-scheme: light;
-  /* Primitives — neutrals (legacy ramp, still referenced; semantic layers
-   * below take precedence over these) */
+  --bg: #f7f5f1;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --ink: #211f1b;
+  --ink-secondary: #5c5a54;
+  --ink-muted: #6e6b64;
+  --ink-faint: #6e6b64;
+  --accent: #3a5a78;
+  --accent-hover: #2e4a63;
+  --accent-on: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --signal: #2c5d5a;
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
+  --live: #a03a2e;
+  --error: #b4342f;
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
+  --success: #1f7a55;
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
+  --warning: #925c00;
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+:root[data-palette="paper"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #161513;
+  --surface: #1e1c19;
+  --surface-raised: #262420;
+  --ink: #ece9e3;
+  --ink-secondary: #b8b4ac;
+  --ink-muted: #a1a1aa;
+  --ink-faint: #70707a;
+  --accent: #9dbbd6;
+  --accent-hover: #b4cce2;
+  --accent-on: #161513;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --signal: #7fb8ae;
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
+  --live: #e07a6e;
+  --error: #e5837a;
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
+  --success: #66b391;
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning: #d9a84e;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* =========================================================================
+ * 2. ETHEREAL BLUE — soft denim blues + deep navy
+ * ========================================================================= */
+:root[data-palette="blue"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #f0f4f8;
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --ink: #1e293b;
+  --ink-secondary: #475569;
+  --ink-muted: #64748b;
+  --ink-faint: #94a3b8;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-on: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --signal: #0ea5e9;
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
+  --live: #ef4444;
+  --error: #dc2626;
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
+  --success: #059669;
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
+  --warning: #d97706;
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+:root[data-palette="blue"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-raised: #334155;
+  --ink: #f1f5f9;
+  --ink-secondary: #cbd5e1;
+  --ink-muted: #94a3b8;
+  --ink-faint: #64748b;
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-on: #0f172a;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --signal: #38bdf8;
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
+  --live: #f87171;
+  --error: #ef4444;
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
+  --success: #34d399;
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning: #fbbf24;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* =========================================================================
+ * 3. SAGE GREEN — mint cream + deep forest
+ * ========================================================================= */
+:root[data-palette="sage"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #f0fdf4;
+  --surface: #ffffff;
+  --surface-raised: #f7fef9;
+  --ink: #14532d;
+  --ink-secondary: #3f6212;
+  --ink-muted: #4d7c0f;
+  --ink-faint: #65a30d;
+  --accent: #16a34a;
+  --accent-hover: #15803d;
+  --accent-on: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --signal: #059669;
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
+  --live: #dc2626;
+  --error: #b91c1c;
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
+  --success: #16a34a;
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
+  --warning: #ca8a04;
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+:root[data-palette="sage"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #052e16;
+  --surface: #064e3b;
+  --surface-raised: #065f46;
+  --ink: #ecfdf5;
+  --ink-secondary: #a7f3d0;
+  --ink-muted: #6ee7b7;
+  --ink-faint: #34d399;
+  --accent: #4ade80;
+  --accent-hover: #86efac;
+  --accent-on: #052e16;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --signal: #2dd4bf;
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
+  --live: #f87171;
+  --error: #ef4444;
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
+  --success: #4ade80;
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning: #fbbf24;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* =========================================================================
+ * 4. MUTED PLUM — lavender + deep plum
+ * ========================================================================= */
+:root[data-palette="plum"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #faf5ff;
+  --surface: #ffffff;
+  --surface-raised: #fae8ff;
+  --ink: #3b0764;
+  --ink-secondary: #6b21a8;
+  --ink-muted: #7c3aed;
+  --ink-faint: #a78bfa;
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-on: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --signal: #a855f7;
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
+  --live: #dc2626;
+  --error: #b91c1c;
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
+  --success: #16a34a;
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
+  --warning: #ca8a04;
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+:root[data-palette="plum"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #1e0a2e;
+  --surface: #2e1050;
+  --surface-raised: #3b0764;
+  --ink: #faf5ff;
+  --ink-secondary: #d8b4fe;
+  --ink-muted: #c084fc;
+  --ink-faint: #a78bfa;
+  --accent: #c084fc;
+  --accent-hover: #d8b4fe;
+  --accent-on: #1e0a2e;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --signal: #e879f9;
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
+  --live: #f87171;
+  --error: #ef4444;
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
+  --success: #4ade80;
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning: #fbbf24;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* =========================================================================
+ * 5. SAND CLAY — Mocha Mousse + warm mocha
+ * ========================================================================= */
+:root[data-palette="sand"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #fef7ed;
+  --surface: #ffffff;
+  --surface-raised: #ffedd5;
+  --ink: #431407;
+  --ink-secondary: #9a3412;
+  --ink-muted: #c2410c;
+  --ink-faint: #ea580c;
+  --accent: #ea580c;
+  --accent-hover: #c2410c;
+  --accent-on: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --signal: #d97706;
+  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
+  --live: #dc2626;
+  --error: #b91c1c;
+  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
+  --success: #16a34a;
+  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
+  --warning: #ca8a04;
+  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+:root[data-palette="sand"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #1c0f08;
+  --surface: #2d1a0e;
+  --surface-raised: #3d2314;
+  --ink: #fef7ed;
+  --ink-secondary: #fdba74;
+  --ink-muted: #fb923c;
+  --ink-faint: #f97316;
+  --accent: #fb923c;
+  --accent-hover: #fdba74;
+  --accent-on: #1c0f08;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --signal: #fbbf24;
+  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
+  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
+  --live: #f87171;
+  --error: #ef4444;
+  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
+  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
+  --success: #4ade80;
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning: #fbbf24;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* =========================================================================
+ * Shared tokens (typography, spacing, motion, layout) — theme-independent
+ * ========================================================================= */
+:root {
   --gray-0: #ffffff;
   --gray-25: #fcfcfc;
   --gray-50: #f9f9f9;
@@ -29,47 +317,11 @@
   --gray-900: #18181b;
   --gray-950: #101012;
 
-  /* Semantic — light theme (warm paper chrome) */
-  --bg: #f7f5f1;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --ink: #211f1b;
-  --ink-secondary: #5c5a54;
-  --ink-muted: #6e6b64;
-  --ink-faint: #6e6b64;
   --text-secondary: var(--ink-secondary);
   --transition-fast: var(--dur-fast) var(--ease-out);
   --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
   --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
 
-  /* Action accent — the only hue for interactive states */
-  --accent: #3a5a78;
-  --accent-hover: #2e4a63;
-  --accent-on: #ffffff;
-  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
-  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
-
-  /* Signal — reserved for narration / live audio state */
-  --signal: #2c5d5a;
-  --signal-soft: color-mix(in srgb, var(--signal) 12%, transparent);
-  --signal-ring: color-mix(in srgb, var(--signal) 50%, transparent);
-
-  /* Live — recording and destructive actions only */
-  --live: #a03a2e;
-
-  /* Functional status pairs */
-  --error: #b4342f;
-  --error-bg: color-mix(in srgb, var(--error) 8%, transparent);
-  --error-ring: color-mix(in srgb, var(--error) 45%, transparent);
-  --success: #1f7a55;
-  --success-bg: color-mix(in srgb, var(--success) 9%, transparent);
-  --warning: #925c00;
-  --warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
-
-  /* Typography
-   * Weights in use: 400 (body), 500 (UI emphasis / body headings),
-   * 650 (display headings — Fraunces variable axis; static faces round up).
-   */
   --font-display: "Fraunces Variable", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   --font-ui: "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-reading: "Literata Variable", Georgia, "Times New Roman", serif;
@@ -83,8 +335,6 @@
   --text-2xl: 34px;
   --text-3xl: 44px;
 
-  /* Semantic type roles — map to the scale above. Use these in components
-   * so the underlying size can change without breaking the role grammar. */
   --text-display: var(--text-3xl);
   --text-headline: var(--text-xl);
   --text-title: var(--text-lg);
@@ -94,30 +344,22 @@
   --text-caption: var(--text-sm);
   --text-micro: var(--text-xs);
 
-  /* Line-heights — headings tight, body relaxed for readability. */
   --leading-tight: 1.2;
   --leading-snug: 1.35;
   --leading-normal: 1.6;
   --leading-relaxed: 1.7;
 
-  /* Semantic spacing — relationship-based gaps, not ad-hoc values.
-   * Rule: space between things that belong together is small; space
-   * between things that don't is large. */
-  --gap-inline: var(--space-2);      /* within a component (button padding, input gaps) */
-  --gap-stack: var(--space-3);       /* between related items (label above input) */
-  --gap-section: var(--space-5);     /* between sections (card to card) */
-  --gap-group: var(--space-6);       /* between groups of sections */
-  --gap-page: var(--space-5);        /* page margins (desktop) */
+  --gap-inline: var(--space-2);
+  --gap-stack: var(--space-3);
+  --gap-section: var(--space-5);
+  --gap-group: var(--space-6);
+  --gap-page: var(--space-5);
 
-  /* Surface doctrine — flat sections use hairlines + whitespace;
-   * floating things (menus, popovers) use --shadow-pop; modals use
-   * --shadow-overlay. No card gets a shadow unless it floats. */
   --surface-card: var(--surface);
   --surface-raised: var(--surface-raised);
   --border-hairline: 1px solid var(--hairline);
   --border-hairline-strong: 1px solid var(--hairline-strong);
 
-  /* Spacing (4px grid) */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -127,18 +369,14 @@
   --space-7: 48px;
   --space-8: 64px;
 
-  /* Radius */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;
 
-  /* Elevation — borders carry separation; shadows float above content.
-   * --shadow-pop is the lighter tier for menus/sheets vs full overlays. */
   --shadow-overlay: 0 16px 40px color-mix(in srgb, var(--ink) 18%, transparent);
   --shadow-pop: 0 10px 28px color-mix(in srgb, var(--ink) 12%, transparent);
 
-  /* Motion */
   --dur-instant: 80ms;
   --dur-meter: 90ms;
   --dur-toast: 160ms;
@@ -151,12 +389,10 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* Control heights */
   --control-h-sm: 28px;
   --control-h-md: 36px;
   --control-h-lg: 44px;
 
-  /* Z-index ladder — raised < nav < panel < overlay < toast */
   --z-raised: 3;
   --z-nav: 10;
   --z-panel: 60;
@@ -164,49 +400,9 @@
   --z-overlay: 80;
   --z-toast: 90;
 
-  /* Breakpoints — canonical responsive widths. CSS media queries cannot
-   * consume custom properties; these tokens document the values that
-   * @media (min-width: …) blocks must hardcode.
-   *   sm: 720px, md: 1024px
-   */
   --bp-sm: 720px;
   --bp-md: 1024px;
 
-  /* Layout */
   --titlebar-height: 52px;
   --transport-height: 76px;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #161513;
-  --surface: #1e1c19;
-  --surface-raised: #262420;
-  --ink: #ece9e3;
-  --ink-secondary: #b8b4ac;
-  --ink-muted: var(--gray-400);
-  --ink-faint: var(--gray-500);
-  --text-secondary: var(--ink-secondary);
-  --transition-fast: var(--dur-fast) var(--ease-out);
-  --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
-  --hairline-strong: color-mix(in srgb, var(--ink) 17%, transparent);
-  --accent: #9dbbd6;
-  --accent-hover: #b4cce2;
-  --accent-on: #161513;
-  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
-  --signal: #7fb8ae;
-  --signal-soft: color-mix(in srgb, var(--signal) 14%, transparent);
-  --signal-ring: color-mix(in srgb, var(--signal) 55%, transparent);
-  --live: #e07a6e;
-  /* Status pairs remapped warm so they read on #1e1c19 */
-  --error: #e5837a;
-  --error-bg: color-mix(in srgb, var(--error) 12%, transparent);
-  --error-ring: color-mix(in srgb, var(--error) 50%, transparent);
-  --success: #66b391;
-  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
-  --warning: #d9a84e;
-  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
-  --shadow-overlay: 0 16px 40px color-mix(in srgb, var(--ink) 55%, transparent);
-  --shadow-pop: 0 10px 28px color-mix(in srgb, var(--ink) 45%, transparent);
 }
