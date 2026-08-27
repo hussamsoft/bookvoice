@@ -374,6 +374,7 @@
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--ink);
+  margin: 0;
 }
 
 .studio-section-kicker {
@@ -959,31 +960,23 @@
 .studio-waveform-output {
   font-variant-numeric: tabular-nums;
 }
-
 .studio-waveform-plot {
-  position: relative;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
+  width: 100%;
+  height: 64px;
 }
 
 .studio-waveform-selection {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--signal-soft);
-  border-left: 1px solid var(--signal-ring);
-  border-right: 1px solid var(--signal-ring);
-  pointer-events: none;
+  fill: var(--signal-soft);
+  stroke: var(--signal-ring);
+  stroke-width: 0.5;
 }
 
 .studio-waveform-bars {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  height: 64px;
-  padding: var(--space-2);
+  fill: var(--ink-muted);
 }
 
 .studio-loop-controls {
