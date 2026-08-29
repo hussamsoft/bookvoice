@@ -1,5 +1,5 @@
 /* eslint-disable react/only-export-components */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);

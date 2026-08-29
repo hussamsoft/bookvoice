@@ -122,7 +122,7 @@ function App() {
         const index = tabs.indexOf(document.activeElement);
         if (index === -1) return;
         event.preventDefault();
-        const modeKeys = Object.keys(MODE_LABELS);
+        const _modeKeys = Object.keys(MODE_LABELS);
         let nextIndex;
         if (key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
         else if (key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;

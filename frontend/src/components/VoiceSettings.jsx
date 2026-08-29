@@ -55,7 +55,7 @@ export default function VoiceSettings({
                 validateActiveVoice(data, activeVoiceId);
                 setFetchFailed(false);
                 return data;
-            } catch (error) {
+            } catch {
                 if (announceFailure) {
                     toast.error(
                         backendReadyRef.current
@@ -107,7 +107,7 @@ export default function VoiceSettings({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [fetchVoices]);
+    }, [fetchVoices, toast]);
 
     useEffect(() => {
         if (!backendReady) return;

@@ -7,7 +7,7 @@ import {
     createBookArchive,
     createBookAudiobook,
     cancelBookAudiobook,
-    bookAudiobookContentUrl,
+    bookAudiobookContentUrl, getBookAudiobook,
     getBookPage,
     createBookPreparation,
     cancelBookPreparation,
@@ -43,19 +43,7 @@ import TextPageColumn from './reader/TextPageColumn';
 import PreparationProgress from './PreparationProgress';
 import { useAudioTransport } from '../hooks/useAudioTransport';
 import { audioRangeForWord, waitForAudioMetadata } from '../utils/media';
-import {
-    normalizePronunciationText,
-    pronounceWithSystemVoice,
-    stopSystemPronunciation,
-} from '../utils/wordPronunciation';
-import { preparedPageAudioEntry, resolvePageContent } from '../utils/pageContentResolver';
-import {
-    activePreparedProfile,
-    missingPreparedTextPages,
-    preparedBookDetails,
-    preparationForActiveProfile,
-    shouldAdoptPreparedProfile,
-} from '../utils/preparedPages';
+
 import {
     documentFingerprint,
     loadReadingProgress,
@@ -73,6 +61,7 @@ import {
     updateMediaSession,
 } from '../utils/mediaSession';
 import { mapWithConcurrency } from '../utils/boundedConcurrency';
+import { Download, Pause, Play } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -86,6 +75,9 @@ import {
     nextChunkIndex,
     playbackTargetAtGlobalTime,
 } from '../utils/playlistController';
+import { activePreparedProfile, preparedBookDetails, shouldAdoptPreparedProfile } from '../utils/preparedPages';
+import { normalizePronunciationText, pronounceWithSystemVoice, stopSystemPronunciation } from '../utils/wordPronunciation';
+import { preparedPageAudioEntry, resolvePageContent } from '../utils/pageContentResolver';
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;

@@ -36,7 +36,7 @@ export default function CameraCapture({ onCapture }) {
                     if (caps.zoom) {
                         setZoom(track.getSettings().zoom || caps.zoom.min);
                     }
-                } catch (e) {
+                } catch {
                     // Non-critical: capabilities detection failed
                 }
 
@@ -73,7 +73,7 @@ export default function CameraCapture({ onCapture }) {
                 advanced: [{ torch: newTorchState }],
             });
             setTorchOn(newTorchState);
-        } catch (err) {
+        } catch {
             // Non-critical: torch toggle failed
         }
 
@@ -89,7 +89,7 @@ export default function CameraCapture({ onCapture }) {
                 advanced: [{ zoom: newZoom }],
             });
             setZoom(newZoom);
-        } catch (err) {
+        } catch {
             // Non-critical: zoom apply failed
         }
     };

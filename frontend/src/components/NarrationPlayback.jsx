@@ -25,7 +25,7 @@ export default function NarrationPlayback({
     const rafRef = useRef(0);
     const currentWordRef = useRef(-1);
     const transport = useAudioTransport(audioRef);
-    const togglePlayback = transport.toggle;
+
 
     useEffect(() => {
         let cancelled = false;

@@ -1,3 +1,22 @@
+## 2.6.1 - 2026-08-28
+
+### Fixed
+
+- **Critical**: Fixed multiple runtime-breaking missing imports in PdfViewer.jsx that crashed the reader on mount and during audiobook export. Added missing `Pause`, `Play`, `Download` icon imports (play/pause and page-download buttons rendered blank/crashed), and missing util imports: `getBookAudiobook` (audiobook export polling crashed), `shouldAdoptPreparedProfile`, `activePreparedProfile`, `preparedBookDetails` (prepared-library rendering crashed), `normalizePronunciationText`, `pronounceWithSystemVoice`, `stopSystemPronunciation` (word-pronunciation crashed), `preparedPageAudioEntry`, `resolvePageContent` (page content resolution crashed).
+- Fixed `VERSION` file (was `2.5.0`) to match `frontend/package.json` and CHANGELOG (`2.6.0`) — the build script refuses to build on mismatch.
+- Removed unused imports: `useEffect` (Toast.jsx), `screen` (Transcript.test.jsx), `togglePlayback` (NarrationPlayback.jsx).
+- Fixed empty catch blocks with unused error bindings in CameraCapture.jsx and VoiceSettings.jsx (use optional catch binding).
+- Fixed React Hook exhaustive-deps warning in VoiceSettings.jsx (added missing `toast` dependency).
+- Fixed unused `modeKeys` variable in App.jsx.
+
+### Test results
+
+- Frontend unit: 251/251 passing
+- Frontend lint: 0 diagnostics
+- Backend pytest: 129 passed (1 skipped — dist-dependent)
+- Build: entry 225.02 kB (70.88 kB gzipped)
+
+
 ## 2.6.0 - 2026-08-27
 
 ### Added
