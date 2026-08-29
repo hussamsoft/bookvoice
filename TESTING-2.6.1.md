@@ -29,15 +29,13 @@ audiobook export flows, plus lint and dead-code cleanup. Version bumped from
 
 ## Testing artifact
 
-- `dist/BookVoice-Dev.exe` (26 MB) — development launcher using system Python.
-  Double-click to start BookVoice. No installer, no venv, no separate setup.
-- `dist/BookVoice.exe` (244 MB) — full portable launcher (embedded Python
-  worker + pinned FFmpeg). This is the functionally-equivalent release build;
-  FFmpeg is a GPL binary staged from a separate source.
+- **`dist/BookVoice-Dev.exe`** (26 MB) — development launcher using system
+  Python. Double-click to start BookVoice. No installer, no venv, no separate
+  setup. Version reports `2.6.1` at startup. BookVoice icon embedded.
 
 ## Install / run
 
-1. Take `dist/BookVoice-Dev.exe` (or `BookVoice.exe`).
+1. Take `dist/BookVoice-Dev.exe`.
 2. Double-click. On first run the launcher shows a splash; narration becomes
    available once the status area reads "Model ready on CPU/CUDA".
 3. The default mode is **Read**. Open the app window.
