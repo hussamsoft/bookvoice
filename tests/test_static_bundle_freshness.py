@@ -28,6 +28,13 @@ SET_ATTRIBUTE = re.compile(r"""setAttribute\(\s*['"](data-[\w-]+)['"]""")
 ROOT_SELECTOR = re.compile(r""":root((?:\[[^\]]*\])+)""")
 DATA_ATTRIBUTE = re.compile(r"""(data-[\w-]+)""")
 LOCAL_ASSET = re.compile(r"""(?:src|href)="(/assets/[^"]+)\"""")
+# A Windows drive path with real path segments (e.g. "C:/Program Files/") inside
+# a built asset means a build-machine path leaked into the bundle. Requiring a
+# trailing segment keeps minified `http://` and object keys like `a:/re/` out.
+SEP = r"(?:\\{1,2}|/)"  # a JS string literal doubles Windows backslashes
+LOCAL_PATH = re.compile(
+    rf"(?<![A-Za-z0-9])[A-Za-z]:{SEP}[A-Za-z0-9 _.\-]{{2,}}{SEP}"
+)
 
 
 def _theme_attributes(css: str) -> set[str]:
@@ -69,6 +76,28 @@ class StaticBundleFreshnessTests(unittest.TestCase):
             [],
             "backend/static CSS predates frontend/src/styles/tokens.css "
             f"(no rules for {missing}). Rebuild the frontend and re-sync backend/static.",
+        )
+
+    def test_bundle_has_no_absolute_local_paths(self):
+        """A build-machine path baked into the bundle breaks every API call.
+
+        Passing `VITE_API_BASE_URL=/api` through Git Bash mangles the value into
+        `C:/Program Files/Git/api` (MSYS2 rewrites POSIX-looking values), and the
+        bundle ships pointing at a filesystem path. `npm run build` alone is
+        correct because frontend/.env.production supplies the value with no
+        shell in the way. Nothing else catches it: the bundle still builds, the
+        hashes still match, and only a live request fails.
+        """
+        offenders = []
+        for asset in sorted(STATIC.glob("assets/*.js")) + [INDEX_HTML]:
+            text = asset.read_text(encoding="utf-8", errors="replace")
+            for match in set(LOCAL_PATH.findall(text)):
+                offenders.append(f"{asset.name}: {match}")
+        self.assertEqual(
+            sorted(offenders),
+            [],
+            "backend/static has build-machine paths baked in: "
+            f"{sorted(offenders)}. Rebuild with plain `npm run build`.",
         )
 
     def test_pre_paint_script_sets_the_source_theme_attributes(self):
