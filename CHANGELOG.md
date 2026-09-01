@@ -1,3 +1,32 @@
+## 2.6.2 - 2026-08-31
+
+### Fixed
+
+- **Critical**: Both launchers crashed on startup. `migrate_legacy_runtime` was deleted in v2.4.1 (`cdab5d4`) but both call sites survived it: `launch.main()` called it as a bare name (`NameError` on every launch) and `dev_launcher.main()` called `launch.migrate_legacy_runtime` (`AttributeError`). Neither entrypoint has end-to-end coverage, so both shipped.
+- **Critical**: `dev_launcher.py` called `launch.wait_until`, which has never existed in `launch.py` (only `scripts/simulate_app.py` defines one). It fired immediately after the backend started, so the dev launcher could never open the app. Replaced with a local poll over the existing `launch.backend_is_ready`, mirroring `launch.py`'s own readiness loop.
+- **Critical**: `PdfViewer.jsx` never imported `preparationForActiveProfile` or `missingPreparedTextPages` from `utils/preparedPages.js`, despite both being exported and unit-tested there. Both call sites threw `ReferenceError` at runtime: restoring a book session, and `handlePrepareWholeBook` (the whole-book prepare feature). Same class of bug as the missing PdfViewer imports fixed in 2.6.1.
+- **Critical**: `backend/static` shipped a UI bundle that predated the v2.6.0 theme system. The source moved to `data-palette`/`data-mode` in `tokens.css`, but the committed bundle was never rebuilt, so 2.6.0 and 2.6.1 both served a pre-paint script still setting `data-theme` and CSS with no palette rules. The committed HTML and CSS agreed with each other, which is why nothing caught it. Rebuilt with the release env; `frontend/dist` and `backend/static` are now byte-identical.
+- `frontend/package-lock.json` carried stale metadata (`frontend` / `2.5.0`) that disagreed with `package.json`.
+
+### Changed
+
+- oxlint now enforces `no-undef` with browser/node/es2024 globals. The config previously declared no `env`, so the rule was off and an undefined identifier linted clean — that is how the missing PdfViewer imports in both 2.6.1 and this release reached a build.
+- CI verifies `backend/static` matches a fresh frontend build (`scripts/check_static_sync.py`). `build.py` already compared the trees, but only during a full release build (which needs FFmpeg, the models, and PyInstaller), so CI never saw the drift. The checker normalizes line endings, because `.gitattributes` stores text as LF while the Windows runner checks it out as CRLF.
+- `.gitignore` now covers `tools/ffmpeg/` (~194 MB of pinned FFmpeg/FFprobe binaries, resolved at build time from `BOOKVOICE_MEDIA_TOOLS_SOURCE`, `PATH`, or a previous dist payload) and the `%SystemDrive%/` icon-cache artifacts accidentally committed in v2.4.1.
+
+### Added
+
+- `tests/test_entrypoint_symbols.py` statically resolves call targets and `launch.*` attribute access across the four entrypoint modules, so deleting a function and leaving a caller behind fails the suite instead of shipping.
+- `tests/test_static_bundle_freshness.py` compares the committed bundle against `tokens.css` rather than against itself, which is the only way this drift is visible. It fails against the 2.6.1 bundle on both the CSS rules and the pre-paint attributes.
+
+### Test results
+
+- Backend pytest: 411 passed (15 subtests)
+- Frontend unit: 251/251 passing
+- Frontend lint: 0 diagnostics (with `no-undef` enabled)
+- Build: entry 225.04 kB (70.90 kB gzipped); initial entry 295.54 KiB against the 350 KiB budget
+
+
 ## 2.6.1 - 2026-08-28
 
 ### Fixed
