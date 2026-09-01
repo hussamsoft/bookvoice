@@ -39,6 +39,10 @@ backend/data/
 !tests/fixtures/*.wav
 
 tools/python-embed/
+# Pinned FFmpeg/FFprobe staging copy (~194 MB of binaries). Not a source
+# input: build.py resolves them from BOOKVOICE_MEDIA_TOOLS_SOURCE, PATH, or
+# a previous dist payload (scripts/stage_media_tools.py).
+tools/ffmpeg/
 
 build/
 *.spec
@@ -63,6 +67,11 @@ installer/
 Old Docs/
 backend/data-e2e/
 .venv-linux/
+
+# Stray Windows icon-cache artifacts accidentally committed in v2.4.1
+# (ProgramData/Microsoft/Windows/Caches/*.db). Nothing in the tree needs
+# them; ignore the whole directory so a path-expansion slip cannot re-add it.
+%SystemDrive%/
 
 # Keep the committed, preloaded default voices (override the global *.wav rule)
 !voices/*.wav
