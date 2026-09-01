@@ -116,6 +116,22 @@ def request(base: str, method: str, path: str, payload: dict | None = None) -> t
         return exc.code, {"detail": detail}
 
 
+def request_status(base: str, path: str) -> int:
+    """Status code only, for routes that serve HTML/JS rather than JSON.
+
+    `request` json-decodes every success body, so using it for the SPA index or
+    a bundle asset raises JSONDecodeError before the launcher phase runs.
+    """
+    call = urllib.request.Request(base + path, headers=dict(DEVICE_HEADERS), method="GET")
+    try:
+        with urllib.request.urlopen(call, timeout=30) as response:
+            response.read()
+            return response.status
+    except urllib.error.HTTPError as exc:
+        exc.read()
+        return exc.code
+
+
 def upload_file(base: str, path: str, source: Path) -> tuple[int, dict]:
     boundary = f"bookvoice-smoke-{uuid.uuid4().hex}"
     body = bytearray()
@@ -147,7 +163,8 @@ def server_checks(base: str) -> list[str]:
     errors: list[str] = []
 
     status, body = request(base, "GET", "/api/config/")
-    if status != 200 or "localFileActions" not in body:
+    capabilities = body.get("capabilities", {}) if isinstance(body, dict) else {}
+    if status != 200 or "localFileActions" not in capabilities:
         errors.append(f"/api/config/ missing capabilities: {status} {body}")
 
     status, body = request(base, "GET", "/api/voices/")
@@ -162,26 +179,29 @@ def server_checks(base: str) -> list[str]:
     if not FIXTURE_PDF.is_file():
         errors.append(f"fixture missing: {FIXTURE_PDF}")
     else:
+        # POST /api/books and GET /api/books/{id} return the book unwrapped
+        # (only the list route wraps, as {"books": [...]}); frontend api.js
+        # consumes both the same way.
         status, body = upload_file(base, "/api/books", FIXTURE_PDF)
-        book_id = body.get("book", {}).get("id") if isinstance(body, dict) else None
+        book_id = body.get("id") if isinstance(body, dict) else None
         if status != 201 or not book_id:
             errors.append(f"book import failed: {status} {body}")
         else:
             status, body = request(base, "GET", f"/api/books/{book_id}")
-            if status != 200 or body.get("book", {}).get("id") != book_id:
+            if status != 200 or body.get("id") != book_id:
                 errors.append(f"imported book detail failed: {status} {body}")
 
     status, body = request(base, "GET", "/api/studio/projects")
     if status != 200 or not isinstance(body, dict):
         errors.append(f"/api/studio/projects failed: {status} {body}")
 
-    status, _ = request(base, "GET", "/")
+    status = request_status(base, "/")
     if status != 200:
         errors.append(f"static index not served: {status}")
     else:
         index_ref = asset_ref(ROOT / "dist" / "static" / "index.html")
         if index_ref:
-            status, _ = request(base, "GET", f"/assets/{index_ref}")
+            status = request_status(base, f"/assets/{index_ref}")
             if status != 200:
                 errors.append(f"bundle asset not served: /assets/{index_ref} -> {status}")
 
