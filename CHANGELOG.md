@@ -1,4 +1,4 @@
-## Unreleased
+## 2.6.3 - 2026-09-01
 
 A full code review of the 2.6.2 tree. Every item below is a defect that review
 found, not a refactor.
