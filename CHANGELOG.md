@@ -7,9 +7,11 @@
 - **Critical**: `PdfViewer.jsx` never imported `preparationForActiveProfile` or `missingPreparedTextPages` from `utils/preparedPages.js`, despite both being exported and unit-tested there. Both call sites threw `ReferenceError` at runtime: restoring a book session, and `handlePrepareWholeBook` (the whole-book prepare feature). Same class of bug as the missing PdfViewer imports fixed in 2.6.1.
 - **Critical**: `backend/static` shipped a UI bundle that predated the v2.6.0 theme system. The source moved to `data-palette`/`data-mode` in `tokens.css`, but the committed bundle was never rebuilt, so 2.6.0 and 2.6.1 both served a pre-paint script still setting `data-theme` and CSS with no palette rules. The committed HTML and CSS agreed with each other, which is why nothing caught it. Rebuilt with the release env; `frontend/dist` and `backend/static` are now byte-identical.
 - `frontend/package-lock.json` carried stale metadata (`frontend` / `2.5.0`) that disagreed with `package.json`.
+- **Critical**: `npm run electron:dev` failed on Windows. `NODE_ENV=development electron .` is a bash-only env-var prefix, and npm runs scripts through `cmd.exe` on Windows, which treats the prefix as a program name (`'NODE_ENV' is not recognized`). The script now passes `--dev`, which works on every platform without adding a dependency; `main.js` still honours `NODE_ENV` when it is exported normally.
 
 ### Changed
 
+- The committed bundle is checked for build-machine paths. A rebuild during this release baked `C:/Program Files/Git/api` in place of `/api` as the API base — Git Bash (MSYS2) rewrites POSIX-looking env values into Windows paths, so passing `VITE_API_BASE_URL=/api` as a shell prefix corrupts it. `frontend/.env.production` already supplies the value, so a plain `npm run build` is correct; CI and `build.py` were never affected. Caught before release and now guarded by a test, since the bundle still built, hashes matched, and `build.py` only looked for hardcoded loopback origins.
 - oxlint now enforces `no-undef` with browser/node/es2024 globals. The config previously declared no `env`, so the rule was off and an undefined identifier linted clean — that is how the missing PdfViewer imports in both 2.6.1 and this release reached a build.
 - CI verifies `backend/static` matches a fresh frontend build (`scripts/check_static_sync.py`). `build.py` already compared the trees, but only during a full release build (which needs FFmpeg, the models, and PyInstaller), so CI never saw the drift. The checker normalizes line endings, because `.gitattributes` stores text as LF while the Windows runner checks it out as CRLF.
 - `.gitignore` now covers `tools/ffmpeg/` (~194 MB of pinned FFmpeg/FFprobe binaries, resolved at build time from `BOOKVOICE_MEDIA_TOOLS_SOURCE`, `PATH`, or a previous dist payload) and the `%SystemDrive%/` icon-cache artifacts accidentally committed in v2.4.1.
@@ -21,10 +23,12 @@
 
 ### Test results
 
-- Backend pytest: 411 passed (15 subtests)
+- Backend pytest: 412 passed (15 subtests)
 - Frontend unit: 251/251 passing
 - Frontend lint: 0 diagnostics (with `no-undef` enabled)
-- Build: entry 225.04 kB (70.90 kB gzipped); initial entry 295.54 KiB against the 350 KiB budget
+- End-to-end journeys (`scripts/simulate_app.py`): 60 passed, 0 failed — real CPU TTS, M4B export, archive export, Studio device isolation, and the hosted access gate
+- Browser verification against a live backend: all three modes render, every API call returns 200, and all 10 palette/mode combinations apply and persist
+- Build: entry 225.02 kB (70.88 kB gzipped); initial entry 295.52 KiB against the 350 KiB budget
 
 
 ## 2.6.1 - 2026-08-28
