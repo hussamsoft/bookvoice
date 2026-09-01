@@ -1,3 +1,37 @@
+## Unreleased
+
+A full code review of the 2.6.2 tree. Every item below is a defect that review
+found, not a refactor.
+
+### Fixed
+
+- **Critical**: `npm run electron:dev` still failed on Windows after the 2.6.2 fix. `package.json` declares `"type": "module"`, so Node loaded `electron/main.js` as ESM and its `require()` calls threw `ReferenceError: require is not defined in ES module scope`. The `--dev` flag 2.6.2 added was correct but never reached — the process died before parsing argv, which is why testing the flag in isolation looked fine. Renamed to `electron/main.cjs` and `electron/preload.cjs`.
+- `dev_launcher.py`'s readiness poll dropped two early exits that `launch.py` has. It ignored `process.poll()`, so a backend that died during startup burned the full 60 s timeout and then reported the generic "did not start", and it called `backend_is_ready` rather than `backend_readiness`, discarding the `failed` flag that distinguishes a TTS model failure. It now mirrors `launch.py` and reports the real cause.
+- `scripts/measure_bundle.py` resolved `index.html`'s asset references against `FRONTEND_DIST` instead of the `assets_dir` it was asked to measure. Measuring any other tree found no entry chunks, silently reported a 0 KiB initial entry, and passed the budget check — which is exactly how `build.py` calls it (`assets_dir=DIST / "static"`). A reference the tree cannot satisfy is now a hard failure instead of a zero.
+- `build.py`'s "`frontend/dist`, `dist/static` and `backend/static` are not identical" check could not fail: `main()` copies both from `frontend/dist` moments before `validate()` runs, so it only ever proved that `copytree` works. It now asks the question that matters — was the *committed* bundle already current — before the copy lands, reusing `scripts/check_static_sync.py` so the release gate and CI share one definition of "matches", CRLF normalization included.
+- `tests/test_entrypoint_symbols.py` only resolved one level of attribute access, so it verified `launch.tunnel` exists while letting `launch.tunnel.resolve_settings` through unchecked — the same `AttributeError` shape the module exists to catch. It now walks the whole dotted chain.
+- `tests/test_static_bundle_freshness.py`'s build-machine-path scan skipped `.mjs` (the pdf.worker bundle) and `.css`, and its drive-path regex matched minified ternaries followed by a regex literal (`x?a:/re/.test(y)`). The scan now covers all three extensions and requires the drive letter to open a string literal, which is what a leaked path actually looks like.
+- `tests/test_static_bundle_freshness.py` required the pre-paint script's attributes to equal the CSS's exactly, so adding an unrelated attribute would have failed the build for a change that breaks nothing. The contract is containment: every attribute the CSS themes on must be set before paint.
+- `scripts/check_static_sync.py` printed remediation commands rooted at the repo, but CI runs it from `frontend/`.
+
+### Removed
+
+- `POST /api/studio/projects/{id}/outputs/{id}/download` and its `SAVE_OUTPUT` job, along with `studio_service.save_output_to_downloads` and `_windows_downloads_dir`. Nothing has called them since the UI moved to the browser download (`GET .../download`), and the destination was wrong by design for a tunneled session: it wrote to the *host* machine's Downloads folder, not the viewer's.
+- Dead `get_git_version()` in `launch.py`, which had no callers and a latent bug of its own — its `except` clause referenced `_sp`, a name bound only inside the `try` block, so any failure raised `NameError` instead of falling back to the VERSION file. It shipped inside `Launcher.exe`.
+
+### Changed
+
+- CI runs `npm run lint`. Nothing did — not CI, not a git hook, not `build.py` — so the `no-undef` rule 2.6.2 enabled "so missing imports fail lint" was never enforced.
+- oxlint scopes Node globals to `electron/**`, `*.config.js` and `setupTests.js` via `overrides`. Declaring `node: true` globally meant `process`, `require` and `__dirname` linted clean in browser code, where they are runtime errors. Verified by reintroducing a `process.env` reference in `src/utils/format.js`: it now fails lint.
+- `PdfViewer.jsx` imported `utils/preparedPages` twice.
+
+### Test results
+
+- Backend pytest: 409 passed (15 subtests) — 412 minus the three tests covering the removed save-to-Downloads path
+- Frontend unit: 250/250 passing
+- Frontend lint: 0 diagnostics
+- `scripts/check_static_sync.py`: `backend/static` matches a fresh `frontend/dist`
+
 ## 2.6.2 - 2026-08-31
 
 ### Fixed
@@ -24,7 +58,7 @@
 ### Test results
 
 - Backend pytest: 412 passed (15 subtests)
-- Frontend unit: 251/251 passing
+- Frontend unit: 250/250 passing
 - Frontend lint: 0 diagnostics (with `no-undef` enabled)
 - End-to-end journeys (`scripts/simulate_app.py`): 60 passed, 0 failed — real CPU TTS, M4B export, archive export, Studio device isolation, and the hosted access gate
 - Browser verification against a live backend: all three modes render, every API call returns 200, and all 10 palette/mode combinations apply and persist

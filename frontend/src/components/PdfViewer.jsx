@@ -28,7 +28,6 @@ import { createSessionId } from '../utils/session';
 import { readStoredString, writeStoredString } from '../utils/storage';
 import { canonicalAudioUrl, createPageAudioCache, cacheKey } from '../utils/pageAudioCache';
 import { clearPdfHighlights } from '../utils/pdfHighlight';
-import { missingPreparedTextPages, preparationForActiveProfile } from '../utils/preparedPages';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
@@ -76,7 +75,13 @@ import {
     nextChunkIndex,
     playbackTargetAtGlobalTime,
 } from '../utils/playlistController';
-import { activePreparedProfile, preparedBookDetails, shouldAdoptPreparedProfile } from '../utils/preparedPages';
+import {
+    activePreparedProfile,
+    missingPreparedTextPages,
+    preparationForActiveProfile,
+    preparedBookDetails,
+    shouldAdoptPreparedProfile,
+} from '../utils/preparedPages';
 import { normalizePronunciationText, pronounceWithSystemVoice, stopSystemPronunciation } from '../utils/wordPronunciation';
 import { preparedPageAudioEntry, resolvePageContent } from '../utils/pageContentResolver';
 const ZOOM_MIN = 0.7;

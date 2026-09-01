@@ -65,21 +65,72 @@ def _bound_names(tree: ast.AST) -> set[str]:
     return names
 
 
+def _dotted_path(node: ast.Attribute) -> str | None:
+    """Flatten `launch.tunnel.resolve_settings` into that dotted string.
+
+    Returns None for anything not rooted at a bare `launch` name, e.g. a
+    subscript or a call result in the middle of the chain.
+    """
+    parts = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name) or current.id != "launch":
+        return None
+    return ".".join(reversed(parts))
+
+
+def _launch_attribute_paths(tree: ast.AST) -> set[str]:
+    """Every full `launch.…` chain, not just its first hop.
+
+    Checking one level only verified that `launch.tunnel` exists while letting
+    `launch.tunnel.resolve_settings` through unchecked -- the same shape of
+    AttributeError this module exists to catch.
+    """
+    paths = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        # Skip inner nodes: the outermost Attribute carries the whole chain.
+        if isinstance(getattr(node, "parent", None), ast.Attribute):
+            continue
+        path = _dotted_path(node)
+        if path:
+            paths.add(path)
+    return paths
+
+
+def _unresolved_segment(launch, path: str) -> bool:
+    """True when any hop of the dotted path is missing from the live module."""
+    target = launch
+    for part in path.split("."):
+        if not hasattr(target, part):
+            return True
+        target = getattr(target, part)
+    return False
+
+
+def _link_parents(tree: ast.AST) -> ast.AST:
+    """ast nodes carry no parent pointer; the chain walk needs one."""
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child.parent = parent
+    return tree
+
+
 class EntrypointSymbolTests(unittest.TestCase):
     def test_launch_attributes_used_by_consumers_exist(self):
-        """`launch.X` reached through an import must actually be defined."""
+        """`launch.X` (and `launch.X.Y`) reached through an import must exist."""
         launch = _load_launch()
         for rel in LAUNCH_CONSUMERS:
             with self.subTest(module=rel):
-                tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+                tree = _link_parents(ast.parse((ROOT / rel).read_text(encoding="utf-8")))
                 missing = sorted(
                     {
-                        node.attr
-                        for node in ast.walk(tree)
-                        if isinstance(node, ast.Attribute)
-                        and isinstance(node.value, ast.Name)
-                        and node.value.id == "launch"
-                        and not hasattr(launch, node.attr)
+                        path
+                        for path in _launch_attribute_paths(tree)
+                        if _unresolved_segment(launch, path)
                     }
                 )
                 self.assertEqual(

@@ -125,9 +125,12 @@ def main(argv: list[str] | None = None) -> int:
         print("[static-sync] backend/static does not match the fresh frontend build:")
         for problem in problems:
             print(problem)
+        # CI runs this from frontend/, so root the printed commands at the repo
+        # instead of assuming the caller's cwd is already the repo root.
         print(
-            "\n[static-sync] The committed UI bundle is stale. Rebuild and re-sync:\n"
-            "    cd frontend && npm run build\n"
+            f"\n[static-sync] The committed UI bundle is stale. Rebuild and"
+            f" re-sync (from {ROOT}):\n"
+            "    cd frontend && npm run build && cd ..\n"
             "    python -c \"import shutil,pathlib; d=pathlib.Path('backend/static');"
             " shutil.rmtree(d, ignore_errors=True);"
             " shutil.copytree('frontend/dist', d)\"\n"

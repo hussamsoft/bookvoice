@@ -409,66 +409,6 @@ class StudioProjectTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "seed"):
             studio.validate_generation_settings({"seed": -1})
 
-    def test_output_downloads_are_copied_without_overwriting_existing_files(self):
-        project = studio.create_project("Downloads")
-        root = studio.project_dir(project["id"])
-        output_id = "9" * 32
-        output_path = root / "outputs" / f"{output_id}.wav"
-        output_path.write_bytes(b"generated-audio")
-        manifest_path = root / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["outputs"] = [{
-            "id": output_id,
-            "kind": "NARRATION",
-            "fileName": "Downloads.wav",
-            "format": "WAV",
-            "path": f"outputs/{output_id}.wav",
-            "sha256": studio._sha256_file(output_path),
-        }]
-        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        downloads = Path(self.temp.name) / "Downloads"
-        downloads.mkdir()
-
-        with patch.object(studio, "_windows_downloads_dir", return_value=downloads):
-            first = studio.save_output_to_downloads(project["id"], output_id)
-            second = studio.save_output_to_downloads(project["id"], output_id)
-
-        self.assertEqual(first["fileName"], "Downloads.wav")
-        self.assertEqual(second["fileName"], "Downloads (1).wav")
-        self.assertEqual((downloads / first["fileName"]).read_bytes(), b"generated-audio")
-        self.assertEqual((downloads / second["fileName"]).read_bytes(), b"generated-audio")
-        self.assertNotIn("path", first)
-
-    def test_cancelled_output_download_removes_partial_file(self):
-        project = studio.create_project("Cancelled download")
-        root = studio.project_dir(project["id"])
-        output_id = "8" * 32
-        output_path = root / "outputs" / f"{output_id}.wav"
-        output_path.write_bytes(b"generated-audio")
-        manifest_path = root / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["outputs"] = [{
-            "id": output_id,
-            "kind": "NARRATION",
-            "fileName": "cancelled.wav",
-            "format": "WAV",
-            "path": f"outputs/{output_id}.wav",
-            "sha256": studio._sha256_file(output_path),
-        }]
-        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        downloads = Path(self.temp.name) / "Downloads"
-        downloads.mkdir()
-        cancelled = threading.Event()
-        cancelled.set()
-
-        with patch.object(studio, "_windows_downloads_dir", return_value=downloads):
-            with self.assertRaisesRegex(RuntimeError, "cancelled"):
-                studio.save_output_to_downloads(
-                    project["id"], output_id, cancel_event=cancelled
-                )
-
-        self.assertEqual(list(downloads.iterdir()), [])
-
     def test_open_project_folder_uses_only_the_managed_project_root(self):
         project = studio.create_project("Reveal")
         with patch.object(studio, "_open_directory") as open_directory:
@@ -507,7 +447,7 @@ class StudioProjectTests(unittest.TestCase):
             self.assertTrue(cancel_event.wait(2))
             raise RuntimeError("Output download was cancelled.")
 
-        submitted = studio.submit_job(project["id"], "SAVE_OUTPUT", work)
+        submitted = studio.submit_job(project["id"], "TEST", work)
         self.assertTrue(started.wait(2))
         studio.cancel_job(submitted["id"])
         deadline = time.time() + 3

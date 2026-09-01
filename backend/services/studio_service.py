@@ -1018,35 +1018,6 @@ def asset_path(project_id: str, asset_id: str, variant: str = "content") -> Path
     return target
 
 
-def _windows_downloads_dir() -> Path:
-    from services import access_service
-
-    if access_service.server_mode():
-        # On a server this would silently write into a directory the person can
-        # never open; the UI offers a browser download instead.
-        raise OSError("Saving to Downloads is only available in the desktop app.")
-    if os.name == "nt":
-        try:
-            import winreg
-
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-            ) as key:
-                raw = winreg.QueryValueEx(
-                    key, "{374DE290-123F-4565-9164-39C4925E467B}"
-                )[0]
-            target = Path(os.path.expandvars(str(raw))).expanduser()
-        except (OSError, ValueError):
-            target = Path.home() / "Downloads"
-    else:
-        target = Path.home() / "Downloads"
-    target.mkdir(parents=True, exist_ok=True)
-    if not target.is_dir():
-        raise RuntimeError("The Windows Downloads folder is unavailable.")
-    return target.resolve()
-
-
 def _download_file_name(value: str, output_id: str) -> str:
     supplied = Path(str(value or "")).name
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", supplied).strip(" .")
@@ -1076,83 +1047,6 @@ def output_download(project_id: str, output_id: str) -> tuple[Path, str]:
 
 def _is_cancelled(event: threading.Event | None) -> bool:
     return bool(event and event.is_set())
-
-
-def save_output_to_downloads(
-    project_id: str,
-    output_id: str,
-    *,
-    cancel_event: threading.Event | None = None,
-    progress=None,
-) -> dict:
-    safe_id = _validate_project_id(project_id)
-    if not PROJECT_ID_RE.fullmatch(str(output_id or "")):
-        raise ValueError("Invalid Studio output id.")
-    with _project_lock(safe_id):
-        manifest = _load_manifest(safe_id, normalize_jobs=False)
-        output = next(
-            (
-                copy.deepcopy(item)
-                for item in manifest.get("outputs") or []
-                if isinstance(item, dict) and item.get("id") == output_id
-            ),
-            None,
-        )
-    if output is None:
-        raise FileNotFoundError("Studio output was not found.")
-    source = asset_path(safe_id, output_id, "content")
-    expected_sha = str(output.get("sha256") or _sha256_file(source))
-    destination = _windows_downloads_dir()
-    requested_name = _download_file_name(output.get("fileName"), output_id)
-    stem = Path(requested_name).stem
-    suffix = Path(requested_name).suffix
-    target = None
-    handle = None
-    for index in range(10_000):
-        name = requested_name if index == 0 else f"{stem} ({index}){suffix}"
-        candidate = destination / name
-        try:
-            descriptor = os.open(
-                candidate,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
-                0o600,
-            )
-            target = candidate
-            handle = os.fdopen(descriptor, "wb")
-            break
-        except FileExistsError:
-            continue
-    if target is None or handle is None:
-        raise RuntimeError("Could not reserve a unique file in Downloads.")
-
-    copied = 0
-    total = max(1, source.stat().st_size)
-    try:
-        if _is_cancelled(cancel_event):
-            raise RuntimeError("Output download was cancelled.")
-        with handle as destination_handle, source.open("rb") as source_handle:
-            handle = None
-            for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
-                if _is_cancelled(cancel_event):
-                    raise RuntimeError("Output download was cancelled.")
-                destination_handle.write(chunk)
-                copied += len(chunk)
-                if progress:
-                    progress(min(0.98, copied / total))
-            destination_handle.flush()
-            os.fsync(destination_handle.fileno())
-        if _sha256_file(target) != expected_sha:
-            raise RuntimeError("Saved output did not match the generated file.")
-    except Exception:
-        if handle is not None:
-            handle.close()
-        target.unlink(missing_ok=True)
-        raise
-    return {
-        "outputId": output_id,
-        "fileName": target.name,
-        "destination": "Downloads",
-    }
 
 
 def _open_directory(path: Path) -> None:

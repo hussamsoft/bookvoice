@@ -323,24 +323,6 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertTrue(response.headers["content-disposition"].startswith("inline;"))
         self.assertEqual(response.content, b"browser-video")
 
-    def test_output_download_returns_a_persistent_background_job(self):
-        project = studio.create_project("Download route")
-        queued = {
-            "id": "d" * 32,
-            "projectId": project["id"],
-            "kind": "SAVE_OUTPUT",
-            "status": "QUEUED",
-            "progress": 0,
-            "canRetry": False,
-        }
-        with patch.object(studio_routes.studio, "submit_job", return_value=queued):
-            response = self.client.post(
-                f"/api/studio/projects/{project['id']}/outputs/{'e' * 32}/download"
-            )
-
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.json()["kind"], "SAVE_OUTPUT")
-
     def test_open_project_folder_returns_a_path_free_confirmation(self):
         project = studio.create_project("Folder route")
         with patch.object(

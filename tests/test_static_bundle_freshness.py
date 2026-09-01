@@ -29,11 +29,16 @@ ROOT_SELECTOR = re.compile(r""":root((?:\[[^\]]*\])+)""")
 DATA_ATTRIBUTE = re.compile(r"""(data-[\w-]+)""")
 LOCAL_ASSET = re.compile(r"""(?:src|href)="(/assets/[^"]+)\"""")
 # A Windows drive path with real path segments (e.g. "C:/Program Files/") inside
-# a built asset means a build-machine path leaked into the bundle. Requiring a
-# trailing segment keeps minified `http://` and object keys like `a:/re/` out.
+# a built asset means a build-machine path leaked into the bundle.
+#
+# The drive letter has to open a string literal. A leaked path always does --
+# it is baked in as a value, like API_BASE_URL="C:/Program Files/Git/api" --
+# and requiring the quote is what keeps minified code from tripping the scan:
+# a ternary followed by a regex literal (`x?a:/re/.test(y)`) reads exactly like
+# a drive path once whitespace is gone, and a plain word-boundary rule flags it.
 SEP = r"(?:\\{1,2}|/)"  # a JS string literal doubles Windows backslashes
 LOCAL_PATH = re.compile(
-    rf"(?<![A-Za-z0-9])[A-Za-z]:{SEP}[A-Za-z0-9 _.\-]{{2,}}{SEP}"
+    rf"""['"`][A-Za-z]:{SEP}[A-Za-z0-9 _.\-]{{2,}}{SEP}"""
 )
 
 
@@ -88,8 +93,15 @@ class StaticBundleFreshnessTests(unittest.TestCase):
         shell in the way. Nothing else catches it: the bundle still builds, the
         hashes still match, and only a live request fails.
         """
+        # .mjs covers the pdf.worker bundle and .css covers url() references;
+        # scanning only .js left both able to ship a build-machine path.
+        assets = [
+            path
+            for pattern in ("assets/*.js", "assets/*.mjs", "assets/*.css")
+            for path in STATIC.glob(pattern)
+        ]
         offenders = []
-        for asset in sorted(STATIC.glob("assets/*.js")) + [INDEX_HTML]:
+        for asset in sorted(assets) + [INDEX_HTML]:
             text = asset.read_text(encoding="utf-8", errors="replace")
             for match in set(LOCAL_PATH.findall(text)):
                 offenders.append(f"{asset.name}: {match}")
@@ -104,11 +116,17 @@ class StaticBundleFreshnessTests(unittest.TestCase):
         """A stale inline script flashes the wrong theme before React mounts."""
         expected = _theme_attributes(self.tokens)
         applied = set(SET_ATTRIBUTE.findall(self.index))
+        # Containment, not equality: the contract is that every attribute the
+        # CSS themes on is set before paint. The script is free to set others
+        # (a future data-density, say) without that being staleness, and exact
+        # equality would fail the build for a change that breaks nothing.
+        missing = sorted(expected - applied)
         self.assertEqual(
-            applied,
-            expected,
+            missing,
+            [],
             "index.html's pre-paint script sets "
-            f"{sorted(applied)} but tokens.css themes on {sorted(expected)}.",
+            f"{sorted(applied)} but tokens.css themes on {sorted(expected)}; "
+            f"missing {missing}.",
         )
 
 

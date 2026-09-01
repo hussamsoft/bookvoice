@@ -431,29 +431,6 @@ async def export_repair(project_id: str, repair_id: str):
     return studio.submit_job(project_id, "VIDEO_EXPORT", work)
 
 
-@router.post("/projects/{project_id}/outputs/{output_id}/download", status_code=202)
-async def save_output_to_downloads(project_id: str, output_id: str):
-    try:
-        studio.get_project(project_id)
-    except ValueError as exc:
-        _error("INVALID_PROJECT_ID", str(exc))
-    except FileNotFoundError as exc:
-        _error("PROJECT_NOT_FOUND", str(exc), 404)
-
-    def work(*, job_id, cancel_event):
-        studio.update_job_progress(project_id, job_id, 0.05, "Saving to Downloads")
-        return studio.save_output_to_downloads(
-            project_id,
-            output_id,
-            cancel_event=cancel_event,
-            progress=lambda value: studio.update_job_progress(
-                project_id, job_id, value, "Saving to Downloads"
-            ),
-        )
-
-    return studio.submit_job(project_id, "SAVE_OUTPUT", work)
-
-
 @router.get("/projects/{project_id}/outputs/{output_id}/download")
 async def download_output_file(project_id: str, output_id: str):
     """Send the output to the browser that requested it, not the host PC."""

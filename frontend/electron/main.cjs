@@ -15,7 +15,7 @@ function createWindow() {
         title: 'BookVoice',
         backgroundColor: '#f7f5f1',
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
         },

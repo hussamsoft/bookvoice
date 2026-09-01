@@ -36,11 +36,17 @@ def _kib(path: Path) -> float:
     return round(path.stat().st_size / 1024.0, 2)
 
 
-def _initial_entry_refs(index_html: Path) -> list[Path]:
-    """Return the local /assets/... files loaded unconditionally by index.html."""
+def _initial_entry_refs(index_html: Path, assets_dir: Path) -> list[Path]:
+    """Return the local /assets/... files loaded unconditionally by index.html.
+
+    Resolve against the caller's assets_dir, not FRONTEND_DIST: measuring any
+    other tree (backend/static, an extracted build) would otherwise look for
+    the entry chunks in frontend/dist, find nothing, and report an initial
+    size of 0 KiB — which silently passes the budget check.
+    """
     text = index_html.read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="(/assets/[^"]+)"', text)
-    return [FRONTEND_DIST / ref.lstrip("/") for ref in refs]
+    return [assets_dir / ref.lstrip("/") for ref in refs]
 
 
 def measure(assets_dir: Path = FRONTEND_DIST, index_html: Path | None = None) -> dict:
@@ -48,8 +54,17 @@ def measure(assets_dir: Path = FRONTEND_DIST, index_html: Path | None = None) ->
     if not index_html.is_file():
         raise SystemExit(f"index.html not found: {index_html}")
 
-    entry_refs = _initial_entry_refs(index_html)
-    initial_size = sum(_kib(p) for p in entry_refs if p.is_file())
+    entry_refs = _initial_entry_refs(index_html, assets_dir)
+    missing = [p for p in entry_refs if not p.is_file()]
+    if missing:
+        # Skipping them would report 0 KiB, and a 0 KiB initial entry passes
+        # any budget. A reference index.html makes but the tree cannot satisfy
+        # is a broken build, so say so instead of measuring nothing.
+        raise SystemExit(
+            "index.html references assets missing from the measured tree: "
+            + ", ".join(str(p) for p in missing)
+        )
+    initial_size = sum(_kib(p) for p in entry_refs)
 
     chunks = {}
     for asset in sorted(assets_dir.glob("assets/*")):

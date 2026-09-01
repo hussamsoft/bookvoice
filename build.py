@@ -534,7 +534,20 @@ def build_launcher(launcher_backup: Path | None):
         raise SystemExit("Launcher rebuild produced no executable; refusing a stale release.")
 
 
-def validate():
+def check_static_sync():
+    """Load scripts/check_static_sync.py, the shared build/CI staleness check."""
+    import importlib.util as _ilu
+
+    path = ROOT / "scripts" / "check_static_sync.py"
+    spec = _ilu.spec_from_file_location("check_static_sync", path)
+    if not spec or not spec.loader:
+        raise SystemExit(f"Could not load {path}")
+    module = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def validate(committed_static_problems: list[str] | None = None):
     errors = []
     index = DIST / "static" / "index.html"
     if not index.is_file():
@@ -598,12 +611,17 @@ def validate():
         if not packaged.is_file() or source.read_bytes() != packaged.read_bytes():
             errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
 
-    if (FRONTEND / "dist").is_dir():
-        frontend_hash = tree_fingerprint(FRONTEND / "dist")
-        dist_hash = tree_fingerprint(DIST / "static")
-        backend_hash = tree_fingerprint(BACKEND / "static")
-        if frontend_hash != dist_hash or dist_hash != backend_hash:
-            errors.append("frontend/dist, dist/static and backend/static are not identical")
+    # Comparing dist/static and backend/static here would prove nothing: main()
+    # copytree'd both from frontend/dist moments ago, so they are identical by
+    # construction. The question worth asking is whether the bundle *committed
+    # to the repo* was already current — the drift that shipped the pre-theme
+    # UI in 2.6.0 and 2.6.1 — which main() has to answer before the copy lands.
+    if committed_static_problems:
+        errors.append(
+            "backend/static was stale before this build; the package is correct "
+            "but the repo is not. Commit the refreshed backend/static.\n    "
+            + "\n    ".join(committed_static_problems)
+        )
 
     fixed_origins = fixed_loopback_assets(DIST / "static")
     if fixed_origins:
@@ -687,12 +705,19 @@ def main():
     elif launcher_backup and launcher_backup.exists():
         shutil.copy2(launcher_backup, DIST / "Launcher.exe")
 
-    # Also mirror static into backend/static for dev uvicorn-from-backend
+    # Also mirror static into backend/static for dev uvicorn-from-backend.
+    # Ask whether the committed bundle was current *before* the copy lands —
+    # afterwards the answer is unrecoverable. Reuse the CI checker so both
+    # gates apply one definition of "matches", including the CRLF/LF
+    # normalization a Windows checkout needs.
     backend_static = BACKEND / "static"
+    committed_static_problems = check_static_sync().compare(
+        build=FRONTEND / "dist", committed=backend_static
+    )
     if (DIST / "static").is_dir():
         copytree(DIST / "static", backend_static)
 
-    validate()
+    validate(committed_static_problems=committed_static_problems)
     print("[build] Release package ready: dist/")
 
     if args.msi:

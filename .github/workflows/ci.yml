@@ -45,6 +45,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Lint frontend
+        # no-undef is enabled so a missing import fails lint rather than
+        # reaching the browser as a ReferenceError. Two of those shipped
+        # before anything actually ran oxlint.
+        run: npm run lint
       - name: Run frontend tests
         run: npm run test
       - name: Build frontend bundle
@@ -54,6 +59,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check backend/static matches the fresh build
-        # build.py enforces this too, but only in a full release build, so a
-        # stale committed UI bundle shipped in 2.6.0 and 2.6.1 unnoticed.
+        # build.py runs this same module, but only in a full release build
+        # (which needs FFmpeg, the models and PyInstaller), so a stale
+        # committed UI bundle shipped in 2.6.0 and 2.6.1 unnoticed.
         run: python ../scripts/check_static_sync.py

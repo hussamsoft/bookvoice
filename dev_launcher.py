@@ -183,19 +183,33 @@ def main(argv: list[str] | None = None) -> int:
                 creationflags=launch._no_window(),
             )
 
-            def wait_ready(timeout_s: float = 60.0, interval: float = 1.0) -> bool:
-                """Poll health until the backend answers, mirroring launch.py's loop."""
+            def wait_ready(timeout_s: float = 60.0, interval: float = 1.0) -> tuple[bool, str]:
+                """Poll health until the backend answers, mirroring launch.py's loop.
+
+                Both early exits matter as much as the success case: a backend
+                that dies on startup and a TTS model that fails to load would
+                otherwise both sit here burning the full timeout and then
+                report the same generic "did not start", hiding the real cause
+                in the log.
+                """
                 base_url = f"http://{bind_host}:{port}"
                 deadline = time.monotonic() + timeout_s
                 while time.monotonic() < deadline:
-                    if launch.backend_is_ready(base_url):
-                        return True
+                    if process.poll() is not None:
+                        return False, "Backend exited early. See log:\n" + log_file_path
+                    ready, detail, failed = launch.backend_readiness(base_url)
+                    if ready:
+                        return True, detail
+                    if failed:
+                        return False, f"TTS model failed to load: {detail}"
                     time.sleep(interval)
-                return False
+                return False, "Backend did not start. See log:\n" + log_file_path
 
             status("Waiting for backend", "Connecting to the reading engine…", 80)
-            if not wait_ready():
-                state["error"] = "Backend did not start. See log:\n" + log_file_path
+            ready, reason = wait_ready()
+            if not ready:
+                state["error"] = reason
+                log.write(reason)
                 launch.show_error(window, state["error"], log_file_path)
                 return
 

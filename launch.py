@@ -52,32 +52,6 @@ PORT_START = 8000
 PORT_END = 8020
 
 
-def get_git_version() -> str:
-    """Derive a precise version from git tags and the current commit.
-
-    On a tagged commit this is the tag (e.g. "2.4.0"). On untagged commits it
-    is "<tag>-<distance>-g<shortsha>" (e.g. "2.4.0-4-g1f89b40"), with a
-    "-dirty" suffix when the working tree has modifications. Falls back to
-    the VERSION file when git is unavailable.
-    """
-    here = _Path(__file__).resolve().parent
-    version = "0.0.0"
-    version_file = here / "VERSION"
-    if version_file.is_file():
-        version = version_file.read_text(encoding="utf-8").strip()
-    try:
-        import subprocess as _sp
-        desc = _sp.check_output(
-            ["git", "describe", "--tags", "--dirty", "--always"],
-            cwd=str(here), stderr=_sp.DEVNULL, text=True,
-        ).strip()
-        if desc:
-            version = desc if not desc.startswith("v") else desc[1:]
-    except (OSError, _sp.CalledProcessError, FileNotFoundError):
-        pass
-    return version
-
-
 def configure_webview_gpu() -> None:
     """Render the WebView2 shell on the CPU instead of the GPU.
 
