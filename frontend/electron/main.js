@@ -1,7 +1,10 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
-const isDev = process.env.NODE_ENV === 'development';
+// `NODE_ENV=x cmd` is bash-only syntax and fails on Windows, which is this
+// app's primary platform, so the npm script passes --dev instead. The env var
+// still works for anyone exporting it in their own shell.
+const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
 
 function createWindow() {
     const mainWindow = new BrowserWindow({

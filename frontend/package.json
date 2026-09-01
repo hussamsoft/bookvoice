@@ -11,7 +11,7 @@
         "lint": "oxlint",
         "test": "vitest run",
         "preview": "vite preview",
-        "electron:dev": "NODE_ENV=development electron .",
+        "electron:dev": "electron . --dev",
         "electron:build": "npm run build && electron-builder"
     },
     "build": {
