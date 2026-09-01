@@ -202,6 +202,29 @@ The native launcher also owns a Windows notification-area icon: minimizing the
 window hides it from the taskbar without stopping the backend or configured
 Cloudflare tunnel, and the icon restores or fully quits BookVoice.
 
+### Updates
+
+BookVoice asks GitHub once a day whether a newer release exists and shows a
+banner when one does. **This is the only request BookVoice makes on its own**;
+it sends no identifying information beyond what any HTTPS request carries, and
+**Settings → Check for updates** turns it off. Hosted deployments
+(`BOOKVOICE_SERVER_MODE`) never check, because the person viewing the UI is not
+on the machine that would be restarted.
+
+Choosing to install downloads `BookVoice-Launcher.exe` for the new tag,
+verifies it against the SHA-256 in that release's `release-assets.json`, closes
+BookVoice, and hands over to that installer — the same one a fresh install
+uses. An older installer can also be pointed at the current release directly:
+
+```bash
+BookVoice-Launcher.exe --latest
+```
+
+> **The MSI and launcher are not code-signed.** Installing therefore raises a
+> SmartScreen warning, and an all-users install raises an unsigned UAC prompt.
+> Verify the SHA-256 against `SHA256SUMS.txt` on the release page if you did not
+> build it yourself.
+
 ## License
 BookVoice utilizes the MIT-licensed Chatterbox engine by Resemble AI.
 Release builds also distribute FFmpeg/FFprobe under GPLv3; the installed

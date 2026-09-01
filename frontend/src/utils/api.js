@@ -628,3 +628,51 @@ export async function waitForStudioJob(jobId, { intervalMs = 500, signal, onProg
         });
     }
 }
+
+/**
+ * Update state. Cached server-side and safe to poll: a network failure comes
+ * back as `error` inside a 200, never as a rejection, so an offline machine
+ * does not surface a scary banner.
+ * @returns {Promise<{current: string, latest: string|null, updateAvailable: boolean,
+ *   supported: boolean, enabled: boolean, releaseUrl: string, error: string|null,
+ *   download: {state: string}}>}
+ */
+export async function getUpdateStatus({ force = false } = {}) {
+    const response = await fetch(`${API_BASE_URL}/updates/${force ? 'check' : ''}`, {
+        method: force ? 'POST' : 'GET',
+    });
+    if (!response.ok) {
+        throw new Error('Failed to check for updates');
+    }
+    return response.json();
+}
+
+export async function downloadUpdate(version) {
+    const response = await fetch(`${API_BASE_URL}/updates/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to download the update'));
+    }
+    return response.json();
+}
+
+/**
+ * Hand off to the staged installer. The app exits about a second after this
+ * resolves, so the caller should tell the user before calling it.
+ */
+export async function installUpdate(version) {
+    const response = await fetch(`${API_BASE_URL}/updates/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Failed to start the update'));
+    }
+    return response.json();
+}

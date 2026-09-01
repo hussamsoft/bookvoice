@@ -114,6 +114,19 @@ export default function SettingsPanel() {
                             onChange={(e) => handleChange('ocr_use_gpu', e.target.checked)}
                         />
                     </label>
+                    <label className="settings-row">
+                        <span>Check for updates</span>
+                        <input
+                            type="checkbox"
+                            checked={config.check_for_updates !== false}
+                            disabled={saving}
+                            onChange={(e) => handleChange('check_for_updates', e.target.checked)}
+                        />
+                    </label>
+                    <p className="settings-hint">
+                        Update checks ask GitHub once a day whether a newer release exists. Turn
+                        this off to stop BookVoice contacting the network on its own.
+                    </p>
                     <p className="settings-hint">
                         GPU settings take effect after restart. CPU mode works offline but is much
                         slower for long narration.

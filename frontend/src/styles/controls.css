@@ -328,6 +328,59 @@ input[type="checkbox"] {
   color: var(--ink-muted);
 }
 
+/* Update banner controls. `.status-banner > span` takes the remaining width,
+   so the action cluster is laid out here rather than stretching. */
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.banner-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.banner-action:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.banner-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.banner-link {
+  color: inherit;
+  text-decoration: underline;
+  font-size: var(--text-sm);
+}
+
+.banner-dismiss {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.banner-dismiss:hover {
+  opacity: 1;
+}
+
 /* --- Modal / dialog --------------------------------------------------------- */
 
 .modal-overlay {

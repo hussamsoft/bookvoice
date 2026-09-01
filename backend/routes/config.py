@@ -13,6 +13,7 @@ class ConfigUpdate(BaseModel):
     language_id: str | None = None
     ocr_use_gpu: bool | None = None
     tts_device: str | None = None
+    check_for_updates: bool | None = None
 
 
 @router.get("/")

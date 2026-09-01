@@ -51,6 +51,47 @@ APP_NAME = "BookVoice"
 PORT_START = 8000
 PORT_END = 8020
 
+# services/update_service.py exits with this after staging an installer. The
+# watchdog restarts a backend that dies, so an ordinary exit is indistinguishable
+# from a crash; this code plus the sentinel file below is how the app says
+# "replace me" rather than "I fell over".
+UPDATE_EXIT_CODE = 86
+UPDATE_PENDING_NAME = "update-pending.json"
+
+
+def take_pending_update(data_dir: str) -> dict | None:
+    """Read and clear the update sentinel the backend wrote before exiting."""
+    path = os.path.join(data_dir, UPDATE_PENDING_NAME)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return payload if isinstance(payload, dict) else None
+
+
+def start_staged_installer(payload: dict) -> bool:
+    """Launch the staged installer detached so it outlives the app it replaces.
+
+    --reinstall is required: without it the launcher finds the existing install
+    and just starts it again, relaunching the old version instead of upgrading.
+    """
+    installer = str((payload or {}).get("installer") or "")
+    if not installer or not os.path.isfile(installer):
+        return False
+    subprocess.Popen(
+        [installer, "--reinstall"],
+        cwd=os.path.dirname(installer),
+        creationflags=0x00000008 | 0x00000200,  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+        close_fds=True,
+    )
+    return True
+
 
 def configure_webview_gpu() -> None:
     """Render the WebView2 shell on the CPU instead of the GPU.
@@ -1219,6 +1260,24 @@ def main(argv: list[str] | None = None) -> int:
                     time.sleep(5)
                     reason = None
                     if process.poll() is not None:
+                        # An update asks the backend to exit on purpose. Restarting
+                        # it here would put the app back on disk underneath msiexec
+                        # and fight it for open files, so this exit code is the one
+                        # the watchdog must not treat as a crash.
+                        pending = (
+                            take_pending_update(env["DATA_DIR"])
+                            if process.returncode == UPDATE_EXIT_CODE
+                            else None
+                        )
+                        if pending is not None and start_staged_installer(pending):
+                            log.write("backend exited for an update; handing off to the installer")
+                            stop_server()
+                            if window is not None:
+                                try:
+                                    window.destroy()
+                                except Exception as exc:  # noqa: BLE001 - shutdown must not fail here
+                                    log.write(f"window close skipped: {exc}")
+                            return
                         reason = f"backend exited (code {process.returncode})"
                     elif backend_readiness(watch_url)[0]:
                         misses = 0

@@ -1,3 +1,33 @@
+## 2.7.0 - 2026-09-01
+
+### Added
+
+- **BookVoice can now update itself.** Nothing checked for updates before this. `launcher_app.main()` spawns the app the moment `discover_install()` succeeds and returns, so an installed copy never asked whether a newer release existed — which is why 2.6.0 and 2.6.1 shipped a crashing launcher and a stale UI to people with no way to find out, and why 2.6.2 and 2.6.3 would have reached nobody.
+  - `GET /api/updates` reports the newest release, cached for 24 hours in `DATA_DIR`. It cannot fail into the UI: an offline or rate-limited machine gets `error` inside a 200 and falls back to the last known release rather than showing nothing.
+  - A banner names both versions and offers Download, then Restart and install. Installing is confirmed first, because it closes the app.
+  - `POST /api/updates/download` fetches **only** `BookVoice-Launcher.exe` for the new tag, sha256-verified against that tag's `release-assets.json`. Everything hard about installing — resumable MSI/cabinet downloads, checksum enforcement, disk-space planning, `msiexec`, elevation — already lives inside that executable and is the same path a fresh install takes. A launcher built for *vN* pins itself to *vN*, so the downloaded one validates the new manifest without this code weakening `validate_manifest`.
+  - `POST /api/updates/install` stages a sentinel and exits with code 86. `launch.py`'s watchdog restarts a backend that dies (uvicorn's proactor accept loop can fail silently), so a plain exit is indistinguishable from a crash; the code plus the sentinel are how the app says "replace me" instead of being restarted underneath `msiexec` and fighting it for open files.
+  - Version comparison is numeric, not lexicographic — string ordering puts `2.10.0` before `2.9.0` and would have hidden the update. An unparseable version (`dev` in a source checkout) is never treated as a release in either direction.
+  - Off in `server_mode()`: the person looking at a hosted UI is not on the machine that would need restarting.
+- A **Check for updates** toggle in Settings, on by default. The check is one outbound request a day that tells GitHub an install exists, so it is disclosed and switchable off.
+
+### Fixed
+
+- `scripts/setup_bootstrapper.py --latest` installs the newest published release. `DEFAULT_MANIFEST_URL` is pinned to the version frozen into the executable — correct for the installer shipped beside a release, but it meant an older `Setup.exe` reinstalled its own old version instead of the current one, with no way to ask for anything newer.
+
+### Known limitation
+
+- **The MSI and both executables are unsigned** (`Launcher.spec` sets `codesign_identity=None`; nothing runs signtool). The handoff therefore ends in a SmartScreen warning, and machine-scope installs raise an unsigned UAC prompt. This is a real weakness of an in-app updater rather than a formality: a user trained to approve that prompt is a user who will approve the next one. Signing the MSI removes it and changes nothing else in this flow.
+
+### Test results
+
+- Backend pytest: 432 passed (24 subtests) — 409 plus 23 for the update service and routes
+- Frontend unit: 259/259 passing — 250 plus 9 for the update banner
+- Frontend lint: 0 diagnostics
+- End-to-end journeys (`scripts/simulate_app.py`): 62 passed, 0 failed — 60 plus two that hit `/api/updates` on a live backend, so a route that fails to register is caught outside the unit suites
+- `scripts/smoke_exe.py` now checks `/api/updates/` against the packaged payload, since the route ships via `copy_py_dir(routes/services)` and a missing one would leave a build unable to announce its own successor
+- Build: initial entry 300.68 KiB against the 350 KiB budget
+
 ## 2.6.3 - 2026-09-01
 
 A full code review of the 2.6.2 tree. Every item below is a defect that review

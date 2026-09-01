@@ -167,6 +167,12 @@ def server_checks(base: str) -> list[str]:
     if status != 200 or "localFileActions" not in capabilities:
         errors.append(f"/api/config/ missing capabilities: {status} {body}")
 
+    # Ships in the MSI payload via copy_py_dir(routes/services); a missing
+    # route here means the packaged build cannot tell anyone about a fix.
+    status, body = request(base, "GET", "/api/updates/")
+    if status != 200 or not isinstance(body, dict) or "updateAvailable" not in body:
+        errors.append(f"/api/updates/ did not answer: {status} {body}")
+
     status, body = request(base, "GET", "/api/voices/")
     voices = body.get("voices", []) if isinstance(body, dict) else body
     if status != 200 or not isinstance(voices, list) or not voices:

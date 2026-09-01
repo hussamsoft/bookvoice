@@ -21,6 +21,7 @@ ALLOWED_KEYS = {
     "language_id": (str,),
     "ocr_use_gpu": (bool,),
     "tts_device": (str,),
+    "check_for_updates": (bool,),
 }
 
 DEFAULTS = {
@@ -28,6 +29,9 @@ DEFAULTS = {
     "language_id": "en",
     "ocr_use_gpu": False,
     "tts_device": "auto",
+    # On by default so a broken release can be superseded; the check is one
+    # cached request a day and can be turned off in Settings.
+    "check_for_updates": True,
 }
 
 

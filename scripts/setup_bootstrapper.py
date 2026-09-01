@@ -154,8 +154,31 @@ def fetch_manifest(manifest_url: str) -> dict:
         return json.load(response)
 
 
-def validate_manifest(manifest: dict) -> None:
-    version = RELEASE_VERSION
+def resolve_latest_tag() -> str:
+    """Ask GitHub for the newest release tag.
+
+    DEFAULT_MANIFEST_URL is pinned to the version frozen into this executable,
+    which is right for the installer that ships beside a release but means an
+    older Setup.exe reinstalls its own old version instead of the current one.
+    --latest is the opt-in escape from that pin.
+    """
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{REPOSITORY}/releases/latest",
+        headers={
+            "User-Agent": f"BookVoice-Setup/{RELEASE_VERSION}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    tag = str(payload.get("tag_name") or "").strip()
+    if not tag:
+        raise RuntimeError("The GitHub release response carried no tag.")
+    return tag
+
+
+def validate_manifest(manifest: dict, expected_version: str | None = None) -> None:
+    version = expected_version or RELEASE_VERSION
     if (
         manifest.get("repository") != REPOSITORY
         or manifest.get("schemaVersion") != 1
@@ -233,11 +256,24 @@ def main() -> int:
     parser.add_argument("--manifest-url")
     parser.add_argument("--download-only", action="store_true")
     parser.add_argument("--quiet", action="store_true", help="Run Windows Installer without interactive UI")
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help="Install the newest published release instead of this installer's own version",
+    )
     args = parser.parse_args()
     product = "machine" if args.machine else "user"
-    manifest_url = args.manifest_url or DEFAULT_MANIFEST_URL
+    expected_version = None
+    if args.latest and not args.manifest_url:
+        tag = resolve_latest_tag()
+        expected_version = tag.lstrip("vV")
+        manifest_url = (
+            f"https://github.com/{REPOSITORY}/releases/download/{tag}/release-assets.json"
+        )
+    else:
+        manifest_url = args.manifest_url or DEFAULT_MANIFEST_URL
     manifest = fetch_manifest(manifest_url)
-    validate_manifest(manifest)
+    validate_manifest(manifest, expected_version)
     base = manifest_url.rsplit("/", 1)[0]
     target = ensure_files(manifest, base, product)
     if not args.download_only:

@@ -351,6 +351,17 @@ def journey_config(api: Api) -> None:
     report("config reports localFileActions", isinstance(caps.get("localFileActions"), bool), str(body)[:160])
     report("config reports authRequired", "authRequired" in caps, str(caps)[:160])
 
+    # The update check must answer even with no network: it is polled by the UI
+    # on every load, so a failure here would be a permanent error banner.
+    status, body = api.get("/api/updates/")
+    ok = status == 200 and isinstance(body, dict) and "updateAvailable" in body
+    report("updates endpoint answers without failing", ok, f"{status} {str(body)[:140]}")
+    report(
+        "update check never claims an update it cannot install",
+        isinstance(body, dict) and (body.get("supported") or not body.get("updateAvailable")),
+        str(body)[:160],
+    )
+
 
 def journey_heavy(api: Api) -> None:
     print("\n--- Heavy: real CPU conversion ---")

@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import TitleBar from './components/TitleBar';
+import UpdateBanner from './components/UpdateBanner';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import { getAppMode, setAppMode } from './utils/appSession';
 
@@ -167,6 +168,7 @@ function App() {
             </header>
 
             <main id="main-content" className="main-content reading-stage">
+                <UpdateBanner />
                 <Suspense fallback={
                     <div className="loading-state" role="status">
                         Loading {MODE_LABELS[mode] || 'app'}…
