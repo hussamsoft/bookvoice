@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -74,7 +75,6 @@ def main(argv: list[str] | None = None) -> int:
     args = launch.parse_args(argv)
     app_dir = launch.resolve_app_dir()
     runtime_dir = launch.resolve_runtime_dir(app_dir)
-    legacy_dir = launch.legacy_runtime_dir()
     os.makedirs(runtime_dir, exist_ok=True)
     log = launch.Logger(launch._log_path(runtime_dir, app_dir))
     log.write("==== dev launch start ====")
@@ -82,8 +82,6 @@ def main(argv: list[str] | None = None) -> int:
     log.write(f"frozen={getattr(sys, 'frozen', False)}")
     log.write(f"app_dir={app_dir}")
     log.write(f"runtime_dir={runtime_dir}")
-
-    launch.migrate_legacy_runtime(legacy_dir, runtime_dir, log)
 
     err = launch.validate_package(app_dir)
     if err:
@@ -185,11 +183,18 @@ def main(argv: list[str] | None = None) -> int:
                 creationflags=launch._no_window(),
             )
 
-            def wait_ready() -> bool:
-                return launch.backend_is_ready(f"http://{bind_host}:{port}")
+            def wait_ready(timeout_s: float = 60.0, interval: float = 1.0) -> bool:
+                """Poll health until the backend answers, mirroring launch.py's loop."""
+                base_url = f"http://{bind_host}:{port}"
+                deadline = time.monotonic() + timeout_s
+                while time.monotonic() < deadline:
+                    if launch.backend_is_ready(base_url):
+                        return True
+                    time.sleep(interval)
+                return False
 
             status("Waiting for backend", "Connecting to the reading engine…", 80)
-            if not launch.wait_until(wait_ready, 60, 1):
+            if not wait_ready():
                 state["error"] = "Backend did not start. See log:\n" + log_file_path
                 launch.show_error(window, state["error"], log_file_path)
                 return

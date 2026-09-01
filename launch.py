@@ -1055,7 +1055,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     app_dir = resolve_app_dir()
     runtime_dir = resolve_runtime_dir(app_dir)
-    legacy_dir = legacy_runtime_dir()
     os.makedirs(runtime_dir, exist_ok=True)
     log = Logger(_log_path(runtime_dir, app_dir))
     log.write("==== launch start ====")
@@ -1064,8 +1063,6 @@ def main(argv: list[str] | None = None) -> int:
     log.write(f"app_dir={app_dir}")
     log.write(f"runtime_dir={runtime_dir}")
     log.write(f"install_id={install_id(app_dir, read_app_version(app_dir))}")
-
-    migrate_legacy_runtime(legacy_dir, runtime_dir, log)
 
     err = validate_package(app_dir)
     if err:
