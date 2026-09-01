@@ -12,6 +12,15 @@ soundfile==0.13.1
 setuptools<70
 
 # For NVIDIA GPU support, install the CUDA build of torch/torchaudio AFTER the
-# above, using the PyTorch index (match the chatterbox torch version):
+# above, using the PyTorch index:
 #   pip install torch==2.5.1+cu121 torchaudio==2.5.1+cu121 \
 #       --index-url https://download.pytorch.org/whl/cu121
+#
+# KNOWN DEVIATION: chatterbox-tts==0.1.7 declares `torch==2.6.0` and
+# `torchaudio==2.6.0` (python_version < "3.14"), so the 2.5.1+cu121 pin above
+# is a deliberate downgrade and `pip check` reports it. It works — the packaged
+# worker and the journey suite run real TTS on 2.5.1 — but note that
+# requirements-ci.txt installs 2.6.0+cpu, so CI does not exercise the torch
+# build that actually ships. Moving the runtime to 2.6.0 means a CUDA retarget
+# (2.6.0 has no cu121 wheels; cu124 is the nearest), so it is a release-sized
+# change rather than a version bump.

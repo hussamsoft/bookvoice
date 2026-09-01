@@ -22,7 +22,6 @@ vi.mock('../utils/api', () => ({
     getVoices: vi.fn(),
     listStudioProjects: vi.fn(),
     openStudioProjectFolder: vi.fn(),
-    saveStudioOutput: vi.fn(),
     updateStudioProject: vi.fn(),
     uploadStudioSource: vi.fn(),
     waitForStudioJob: vi.fn(),
@@ -521,7 +520,6 @@ describe('VoiceStudio', () => {
         const download = await screen.findByRole('link', { name: /Download narration to this device/i });
         expect(download).toHaveAttribute('href', outputProject.outputs[0].downloadUrl);
         expect(download).toHaveAttribute('download', outputProject.outputs[0].fileName);
-        expect(api.saveStudioOutput).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: /Open Demo voice project folder/i }));
         await waitFor(() => expect(api.openStudioProjectFolder).toHaveBeenCalledWith(project.id));

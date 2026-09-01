@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "frontend" / "dist"
 COMMITTED = ROOT / "backend" / "static"
+CRLF = bytes((13, 10))
 
 
 def _relative_files(root: Path) -> set[str]:
@@ -66,7 +67,39 @@ def compare(build: Path = BUILD, committed: Path = COMMITTED) -> list[str]:
     for rel in sorted(built & shipped):
         if not _same_content(build / rel, committed / rel):
             problems.append(f"  content differs: {rel}")
+            problems.extend(_describe_difference(build / rel, committed / rel))
     return problems
+
+
+def _describe_difference(build_file: Path, committed_file: Path) -> list[str]:
+    """Explain *how* two files differ, so a CI failure is actionable.
+
+    Without this a mismatch only says which file changed, which is not enough
+    to tell a stale bundle apart from an encoding or line-ending artifact.
+    """
+    raw_build = build_file.read_bytes()
+    raw_committed = committed_file.read_bytes()
+    lines = [
+        f"      built     {len(raw_build):>8} bytes  CRLF={raw_build.count(CRLF)}",
+        f"      committed {len(raw_committed):>8} bytes  CRLF={raw_committed.count(CRLF)}",
+    ]
+    try:
+        text_build = raw_build.decode("utf-8").replace("\r\n", "\n").splitlines()
+        text_committed = raw_committed.decode("utf-8").replace("\r\n", "\n").splitlines()
+    except UnicodeDecodeError:
+        lines.append("      binary file; bytes differ")
+        return lines
+    for number, (left, right) in enumerate(zip(text_build, text_committed), start=1):
+        if left != right:
+            lines.append(f"      first differing line {number}:")
+            lines.append(f"        built     | {left[:160]}")
+            lines.append(f"        committed | {right[:160]}")
+            return lines
+    if len(text_build) != len(text_committed):
+        lines.append(
+            f"      line counts differ: built {len(text_build)}, committed {len(text_committed)}"
+        )
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:

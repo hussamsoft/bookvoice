@@ -14,7 +14,6 @@ import {
   narrateTextStream,
   openStudioProjectFolder,
   pronounceText,
-  saveStudioOutput,
   uploadStudioSource,
   waitForStudioJob,
 } from './api';
@@ -281,26 +280,6 @@ describe('Voice Studio API', () => {
 
     expect(job.result.outputId).toBe('out');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('starts an automatic Downloads-folder save job', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ id: 'job-2', status: 'QUEUED', kind: 'SAVE_OUTPUT' }),
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await saveStudioOutput('project-1', 'output-1');
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/studio\/projects\/project-1\/outputs\/output-1\/download$/),
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'X-BookVoice-Device-ID': expect.stringMatching(/^[0-9a-f]{32}$/),
-        }),
-      }),
-    );
   });
 
   it('opens the complete managed project folder', async () => {

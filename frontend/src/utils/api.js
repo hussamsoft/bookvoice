@@ -602,14 +602,6 @@ export function exportStudioRepair(projectId, repairId) {
     );
 }
 
-export function saveStudioOutput(projectId, outputId) {
-    return studioRequest(
-        `/projects/${encodeURIComponent(projectId)}/outputs/${encodeURIComponent(outputId)}/download`,
-        { method: 'POST' },
-        'Could not save the Studio output to Downloads.',
-    );
-}
-
 export function getStudioJob(jobId) {
     return studioRequest(`/jobs/${encodeURIComponent(jobId)}`, {}, 'Could not read Studio progress.');
 }
