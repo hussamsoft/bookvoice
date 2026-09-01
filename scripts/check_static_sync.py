@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "frontend" / "dist"
 COMMITTED = ROOT / "backend" / "static"
 CRLF = bytes((13, 10))
+LF = bytes((10,))
+CR = bytes((13,))
 
 
 def _relative_files(root: Path) -> set[str]:
@@ -80,26 +82,36 @@ def _describe_difference(build_file: Path, committed_file: Path) -> list[str]:
     raw_build = build_file.read_bytes()
     raw_committed = committed_file.read_bytes()
     lines = [
-        f"      built     {len(raw_build):>8} bytes  CRLF={raw_build.count(CRLF)}",
-        f"      committed {len(raw_committed):>8} bytes  CRLF={raw_committed.count(CRLF)}",
+        f"      built     {_census(raw_build)}",
+        f"      committed {_census(raw_committed)}",
     ]
-    try:
-        text_build = raw_build.decode("utf-8").replace("\r\n", "\n").splitlines()
-        text_committed = raw_committed.decode("utf-8").replace("\r\n", "\n").splitlines()
-    except UnicodeDecodeError:
-        lines.append("      binary file; bytes differ")
-        return lines
-    for number, (left, right) in enumerate(zip(text_build, text_committed), start=1):
-        if left != right:
-            lines.append(f"      first differing line {number}:")
-            lines.append(f"        built     | {left[:160]}")
-            lines.append(f"        committed | {right[:160]}")
+    # Compare normalized *bytes*, not splitlines(): splitlines treats a lone
+    # CR as a break, so it hid the doubled carriage return Vite emitted from a
+    # CRLF template — the exact bug this diagnostic failed to explain once.
+    left = raw_build.replace(CRLF, LF)
+    right = raw_committed.replace(CRLF, LF)
+    for offset, (a, b) in enumerate(zip(left, right)):
+        if a != b:
+            lines.append(f"      first differing byte at offset {offset}:")
+            lines.append(f"        built     | {left[max(0, offset - 60):offset + 60]!r}")
+            lines.append(f"        committed | {right[max(0, offset - 60):offset + 60]!r}")
             return lines
-    if len(text_build) != len(text_committed):
+    if len(left) != len(right):
+        shorter = min(len(left), len(right))
+        longer, label = (left, "built") if len(left) > len(right) else (right, "committed")
         lines.append(
-            f"      line counts differ: built {len(text_build)}, committed {len(text_committed)}"
+            f"      identical for {shorter} bytes, then {label} continues: "
+            f"{longer[shorter:shorter + 80]!r}"
         )
     return lines
+
+
+def _census(raw: bytes) -> str:
+    crlf = raw.count(CRLF)
+    return (
+        f"{len(raw):>8} bytes  CRLF={crlf}  loneLF={raw.count(LF) - crlf}"
+        f"  loneCR={raw.count(CR) - crlf}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

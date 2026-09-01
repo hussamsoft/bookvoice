@@ -1,6 +1,13 @@
 # Normalize all text files to LF in the repo; git handles checkout EOL.
 * text=auto
 
+# Vite rewrites the HTML template's line endings during the build. From a
+# CRLF checkout it emits a doubled carriage return into dist/index.html, so
+# the built bundle stops matching the committed one and CI's static-sync
+# check fails on Windows only. Pinning the build input to LF keeps the
+# build output byte-stable on every platform.
+frontend/index.html text eol=lf
+
 # Windows scripts and solutions keep CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
