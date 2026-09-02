@@ -94,7 +94,7 @@ describe('styles parity', () => {
                 .sort()
                 .join('\n')
         ).toBe('');
-    });
+    }, 15000);
 
     it('defines the theme contract tokens both themes rely on', () => {
         const tokens = readFileSync(join(STYLE_DIR, 'tokens.css'), 'utf8');

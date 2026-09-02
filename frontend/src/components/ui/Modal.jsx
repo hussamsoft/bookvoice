@@ -90,7 +90,10 @@ export default function Modal({ open, onClose, title, children, actions }) {
         <div
             className={`modal-overlay${shown ? ' is-shown' : ''}`}
             onMouseDown={(event) => {
-                if (event.target === event.currentTarget) onCloseRef.current?.();
+                if (event.target === event.currentTarget) {
+                    event.preventDefault();
+                    onCloseRef.current?.();
+                }
             }}
         >
             <div

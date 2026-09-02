@@ -212,6 +212,7 @@ export default function PdfViewer({ onDirty }) {
     const timelineRef = useRef(null);
     const streamAbortRef = useRef(null); // AbortController for an in-flight stream
     const browseRequestRef = useRef(0);
+    const loadRequestRef = useRef(0);
     const advancePlaylistRef = useRef(() => {}); // set by the streaming effect
     const handlePlayRef = useRef(() => {});
     const openLibraryBookRef = useRef(() => {});
@@ -1223,7 +1224,7 @@ export default function PdfViewer({ onDirty }) {
                 onDirty?.();
                 return entry;
             } catch (error) {
-                toast.error(error.message || 'Failed to narrate');
+                toast.error(error.message || 'Narration failed. Check the voice model and try again.');
                 throw error;
             } finally {
                 setIsGenerating(false);
@@ -1237,7 +1238,7 @@ export default function PdfViewer({ onDirty }) {
 
     const loadPageIntoView = useCallback(
         async (pageNum, { autoplay = false } = {}) => {
-            browseRequestRef.current += 1;
+            const requestId = ++loadRequestRef.current;
             setIsLoadingPageText(true);
             cancelPrefetch();
             cancelGeneration();
@@ -1266,6 +1267,7 @@ export default function PdfViewer({ onDirty }) {
                     getPreparedPage,
                     preparePageText: (page) => getPageText(page, { setIsOcring }),
                 });
+                if (requestId !== loadRequestRef.current) return;
                 const { text, prepared, source } = resolved;
                 setPageText(text);
                 pageTextRef.current = text;
@@ -1314,6 +1316,7 @@ export default function PdfViewer({ onDirty }) {
                 }
                 if (numPages) schedulePrefetchSafe(pageNum, numPages);
             } catch (e) {
+                if (requestId !== loadRequestRef.current) return;
                 setIsLoadingPageText(false);
                 toast.error(e.message);
             }
@@ -1601,7 +1604,7 @@ export default function PdfViewer({ onDirty }) {
                 return;
             }
             if (!modelReady) {
-                toast.error(modelError || 'AI voice model is still loading.');
+                toast.error(modelError || 'Voice model is still loading.');
                 return;
             }
             await generateAndPlay(pageNumber, text, {

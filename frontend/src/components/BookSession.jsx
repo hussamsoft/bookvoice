@@ -103,7 +103,7 @@ export default function BookSession({ epoch, onDirty }) {
 
     const handleNarrate = async (text) => {
         if (!modelReady) {
-            toast.error(modelError || 'AI voice model is still loading. Please wait.');
+            toast.error(modelError || 'Voice model is still loading. Please wait.');
             return;
         }
         const startEpoch = epochRef.current;

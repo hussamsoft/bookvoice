@@ -117,7 +117,7 @@ export default function ReadingOptionsPanel({
                         aria-label="Dismiss"
                         className="reading-options-scrim"
                         onClick={() => setOpen(false)}
-                        aria-hidden="false"
+                        aria-hidden="true"
                     />
                     <section
                         ref={panelRef}

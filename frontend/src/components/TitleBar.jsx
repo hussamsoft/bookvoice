@@ -50,6 +50,12 @@ function TitleBar({ currentMode, modeLabels }) {
                     ? (index + 1) % items.length
                     : (index - 1 + items.length) % items.length;
                 items[next]?.focus();
+            } else if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                const items = Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || []);
+                if (!items.length) return;
+                const nextIndex = event.key === 'Home' ? 0 : items.length - 1;
+                items[nextIndex]?.focus();
             }
         };
         document.addEventListener('click', closeOnOutside);

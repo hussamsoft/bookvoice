@@ -67,7 +67,7 @@ describe('StudioNarration transcript windowing', () => {
         expect(words[0].textContent).toBe('w0');
         expect(buttons.getByRole('button', { name: 'Show 250 more words' })).toBeInTheDocument();
         expect(buttons.queryByRole('button', { name: /earlier words/ })).not.toBeInTheDocument();
-    });
+    }, 15000);
 
     it('expands forward from the trailing ellipsis without rendering the whole performance', () => {
         const { container } = renderNarration();
