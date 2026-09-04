@@ -3,6 +3,7 @@
 ### Added
 
 - **Stage A of the reader rewrite, previewable behind `?reader=new`.** A new `Reader` composition root wires nine focused hooks — page lifecycle (browse vs. load with race-cancel), audio transport, zoom, wrap-around search, bookmarks, resume choice, throttled progress autosave, prepared-book library, and the reader keyboard set — with `TextStage` rendering text pages. The production `PdfViewer` stays the default reader (including for `?reader=old`); flipping the default is a separate, later decision.
+- **The new reader narrates pages** (A.8.2). `Read` becomes a real transport: Play/Pause, Stop, ±10 s skip, and mute (M), with Space and ←/→ wired through the reader keyboard set. Pages narrate through the streaming endpoint with gapless chunk advance and a page-audio cache; the canonical full-page WAV is promoted at the current position when synthesis completes, so duration and seeking become exact. Prepared page audio (from a preparation profile) plays directly without regenerating. Loading a page for narration cancels in-flight generation (client abort + server cancel), browsing keeps the current audio playing, and closing or swapping books stops playback and drops the cache. The saved reading position arms a one-shot resume: when the restored page's audio is prepared or cached, the playhead parks at the saved time, paused. Playback surfaces through `data-transport-state` (`idle | buffering | playing | paused | stopped`) and generation shows a status line. Voice narrates with the server default (a picker is the next slice); word highlighting and pause-pronunciation are deferred, with cache entries carrying estimate timings so the highlighting slice can fill them in.
 - **The new reader now opens real books** (A.8.1). A file input and the prepared-book library cover the open paths: PDFs render through react-pdf in `PdfStage` (bundled worker, text layer on, fit-to-viewport width with CSS-zoom), text books (.epub/.txt/.md) stream their pages from the library manifest, and freshly extracted PDF pages are written back with `savePreparedPage` so the library stays authoritative. Reading progress is keyed by the document fingerprint and restored on re-open — locally through the autosave hook and server-side through `updatePreparedProgress` for library books. Find-in-book reuses the production scans (PDF text-layer extraction, or the warmed server pages with bounded concurrency). Page navigation, search-jump, and the resume dialog work against real page counts.
 - A **keyboard-shortcuts sheet** for the whole app, opened with `?` from any mode, documenting the reader key set: Space, ←/→, PageUp/PageDown, Home/End, Ctrl/Cmd+[ and ], F, B, M.
 - The mode switcher now lives in the title bar as an ARIA tablist with roving tabindex, replacing the separate switcher band; each segment carries its hint as a native tooltip.
@@ -19,12 +20,12 @@
 
 ### Test results
 
-- Frontend unit: 383/383 passing (65 files) — includes coverage for the open flows (library re-open with progress restore, file import), real page resolution, server progress mirroring, and the react-pdf wiring
+- Frontend unit: 388/388 passing (65 files) — includes narration coverage: streaming play through the transport, cancel-on-navigate, prepared-audio resume parking, mute, and the Space shortcut
 - Frontend lint: 0 diagnostics
 - Backend pytest: 432 passed (24 subtests)
 - End-to-end journeys (`scripts/simulate_app.py`): 62 passed, 0 failed
 - `scripts/check_static_sync.py`: `backend/static` matches a fresh `frontend/dist`
-- Build: initial entry 306.22 KiB against the 350 KiB budget (the new `Reader` chunk is lazy-loaded at 17.8 KiB)
+- Build: initial entry 306.26 KiB against the 350 KiB budget (the new `Reader` chunk is lazy-loaded at 26.8 KiB)
 
 ## 2.7.0 - 2026-09-01
 

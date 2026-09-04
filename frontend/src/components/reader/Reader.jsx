@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bookmark, BookmarkCheck, FolderOpen, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+    Bookmark,
+    BookmarkCheck,
+    FastForward,
+    FolderOpen,
+    Pause,
+    Play,
+    Rewind,
+    Search,
+    Square,
+    Volume2,
+    VolumeX,
+    ZoomIn,
+    ZoomOut,
+} from 'lucide-react';
 import { useToast } from '../Toast';
 import {
     getPreparedPage,
@@ -11,11 +25,14 @@ import {
 import { libraryBookFile, sourceKindFromName } from '../../utils/bookFiles';
 import { resolvePageContent } from '../../utils/pageContentResolver';
 import { documentFingerprint, loadReadingProgress } from '../../utils/readingProgress';
+import { createSessionId } from '../../utils/session';
 import { usePdfDocument } from '../../hooks/usePdfDocument';
+import { useTtsStatus } from '../../hooks/useTtsStatus';
 import { useBookmarks } from '../../hooks/reader/useBookmarks';
 import { useKeyboardShortcuts } from '../../hooks/reader/useKeyboardShortcuts';
 import { usePageResume } from '../../hooks/reader/usePageResume';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
+import { useReaderNarration } from '../../hooks/reader/useReaderNarration';
 import { useReaderPageLifecycle } from '../../hooks/reader/useReaderPageLifecycle';
 import { useReaderProgress } from '../../hooks/reader/useReaderProgress';
 import { useReaderSearch } from '../../hooks/reader/useReaderSearch';
@@ -52,11 +69,12 @@ export default function Reader() {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [pageText, setPageText] = useState('');
-    const [audioPage, setAudioPage] = useState(null);
     const [query, setQuery] = useState('');
     const [lastQuery, setLastQuery] = useState('');
     const [pdfLoadError, setPdfLoadError] = useState(null);
     const [statusHint, setStatusHint] = useState('');
+    const [sessionId] = useState(() => createSessionId('reader'));
+    const { modelReady } = useTtsStatus();
 
     // Refs mirror the values the async paths (content resolution, search,
     // shortcuts) read: a freshly activated book must resolve against its
@@ -70,6 +88,14 @@ export default function Reader() {
     const isTextBookRef = useRef(false);
     const audioRef = useRef(null);
     const progressSaveFailedRef = useRef(false);
+    // The narration hook is created below the lifecycle (its fresh-page
+    // escape hatch needs it), but the lifecycle's onContent needs the
+    // hook — the ref bridges the cycle the same way PdfViewer bridges
+    // handlePlay.
+    const narrationRef = useRef(null);
+    // The prepared-page record from the latest content resolution; the
+    // lifecycle passes only (text, source, ctx) to onContent.
+    const preparedRef = useRef(null);
 
     const { bookmarks, toggle, set: setBookmarks, isBookmarked } = useBookmarks({ initial: [] });
     const zoom = useReaderZoom({ initial: 1 });
@@ -83,18 +109,22 @@ export default function Reader() {
     const pdfDocument = usePdfDocument({ file, fileRef, toast });
     const serverPages = useServerPageText({ totalPages: numPages });
 
+    // One resolver for both book kinds: prepared pages win when a
+    // profile has them; otherwise PDFs extract (with OCR) and text
+    // books fetch their server page. The prepared record is stashed for
+    // the narration ladder.
     const resolveContent = useCallback(async (page) => {
-        if (isTextBookRef.current) {
-            const text = await serverPages.fetchPage(libraryBookIdRef.current, page);
-            return { text, source: 'text' };
-        }
-        return resolvePageContent({
+        const result = await resolvePageContent({
             bookId: libraryBookIdRef.current,
             profileId: activeProfileIdRef.current,
             page,
             getPreparedPage,
-            preparePageText: (p) => pdfDocument.preparePageText(p),
+            preparePageText: isTextBookRef.current
+                ? (p) => serverPages.fetchPage(libraryBookIdRef.current, p)
+                : (p) => pdfDocument.preparePageText(p),
         });
+        preparedRef.current = result.prepared ?? null;
+        return result;
     }, [serverPages, pdfDocument]);
 
     const lifecycle = useReaderPageLifecycle({
@@ -104,13 +134,21 @@ export default function Reader() {
             setPageText(text);
             pageNumberRef.current = ctx.page;
             setPageNumber(ctx.page);
-            // A "load" marks the page the reader will narrate; the resume
-            // dialog compares it against the browsed page.
-            if (ctx.kind === 'load') setAudioPage(ctx.page);
+            // A "load" narrates the page (or parks cached/prepared
+            // audio when merely browsing). Fire-and-forget: generation
+            // takes seconds and the text must paint now.
+            if (ctx.kind === 'load') {
+                void narrationRef.current?.startForLoadedPage(
+                    ctx.page,
+                    text,
+                    preparedRef.current,
+                    { autoplay: ctx.autoplay },
+                );
+            }
             // Persist freshly extracted PDF text so the library — not a
             // local cache — is authoritative on the next open. Text-book
             // pages already live on the server; 'prepared' came from it.
-            if (libraryBookIdRef.current && source !== 'prepared' && source !== 'text') {
+            if (libraryBookIdRef.current && !isTextBookRef.current && source !== 'prepared') {
                 savePreparedPage(
                     libraryBookIdRef.current,
                     ctx.page,
@@ -120,21 +158,41 @@ export default function Reader() {
             }
         }, []),
         onBeforeLoad: useCallback(() => {
-            transport.clearPlaylistTimeline();
+            // Load-for-narration tears the current playback down before
+            // the new page resolves.
+            narrationRef.current?.teardownForNavigation();
             setPageText('');
-        }, [transport]),
+        }, []),
         onError: useCallback((error) => {
             toast.error(error.message || 'Could not open that page.');
         }, [toast]),
     });
 
+    const getPage = useCallback(() => pageNumberRef.current, []);
+    const narration = useReaderNarration({
+        audioRef,
+        transport,
+        sessionId,
+        // Server default voice; the picker lands with the next slice.
+        voiceId: null,
+        languageId: 'en',
+        modelReady,
+        getPage,
+        onNarratePage: useCallback((page) => {
+            lifecycle.loadPage(page, { autoplay: true });
+        }, [lifecycle]),
+        toast,
+    });
+    narrationRef.current = narration;
+
     const resume = usePageResume({
         currentPage: pageNumber,
-        audioPage,
-        hasAudio: audioPage != null,
+        audioPage: narration.audioPage,
+        hasAudio: narration.audioPage != null,
         onResume: useCallback(() => {
-            lifecycle.loadPage(audioPage);
-        }, [lifecycle, audioPage]),
+            // The audio kept playing while browsing; follow it back.
+            lifecycle.browsePage(narration.audioPage);
+        }, [lifecycle, narration]),
         onStartFresh: useCallback(() => {
             lifecycle.loadPage(pageNumber, { autoplay: true });
         }, [lifecycle, pageNumber]),
@@ -215,12 +273,10 @@ export default function Reader() {
         onLastPage: () => {
             if (numPages) lifecycle.browsePage(numPages);
         },
-        onToggleMute: () => {
-            // Mute wiring lands with the A.8 audio element.
-        },
-        onPlayPause: () => {
-            // Play/pause lands with the A.8 audio element.
-        },
+        onPlayPause: () => narration.handlePlay(),
+        onSeekBack: () => transport.skipBy(-10),
+        onSeekForward: () => transport.skipBy(10),
+        onToggleMute: () => narration.toggleMute(),
         onShowShortcuts: () => {
             // The global `?` handler in App.jsx owns this; no-op here.
         },
@@ -254,7 +310,7 @@ export default function Reader() {
         setNumPages(numPagesRef.current);
         pageNumberRef.current = progress.page;
         setPageNumber(progress.page);
-        setAudioPage(null);
+        narration.resetForNewBook(progress.page, progress.time);
         setPageText('');
         setQuery('');
         setLastQuery('');
@@ -354,6 +410,7 @@ export default function Reader() {
     if (!file) {
         return (
             <div className="pdf-viewer-container">
+                <audio ref={audioRef} className="audio-hidden" preload="auto" />
                 <div className="reader-open">
                     <h2 className="reader-open-title">Open a book to start reading</h2>
                     <label className="btn primary" htmlFor="reader-upload">
@@ -398,7 +455,8 @@ export default function Reader() {
     const isTextBook = sourceKind !== 'pdf';
 
     return (
-        <div className="pdf-viewer-container" ref={rootRef} data-transport-state="idle" data-source-kind={sourceKind}>
+        <div className="pdf-viewer-container" ref={rootRef} data-transport-state={narration.transportState} data-source-kind={sourceKind}>
+            <audio ref={audioRef} className="audio-hidden" preload="auto" />
             {statusHint && <small className="reader-page-status" role="status">{statusHint}</small>}
             <div className="reader-toolbar-row">
                 <button
@@ -435,9 +493,45 @@ export default function Reader() {
                 <button
                     type="button"
                     className="btn primary btn-compact"
-                    onClick={() => lifecycle.loadPage(pageNumber, { autoplay: true })}
+                    onClick={() => narration.handlePlay()}
+                    disabled={narration.isGenerating}
+                    aria-label={narration.isPlaying ? 'Pause narration' : 'Play narration'}
                 >
-                    Read
+                    {narration.isPlaying ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+                    {narration.isPlaying ? 'Pause' : 'Play'}
+                </button>
+                <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={narration.stopPlayback}
+                    aria-label="Stop narration"
+                >
+                    <Square size={16} aria-hidden="true" />
+                </button>
+                <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => transport.skipBy(-10)}
+                    aria-label="Back 10 seconds"
+                >
+                    <Rewind size={16} aria-hidden="true" />
+                </button>
+                <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => transport.skipBy(10)}
+                    aria-label="Forward 10 seconds"
+                >
+                    <FastForward size={16} aria-hidden="true" />
+                </button>
+                <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={narration.toggleMute}
+                    aria-pressed={narration.muted}
+                    aria-label={narration.muted ? 'Unmute narration' : 'Mute narration'}
+                >
+                    {narration.muted ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
                 </button>
                 <button
                     type="button"
@@ -487,6 +581,9 @@ export default function Reader() {
             {searchStatus && (
                 <small className="reader-search-status" role="status">{searchStatus}</small>
             )}
+            {narration.isGenerating && (
+                <small className="reader-page-status" role="status">Generating narration…</small>
+            )}
             {pdfLoadError && (
                 <div className="reader-pdf-error" role="alert">
                     <p>{pdfLoadError}</p>
@@ -501,7 +598,7 @@ export default function Reader() {
             )}
             {resume.showChoice && (
                 <div className="reader-resume-choice" role="dialog" aria-label="Resume or start fresh?">
-                    <p>Resume narration on page {audioPage}, or start fresh on page {pageNumber}?</p>
+                    <p>Resume narration on page {narration.audioPage}, or start fresh on page {pageNumber}?</p>
                     <button type="button" className="btn secondary btn-compact" onClick={resume.resume}>Resume</button>
                     <button type="button" className="btn primary btn-compact" onClick={resume.startFresh}>Start fresh</button>
                     <button type="button" className="btn text btn-compact" onClick={resume.dismiss}>Dismiss</button>
