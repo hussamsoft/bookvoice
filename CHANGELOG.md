@@ -2,7 +2,8 @@
 
 ### Added
 
-- **Stage A of the reader rewrite, previewable behind `?reader=new`.** A new `Reader` composition root wires nine focused hooks — page lifecycle (browse vs. load with race-cancel), audio transport, zoom, wrap-around search, bookmarks, resume choice, throttled progress autosave, prepared-book library, and the reader keyboard set — with `TextStage` rendering the page and `PdfStage` standing as the mount point for the later react-pdf port. The scaffold runs against a synthetic 100-page placeholder book, so the search → jump, resume-or-fresh, and page-navigation flows are exercised end to end before real document identity arrives in A.8. The production `PdfViewer` stays the default reader (including for `?reader=old`); flipping the default is a separate, later decision.
+- **Stage A of the reader rewrite, previewable behind `?reader=new`.** A new `Reader` composition root wires nine focused hooks — page lifecycle (browse vs. load with race-cancel), audio transport, zoom, wrap-around search, bookmarks, resume choice, throttled progress autosave, prepared-book library, and the reader keyboard set — with `TextStage` rendering text pages. The production `PdfViewer` stays the default reader (including for `?reader=old`); flipping the default is a separate, later decision.
+- **The new reader now opens real books** (A.8.1). A file input and the prepared-book library cover the open paths: PDFs render through react-pdf in `PdfStage` (bundled worker, text layer on, fit-to-viewport width with CSS-zoom), text books (.epub/.txt/.md) stream their pages from the library manifest, and freshly extracted PDF pages are written back with `savePreparedPage` so the library stays authoritative. Reading progress is keyed by the document fingerprint and restored on re-open — locally through the autosave hook and server-side through `updatePreparedProgress` for library books. Find-in-book reuses the production scans (PDF text-layer extraction, or the warmed server pages with bounded concurrency). Page navigation, search-jump, and the resume dialog work against real page counts.
 - A **keyboard-shortcuts sheet** for the whole app, opened with `?` from any mode, documenting the reader key set: Space, ←/→, PageUp/PageDown, Home/End, Ctrl/Cmd+[ and ], F, B, M.
 - The mode switcher now lives in the title bar as an ARIA tablist with roving tabindex, replacing the separate switcher band; each segment carries its hint as a native tooltip.
 
@@ -10,19 +11,20 @@
 
 - Voice Studio opens onto a single surface: the create form, the project list, and the legacy-project claim moved into the project sidebar beside an inline hero, replacing the separate start screen.
 - PdfViewer no longer raises a toast when a search succeeds.
+- The pdf.js/react-pdf core is now a shared lazy chunk used by both the production viewer and the new reader, instead of being duplicated in the viewer's bundle.
 
 ### Removed
 
-- `StudioStart.jsx`, and the CSS it took with it: the orphaned `.studio-start-*` rules, the unused `.reader-placeholder` and `.mode-hint` rules, and a duplicate `.reader-zoom-pct` rule that silently overrode the toolbar's zoom styling.
+- `StudioStart.jsx`, and the CSS it took with it: the orphaned `.studio-start-*` rules, the unused `.reader-placeholder` and `.mode-hint` rules, and a duplicate `.reader-zoom-pct` rule that silently overrode the toolbar's zoom styling. The new reader's synthetic placeholder book is gone with them.
 
 ### Test results
 
-- Frontend unit: 372/372 passing (63 files) — includes new coverage for the reader flag and `?` sheet in App, PdfStage, and the reader's page-navigation, search, and resume wiring
+- Frontend unit: 383/383 passing (65 files) — includes coverage for the open flows (library re-open with progress restore, file import), real page resolution, server progress mirroring, and the react-pdf wiring
 - Frontend lint: 0 diagnostics
 - Backend pytest: 432 passed (24 subtests)
 - End-to-end journeys (`scripts/simulate_app.py`): 62 passed, 0 failed
 - `scripts/check_static_sync.py`: `backend/static` matches a fresh `frontend/dist`
-- Build: initial entry 305.35 KiB against the 350 KiB budget (the new `Reader` chunk is lazy-loaded at 11.8 KiB)
+- Build: initial entry 306.22 KiB against the 350 KiB budget (the new `Reader` chunk is lazy-loaded at 17.8 KiB)
 
 ## 2.7.0 - 2026-09-01
 

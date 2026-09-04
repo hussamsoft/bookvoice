@@ -7,6 +7,63 @@
   gap: var(--space-2);
 }
 
+.reader-page-status {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reader-pdf-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0 auto;
+  padding: var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  max-width: 480px;
+}
+
+/* Open-a-book empty state (no document open). */
+.reader-open {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: 60vh;
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.reader-open-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 650;
+}
+
+.reader-open-hint {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  max-width: 40ch;
+}
+
+.reader-open-list {
+  display: grid;
+  gap: var(--space-2);
+  width: min(480px, 100%);
+}
+
+.reader-open-list .prepared-book-row {
+  text-align: left;
+  color: var(--ink);
+}
+
 .reader-search {
   display: inline-flex;
   align-items: center;
@@ -32,11 +89,6 @@
   font-size: var(--text-sm);
   max-width: 60ch;
   text-align: center;
-}
-
-.reader-library-count {
-  color: var(--ink-muted);
-  font-size: var(--text-xs);
 }
 
 /* TextStage — paper-and-ink reading column for EPUB / TXT / MD. */
