@@ -16,6 +16,10 @@ vi.mock('./components/VoiceStudio', () => ({
   default: () => <div data-testid="voice-studio-mock">Voice Studio Component</div>
 }));
 
+vi.mock('./components/reader/Reader', () => ({
+  default: () => <div data-testid="reader-mock">New Reader Component</div>
+}));
+
 function renderApp() {
   return render(
     <ToastProvider>
@@ -27,6 +31,7 @@ function renderApp() {
 describe('App Component', () => {
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState(null, '', '/');
   });
 
   it('renders correctly and defaults to PDF Mode', async () => {
@@ -48,12 +53,13 @@ describe('App Component', () => {
     expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
   });
 
-  it('provides named reading-mode navigation and keeps the sparkle mark', async () => {
+  it('exposes the reading-mode tablist in the title bar', async () => {
     renderApp();
 
-    expect(screen.getByRole('navigation', { name: 'Reading mode' })).toBeInTheDocument();
-    expect(screen.queryByText('Local reader · Private by default')).not.toBeInTheDocument();
-        expect(screen.getByTestId('titlebar-palette')).toBeInTheDocument();
+    // The mode switcher is now a tablist in the title bar, not a separate
+    // `<nav>` band; the dead `titlebar-palette` icon has been removed.
+    expect(screen.getByRole('tablist', { name: 'Reading mode' })).toBeInTheDocument();
+    expect(screen.queryByTestId('titlebar-palette')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'reader mode' })).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -67,6 +73,32 @@ describe('App Component', () => {
     expect(localStorage.getItem('bookvoice.app.mode')).toBe('studio');
   });
 
+
+  it('keeps the production PdfViewer for the default and legacy reader flags', async () => {
+    window.history.replaceState(null, '', '/?reader=old');
+    renderApp();
+    // Stage A keeps PdfViewer as the default; only `?reader=new` opts in.
+    expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    expect(screen.queryByTestId('reader-mock')).not.toBeInTheDocument();
+  });
+
+  it('mounts the new Reader behind ?reader=new', async () => {
+    window.history.replaceState(null, '', '/?reader=new');
+    renderApp();
+    expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
+    expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
+  });
+
+  it('opens the keyboard-shortcuts sheet from the ? key', async () => {
+    renderApp();
+    expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '?' });
+    expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument();
+  });
 
   it('supports arrow-key navigation between modes with roving tabindex', async () => {
     renderApp();

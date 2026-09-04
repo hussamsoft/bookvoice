@@ -380,8 +380,9 @@ describe('VoiceStudio', () => {
 
         renderStudio();
 
+        // The hero copy lives in the main area; the projects are reachable
+        // from the sidebar (the single entry surface after Phase 4).
         expect(await screen.findByRole('heading', { name: /What would you like to do/i })).toBeInTheDocument();
-        // Projects are still all reachable — only the auto-open is gone.
         expect(screen.getByRole('button', { name: 'Open Demo voice project' })).toBeInTheDocument();
         expect(screen.queryByRole('tab', { name: /Create narration/i })).not.toBeInTheDocument();
     }, 15_000);
@@ -409,12 +410,14 @@ describe('VoiceStudio', () => {
         });
 
         renderStudio();
+        // The legacy-claim card lives in the sidebar after Phase 4.
         const claim = await screen.findByRole('button', {
             name: /Keep earlier projects on this device/i,
         });
         fireEvent.click(claim);
 
         await waitFor(() => expect(api.claimLegacyStudioProjects).toHaveBeenCalledTimes(1));
+        // After claim, the project is in the sidebar list and the card is gone.
         expect(await screen.findByRole('button', {
             name: 'Open Demo voice project',
         })).toBeInTheDocument();

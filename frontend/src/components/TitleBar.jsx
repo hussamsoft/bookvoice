@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Moon, Palette, Sun } from 'lucide-react';
+import { ChevronDown, Moon, Sun } from 'lucide-react';
 import { readStoredString, writeStoredString } from '../utils/storage';
 
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
@@ -17,7 +17,7 @@ function prefersColorSchemeDark() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function TitleBar({ currentMode, modeLabels }) {
+function TitleBar({ currentMode, modeLabels, modeSwitcher = null, contextTitle = null }) {
     const [palette, setPalette] = useState(() =>
         readStoredString('bookvoice.palette', {
             legacyKeys: ['bookvoice:palette'],
@@ -99,11 +99,17 @@ function TitleBar({ currentMode, modeLabels }) {
             <div className="titlebar-brand">
                 <h1>BookVoice</h1>
             </div>
-            <div className="titlebar-current-mode">
-                {currentMode && <span className="current-mode-label">{modeLabels[currentMode] || currentMode}</span>}
+            <div className="titlebar-center">
+                {modeSwitcher}
+                {contextTitle ? (
+                    <span className="titlebar-context">{contextTitle}</span>
+                ) : (
+                    currentMode && (
+                        <span className="current-mode-label">{modeLabels[currentMode] || currentMode}</span>
+                    )
+                )}
             </div>
             <div className="titlebar-tools">
-                <Palette className="titlebar-sparkle" data-testid="titlebar-palette" size={16} aria-hidden="true" />
                 <div className="theme-selector">
                     <button
                         type="button"

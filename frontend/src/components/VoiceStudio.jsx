@@ -19,7 +19,6 @@ import ConfirmDialog from './ui/ConfirmDialog';
 import StudioConversion from './StudioConversion';
 import StudioNarration from './StudioNarration';
 import StudioProjectSidebar from './StudioProjectSidebar';
-import StudioStart from './StudioStart';
 import StudioRepair from './StudioRepair';
 import * as studioSession from '../utils/studioSession';
 
@@ -298,19 +297,23 @@ export default function VoiceStudio() {
                 onDuplicate={duplicateProject}
                 onDelete={setProjectPendingDelete}
                 onOpenFolder={showProjectFolder}
+                legacyProjectsAvailable={legacyProjectsAvailable}
+                onClaimLegacy={claimEarlierProjects}
                 disabled={Boolean(activeJob)}
             />
 
             <section className="studio-main" aria-label="Active Voice Studio project">
                 {!project ? (
-                    <StudioStart
-                        projects={projects}
-                        onOpen={openProject}
-                        onCreate={createProject}
-                        legacyProjectsAvailable={legacyProjectsAvailable}
-                        onClaimLegacy={claimEarlierProjects}
-                        disabled={Boolean(activeJob)}
-                    />
+                    <div className="studio-start">
+                        <div className="studio-start-hero">
+                            <AudioLines size={34} aria-hidden="true" />
+                            <h1>What would you like to do?</h1>
+                            <p>
+                                Write narration in a cloned voice, or re-voice a recording you already have.
+                                Projects, source media, and outputs stay private to this browser on this device.
+                            </p>
+                        </div>
+                    </div>
                 ) : <>
                     <header className="studio-project-header">
                         <div>

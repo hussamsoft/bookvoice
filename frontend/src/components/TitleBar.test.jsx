@@ -26,7 +26,9 @@ describe('TitleBar', () => {
         expect(screen.getByRole('heading', { name: 'BookVoice' })).toBeVisible();
         expect(screen.queryByText('Read with your ears')).not.toBeInTheDocument();
         expect(screen.queryByText(/Local reader|Private by default/i)).not.toBeInTheDocument();
-        expect(screen.getByTestId('titlebar-palette')).toBeVisible();
+        // The dead `titlebar-palette` icon has been removed; the theme
+        // selector is the only theme affordance now.
+        expect(screen.queryByTestId('titlebar-palette')).not.toBeInTheDocument();
     });
 
     it('persists an accessible dark theme toggle', () => {

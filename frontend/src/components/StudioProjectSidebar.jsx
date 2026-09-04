@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { ChevronDown, Copy, FolderOpen, FolderPlus, HardDrive, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, FolderOpen, FolderPlus, HardDrive, ShieldCheck, Trash2 } from 'lucide-react';
 import { useCapabilities } from '../hooks/useCapabilities';
 
 function diskLabel(bytes = 0) {
@@ -8,6 +8,11 @@ function diskLabel(bytes = 0) {
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
+/**
+ * Voice Studio's single entry surface. Owns the project list, the create
+ * form, and (when present) the legacy-claim card. There is no second
+ * "start" screen — the sidebar is the start.
+ */
 export default function StudioProjectSidebar({
     projects,
     activeId,
@@ -16,6 +21,8 @@ export default function StudioProjectSidebar({
     onDuplicate,
     onDelete,
     onOpenFolder,
+    legacyProjectsAvailable = false,
+    onClaimLegacy,
     disabled,
 }) {
     const [name, setName] = useState('');
@@ -57,6 +64,29 @@ export default function StudioProjectSidebar({
             </button>
 
             <div className="studio-sidebar-body">
+                {legacyProjectsAvailable && (
+                    <section className="studio-legacy-claim" aria-labelledby="studio-legacy-heading">
+                        <div>
+                            <ShieldCheck size={22} aria-hidden="true" />
+                            <div>
+                                <h2 id="studio-legacy-heading">Earlier projects need a device</h2>
+                                <p>
+                                    Projects made before device isolation are preserved but unassigned.
+                                    Move them here once; other devices will not be able to open them.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={onClaimLegacy}
+                            disabled={disabled}
+                        >
+                            Keep earlier projects on this device
+                        </button>
+                    </section>
+                )}
+
                 <form className="studio-new-project" onSubmit={create}>
                     <label className="sr-only" htmlFor="studio-project-name">New project name</label>
                     <input
@@ -86,6 +116,7 @@ export default function StudioProjectSidebar({
                     >
                         <button
                             className="studio-project-open"
+                            aria-label={`Open ${project.name}`}
                             aria-current={project.id === activeId ? 'true' : undefined}
                             onClick={() => {
                                 // Collapse after choosing, so the work is on screen.
@@ -129,6 +160,11 @@ export default function StudioProjectSidebar({
                     </article>
                 ))}
                 </div>
+
+                <p className="studio-sidebar-hint">
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    Only projects created or claimed in this browser appear here.
+                </p>
             </div>
         </aside>
     );

@@ -71,4 +71,14 @@ describe('StudioProjectSidebar', () => {
 
         expect(await screen.findByRole('button', { expanded: false })).toHaveTextContent('No project');
     });
+
+    it('shows the legacy-claim card when there are unassigned older projects', async () => {
+        renderSidebar({ legacyProjectsAvailable: true, onClaimLegacy: vi.fn() });
+        expect(await screen.findByText(/Earlier projects need a device/)).toBeInTheDocument();
+    });
+
+    it('hides the legacy-claim card when no older projects need a device', async () => {
+        renderSidebar({ legacyProjectsAvailable: false });
+        expect(screen.queryByText(/Earlier projects need a device/)).not.toBeInTheDocument();
+    });
 });

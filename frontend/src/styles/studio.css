@@ -88,6 +88,18 @@
   gap: var(--space-2);
 }
 
+.studio-sidebar-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--hairline);
+}
+
 .studio-project-count {
   font-size: var(--text-xs);
   color: var(--ink-muted);
@@ -243,27 +255,6 @@
   max-width: 36rem;
 }
 
-.studio-start-create {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.studio-start-create label {
-  font-size: var(--text-sm);
-  color: var(--ink-secondary);
-}
-
-.studio-start-create > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.studio-start-create input {
-  flex: 1 1 240px;
-}
-
-.studio-start-recent h2,
 .studio-section-heading {
   font-size: var(--text-sm);
   font-weight: 600;
@@ -271,43 +262,6 @@
   text-transform: uppercase;
   color: var(--ink-muted);
   margin-bottom: var(--space-3);
-}
-
-.studio-start-list {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.studio-start-project {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color var(--dur-fast) var(--ease-out);
-}
-
-.studio-start-project:hover {
-  border-color: var(--accent-ring);
-}
-.studio-start-project:active {
-  transform: scale(0.98);
-}
-
-.studio-start-hint {
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-.studio-start-screen {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-6);
 }
 
 .studio-job-info {

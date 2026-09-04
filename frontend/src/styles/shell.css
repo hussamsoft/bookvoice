@@ -33,11 +33,28 @@
   white-space: nowrap;
 }
 
-.titlebar-current-mode {
+/* The center slot holds the mode switcher (segmented control) and an
+ * optional contextual title (book name, project name). On wide viewports
+ * both fit on one line; on narrow viewports the contextual title can wrap
+ * or be hidden. */
+.titlebar-center {
   flex: 1;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: var(--space-3);
   min-width: 0;
+}
+
+.titlebar-context {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 28ch;
 }
 
 .current-mode-label {
@@ -226,14 +243,8 @@
 
 /* --- Mode switcher (segmented control) -------------------------------- */
 
-.mode-switcher {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-3) var(--space-2);
-}
-
+/* The mode-switcher is now a child of .titlebar-center, not a separate
+ * band. The track keeps the segmented-control look but lives inline. */
 .mode-switcher-track {
   position: relative;
   display: inline-flex;
@@ -242,7 +253,8 @@
   padding: 2px;
   background: var(--accent-soft);
   border-radius: var(--radius-pill);
-  height: var(--control-h-md);
+  height: var(--control-h-sm);
+  flex-shrink: 0;
 }
 
 .mode-segment {
@@ -250,15 +262,15 @@
   z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  height: calc(var(--control-h-md) - 4px);
-  padding: 0 var(--space-3);
+  gap: 4px;
+  height: calc(var(--control-h-sm) - 4px);
+  padding: 0 var(--space-2);
   border: none;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-secondary);
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -286,7 +298,7 @@
   position: absolute;
   top: 2px;
   left: 0;
-  height: calc(var(--control-h-md) - 4px);
+  height: calc(var(--control-h-sm) - 4px);
   background: var(--surface-raised);
   border-radius: var(--radius-pill);
   box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 12%, transparent),
@@ -294,15 +306,6 @@
   transform: translateX(0);
   transition: transform var(--dur) var(--ease-out-quart);
   z-index: 0;
-}
-
-.mode-hint {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
-  text-align: center;
-  max-width: 40ch;
-  line-height: var(--leading-snug);
 }
 
 /* --- Main stage -------------------------------------------------------- */

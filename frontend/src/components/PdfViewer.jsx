@@ -2123,8 +2123,10 @@ export default function PdfViewer({ onDirty }) {
                 ? await findTextInServerPages(searchQuery)
                 : await findTextInDocument(searchQuery, pageNumber + 1);
             if (found) {
+                // Navigation is its own feedback — the page change is the
+                // confirmation. No toast on a successful search (per the
+                // plan §2.5.4 toast discipline).
                 await browsePageIntoView(found);
-                toast.success(`Found on page ${found}`);
             } else {
                 toast.info('Text was not found in this book.');
             }

@@ -1,13 +1,16 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import UpdateBanner from './components/UpdateBanner';
 import ConfirmDialog from './components/ui/ConfirmDialog';
+import Shortcuts from './components/Shortcuts';
 import { getAppMode, setAppMode } from './utils/appSession';
+import { useKeyboardShortcuts } from './hooks/reader/useKeyboardShortcuts';
 
 const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
 const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
+const Reader = lazy(() => import('./components/reader/Reader'));
 
 const MODE_LABELS = {
     pdf: 'reader',
@@ -44,6 +47,24 @@ function App() {
     // previous mode can detect they're stale and bail out (no state update on
     // unmounted/wrong-mode components, no phantom toasts).
     const epochRef = useRef(0);
+    // Stage A feature flag. The new reader composition is being extracted
+    // from PdfViewer.jsx: `?reader=new` previews it while the production
+    // PdfViewer stays the default (including for `?reader=old` or any
+    // other value). Making the new reader the default — and deleting the
+    // flag — is a separate, later decision.
+    const useNewReader = useMemo(() => {
+        if (typeof window === 'undefined') return false;
+        return new URLSearchParams(window.location.search).get('reader') === 'new';
+    }, []);
+
+    // Global `?` opens the keyboard shortcuts sheet. The per-mode keyboard
+    // hook (PageUp / Space / F / etc.) lives in the mode components; this
+    // handler is intentionally narrow so the `?` shortcut works regardless
+    // of which mode is active.
+    const [showShortcuts, setShowShortcuts] = useState(false);
+    useKeyboardShortcuts({
+        onShowShortcuts: () => setShowShortcuts(true),
+    });
 
     useEffect(() => {
         if (mode !== prevModeRef.current) {
@@ -135,36 +156,50 @@ function App() {
         tabs[nextIndex]?.click();
     };
 
-        return (
+    // The mode switcher lives in the title bar (single 56 px row). Each
+    // segment carries its hint as a native tooltip; TitleBar's optional
+    // `contextTitle` slot below the tablist is reserved for a future
+    // per-mode context label.
+    const modeSwitcher = (
+        <div
+            className="mode-switcher-track"
+            role="tablist"
+            aria-label="Reading mode"
+            onKeyDown={handleModeSwitcherKeyDown}
+        >
+            {Object.keys(MODE_LABELS).map((modeKey) => {
+                const Icon = MODE_ICONS[modeKey];
+                const isActive = mode === modeKey;
+                return (
+                    <button
+                        key={modeKey}
+                        type="button"
+                        className={`mode-segment ${isActive ? 'is-active' : ''}`}
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-label={`${MODE_LABELS[modeKey]} mode`}
+                        title={MODE_HINTS[modeKey]}
+                        tabIndex={isActive ? 0 : -1}
+                        onClick={() => requestMode(modeKey)}
+                    >
+                        <Icon size={14} aria-hidden="true" />
+                        <span>{MODE_SHORT_LABELS[modeKey]}</span>
+                    </button>
+                );
+            })}
+            <span className="mode-indicator" aria-hidden="true" />
+        </div>
+    );
+
+    return (
         <div className="app-shell">
             <a href="#main-content" className="skip-link">Skip to main content</a>
             <header className="main-header">
-                <TitleBar currentMode={mode} modeLabels={MODE_LABELS} />
-                <nav className="mode-switcher" aria-label="Reading mode">
-                    <div className="mode-switcher-track" role="tablist" onKeyDown={handleModeSwitcherKeyDown}>
-                        {Object.keys(MODE_LABELS).map((modeKey) => {
-                            const Icon = MODE_ICONS[modeKey];
-                            const isActive = mode === modeKey;
-                            return (
-                                <button
-                                    key={modeKey}
-                                    type="button"
-                                    className={`mode-segment ${isActive ? 'is-active' : ''}`}
-                                    role="tab"
-                                    aria-selected={isActive}
-                                    aria-label={`${MODE_LABELS[modeKey]} mode`}
-                                    tabIndex={isActive ? 0 : -1}
-                                    onClick={() => requestMode(modeKey)}
-                                >
-                                    <Icon size={16} aria-hidden="true" />
-                                    <span>{MODE_SHORT_LABELS[modeKey]}</span>
-                                </button>
-                            );
-                        })}
-                        <span className="mode-indicator" aria-hidden="true" />
-                    </div>
-                    <p className="mode-hint">{MODE_HINTS[mode]}</p>
-                </nav>
+                <TitleBar
+                    currentMode={mode}
+                    modeLabels={MODE_LABELS}
+                    modeSwitcher={modeSwitcher}
+                />
             </header>
 
             <main id="main-content" className="main-content reading-stage">
@@ -183,6 +218,8 @@ function App() {
                             />
                         ) : displayMode === 'studio' ? (
                             <VoiceStudio key={`studio-${epochRef.current}`} />
+                        ) : useNewReader ? (
+                            <Reader key={`reader-${epochRef.current}`} />
                         ) : (
                             <PdfViewer
                                 key={`pdf-${epochRef.current}`}
@@ -201,6 +238,10 @@ function App() {
                 confirmLabel="Switch mode"
                 onConfirm={confirmPendingMode}
                 onCancel={() => setPendingMode(null)}
+            />
+            <Shortcuts
+                open={showShortcuts}
+                onClose={() => setShowShortcuts(false)}
             />
         </div>
     );

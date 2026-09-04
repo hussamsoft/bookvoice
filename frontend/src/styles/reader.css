@@ -1,6 +1,91 @@
 /* Reader surfaces: PDF stage, transcript, transport, options, library,
  * resume dialog, and the camera capture wizard. */
 
+.reader-toolbar-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reader-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.reader-search input {
+  width: 200px;
+}
+
+.reader-bookmark-count {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.reader-search-status {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.reader-page-text {
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+  text-align: center;
+}
+
+.reader-library-count {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* TextStage — paper-and-ink reading column for EPUB / TXT / MD. */
+.text-page-column {
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5);
+  font-family: var(--font-reading);
+  font-size: var(--text-body);
+  line-height: var(--leading-relaxed);
+  color: var(--ink);
+}
+
+.text-page-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* PdfStage placeholder (Stage A.8). The real <Document>+<Page> lives in
+ * the production PdfViewer until the TTS pipeline is ported. */
+.pdf-stage-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  margin: 0 auto;
+  padding: var(--space-5);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-md);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+  max-width: 480px;
+}
+
+.reader-resume-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
 .pdf-viewer-container {
   display: flex;
   flex-direction: column;
