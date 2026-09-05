@@ -17,6 +17,9 @@ phones and tablets.
 - Uses the packaged CUDA PyTorch build when an NVIDIA GPU is present
 - Launching it again while it runs just raises the existing window
 - A `.bookvoice` file path on the command line imports and opens the book
+- `BookVoice.exe --register-bookvoice` makes double-clicked `.bookvoice`
+  files open in BookVoice (per-user, no admin); `--unregister-bookvoice`
+  removes it again
 
 ## Server for phones and tablets (mobile web)
 
@@ -27,6 +30,23 @@ the server.
 
 Anyone who can reach the port gets full access unless
 `BOOKVOICE_ACCESS_PASSWORD` is set.
+
+### Ports and reaching the server without fail
+
+- The port is dynamic: the server reuses the port it last came up on and
+  only scans 8000-8020 when that port is taken, so bookmarked URLs keep
+  working across restarts. Pass `--port N` (or set `BOOKVOICE_PORT`) to pin
+  one.
+- The Settings panel in the app shows the current addresses to open on
+  another device, with copy buttons (via `GET /api/server/addresses`).
+- Cloudflare Tunnel is built in:
+  `Start-BookVoice-Server.bat --tunnel` publishes a fresh public URL,
+  `--tunnel-name <name> --tunnel-hostname <host>` keeps one permanent
+  address, and `--tunnel-token <token> --port N` runs a dashboard-managed
+  tunnel (the dashboard's ingress must point at the pinned port). Settings
+  persist in the runtime folder, so the desktop shell tunnels too once
+  configured. The desktop shell accepts the same flags
+  (`BookVoice.exe --tunnel ...`).
 
 ## What happens on first launch
 
