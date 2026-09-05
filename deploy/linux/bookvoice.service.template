@@ -1,0 +1,39 @@
+# BookVoice systemd unit — rendered by deploy/linux/install.sh, which
+# substitutes the {{PLACEHOLDER}} paths. ${BOOKVOICE_HOST} and ${BOOKVOICE_PORT}
+# in ExecStart are NOT install-time placeholders: systemd expands them from the
+# EnvironmentFile at (re)start, so the bind address can be changed by editing
+# the env file and restarting — no re-render needed.
+
+[Unit]
+Description=BookVoice server (FastAPI API + static UI)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+{{SERVICE_USER}}
+{{SERVICE_GROUP}}
+WorkingDirectory={{APP_DIR}}
+EnvironmentFile={{ENV_FILE}}
+ExecStart={{VENV_PYTHON}} -m uvicorn main:app --host ${BOOKVOICE_HOST} --port ${BOOKVOICE_PORT} --app-dir {{APP_DIR}}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Hardening: code tree read-only, /tmp private, only the data dirs writable.
+# If the unit fails to start with "Failed to set up mount namespacing"
+# (kernels without unprivileged user namespaces, common for user units),
+# comment the ProtectSystem/ProtectHome/ReadWritePaths lines out.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=-{{DATA_DIR}} -{{MODEL_DIR}}
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy={{WANTED_BY}}

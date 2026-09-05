@@ -1,0 +1,51 @@
+# BookVoice server — CPU profile compose file.
+#
+#   docker compose up -d --build
+#   curl http://127.0.0.1:8000/api/health   # {"status":"ready"}
+#
+# Caveats (see Dockerfile for the full list):
+#   - CPU only; GPU variant out of scope.
+#   - No model weights in the image. Mount English weights (data/models/en from
+#     a Windows install) at /app/data/models/en — uncomment below. Multilingual
+#     + EasyOCR models download into the /app/data volume on first use.
+#   - Set a password before exposing beyond loopback (env_file below).
+
+services:
+  bookvoice:
+    build:
+      # Context is the repo root (the Dockerfile COPYs backend/...); the
+      # Dockerfile.dockerignore beside it keeps that context small.
+      context: ..
+      dockerfile: deploy/linux/Dockerfile
+    image: bookvoice:cpu
+    container_name: bookvoice
+    ports:
+      - "8000:8000"
+    environment:
+      # Paths and flags are fixed here; secrets and origin settings belong in
+      # the env_file. Note: `environment` wins over `env_file` on conflict.
+      BOOKVOICE_SERVER_MODE: "1"
+      BOOKVOICE_HOST: 0.0.0.0
+      BOOKVOICE_PORT: "8000"
+      DATA_DIR: /app/data
+      MODEL_DIR: /app/data/models
+      DEFAULT_VOICES_DIR: /app/seed_voices
+      HF_HOME: /app/data/hf
+      EASYOCR_MODULE_PATH: /app/data/easyocr
+      OCR_USE_GPU: "0"
+    # Create bookvoice.env next to this file with the lines that matter:
+    #   BOOKVOICE_ACCESS_PASSWORD=<a long password>
+    #   BOOKVOICE_PUBLIC_ORIGIN=https://bookvoice.example.com   # once behind TLS/domain
+    # (copy the documented template from bookvoice.env.template — the {{...}}
+    # placeholders there are for install.sh; keep only real values here.)
+    # env_file:
+    #   - bookvoice.env
+    volumes:
+      - bookvoice-data:/app/data
+      # English TTS weights from a Windows install (read-only is fine):
+      # - /path/to/data/models/en:/app/data/models/en:ro
+    restart: unless-stopped
+    # Healthcheck comes from the Dockerfile (curl /api/health).
+
+volumes:
+  bookvoice-data:

@@ -1,0 +1,22 @@
+# Per-Dockerfile ignore file (BuildKit): keeps the build context — the repo
+# root — to only what the Dockerfile COPYs. Without it the context would ship
+# the 3 GB dev model tree, node_modules, dist/, etc.
+*
+!backend
+backend/*
+!backend/main.py
+!backend/routes
+!backend/services
+!backend/static
+!backend/data
+backend/data/*
+!backend/data/default_voices
+!backend/requirements.txt
+!backend/requirements-ci.txt
+
+# Never re-include build/dev artifacts that slipped into the above.
+**/__pycache__
+**/*.pyc
+backend/services/__pycache__
+backend/routes/__pycache__
+backend/data/default_voices/.DS_Store

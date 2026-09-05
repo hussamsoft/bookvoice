@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # BookVoice Linux bootstrap: venv + CPU dependencies (+ optional GPU wheels)
 # and a frontend bundle if Node is available. Idempotent — safe to re-run.
+#
+# This is the in-checkout developer path (runs the app from the repo). For a
+# server deployment (/opt or $HOME layout, env file, hardened systemd unit,
+# updates) use the scaffold: deploy/linux/install.sh — see deploy/linux/README.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -91,4 +95,6 @@ cat <<EOF
 Then verify: curl http://127.0.0.1:8000/api/health   # {"status":"ready"}
 
 See deploy/linux.md for model weights, systemd, and TLS notes.
+For a full server install (env file + hardened systemd unit + updates),
+use the scaffold instead: sudo deploy/linux/install.sh (see deploy/linux/README.md).
 EOF

@@ -5,6 +5,26 @@ FastAPI API plus the built frontend as static files. There is no desktop shell
 here — no MSI installer, no Launcher, no system tray, no bundled
 `cloudflared.exe`. You manage the process yourself (systemd is shown below).
 
+## Scaffold installer (recommended)
+
+`deploy/linux/` ships a self-contained scaffold that automates everything in
+this document: distro checks, system packages, the venv (CPU or `--cuda`), a
+release tree with rollback, the env file, and a hardened systemd unit, then
+smoke-checks `/api/health`:
+
+```bash
+sudo ./deploy/linux/install.sh            # CPU profile -> /opt/bookvoice, system unit
+curl http://127.0.0.1:8000/api/health     # {"status":"ready"}
+sudo ./deploy/linux/update.sh             # later: roll a new release, auto-rollback on failed health
+```
+
+A Docker CPU profile is included too (`deploy/linux/Dockerfile` +
+`docker-compose.yml`). Options, model weights, firewall, nginx, and
+troubleshooting: [`linux/README.md`](linux/README.md).
+
+The rest of this document is the manual path — what the scaffold does under
+the hood, and the route to take when you would rather wire it up yourself.
+
 ## Supported baseline
 
 - **Distro**: Ubuntu 22.04+ / Debian 12 class.
