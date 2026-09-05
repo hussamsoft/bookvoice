@@ -101,19 +101,31 @@ def write_release_manifest(
 
 RUN_MD = """# BookVoice — build artifact (`dist/`)
 
-This folder is the **build output** consumed by the Windows installers.
-End users should install via `BookVoice.msi` or `BookVoice-User.msi`, not copy
-this folder manually.
+Portable application payload. Two entry points:
 
-## Installers (recommended)
+## Desktop app (Windows)
 
-| Installer | Location | Admin required |
-|-----------|----------|----------------|
-| `BookVoice.msi` | Program Files | Yes (at install) |
-| `BookVoice-User.msi` | `%LocalAppData%\\BookVoice\\App` | **No** |
+```bat
+desktop\\BookVoice.exe
+```
 
-Both use the same self-contained payload. First launch only creates writable
-data and log directories under `%LocalAppData%\\BookVoice\\installs\\<id>\\`.
+The WinUI desktop shell. It starts the local reading engine in the
+background, waits for it to become ready, and shows the app in a native
+window. Closing the window stops the engine. Writable runtime (sessions,
+config, logs) lives under `%LocalAppData%\\BookVoice\\installs\\<install-id>\\`;
+set `BOOKVOICE_PORTABLE=1` to keep it beside the app instead.
+
+## Server for phones and tablets (mobile web)
+
+```bat
+Start-BookVoice-Server.bat
+```
+
+Serves BookVoice on this computer's network address without any window; open
+the printed `http://<computer-ip>:8000` URL in a phone or tablet browser on
+the same Wi-Fi. Keep the console window open — closing it stops the server.
+Anyone who can reach the port gets full access unless
+`BOOKVOICE_ACCESS_PASSWORD` is set.
 
 ## Developer manual start
 
@@ -125,10 +137,12 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 | Path | Purpose |
 |------|---------|
-| `Launcher.exe` | Desktop window entry (Start Menu shortcut target) |
-| `BookVoice.bat` | Browser fallback launcher |
+| `desktop/BookVoice.exe` | WinUI desktop shell (self-contained; WebView2 renders the UI) |
+| `Start-BookVoice-Server.bat` | LAN server launcher for mobile web |
+| `serve_bookvoice.py` | Headless server console (used by the bat and the desktop shell) |
+| `BookVoice.bat` | Browser-mode launcher (default browser instead of the shell) |
 | `launch.py` | Shared launcher logic |
-| `system_tray.py` | Native notification-area behavior |
+| `system_tray.py` | Notification-area behavior for the browser-mode launcher |
 | `runtime/worker/` | Portable Python 3.10 + locked application packages |
 | `main.py` / `routes/` / `services/` | FastAPI backend |
 | `static/` | Built React UI |
@@ -137,14 +151,10 @@ runtime\\worker\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 ## Notes
 
-- Writable runtime (sessions, config, logs) lives under
-  `%LocalAppData%\\BookVoice\\installs\\<install-id>\\`.
-- Set `BOOKVOICE_PORTABLE=1` to keep runtime beside the app (USB/dev).
 - English TTS is offline once `data/models/en` is present.
 - Voice Studio projects, imported media, profiles, and outputs remain local.
-- Minimizing the native window hides it from the taskbar while BookVoice and
-  any configured Cloudflare tunnel keep running. Use the notification-area icon
-  to reopen or quit it.
+- The old `Launcher.exe` (pywebview shell) is no longer part of the payload;
+  rebuild it with `python build.py --legacy-launcher` if needed.
 """
 
 
@@ -324,6 +334,14 @@ def assemble_dist():
         if helper_src.is_file():
             shutil.copy2(helper_src, DIST / helper_name)
 
+    # Headless server console + the LAN bat launcher for mobile web.
+    for server_name in ("serve_bookvoice.py", "Start-BookVoice-Server.bat"):
+        server_src = ROOT / server_name
+        if server_src.is_file():
+            shutil.copy2(server_src, DIST / server_name)
+        else:
+            raise SystemExit(f"{server_name} missing — it ships in the payload")
+
     stage_embed_python()
     stage_runtime_bundle()
     stage_media_tools()
@@ -424,6 +442,42 @@ def stage_media_tools():
     spec.loader.exec_module(mod)
     contract = mod.stage_media_tools(ROOT, DIST)
     print(f"[build] staged FFmpeg/FFprobe {contract['version']} → {DIST / 'tools' / 'ffmpeg'}")
+
+
+def stage_desktop():
+    """Build the WinUI desktop shell (self-contained) into dist/desktop."""
+    project = ROOT / "desktop" / "BookVoice.App" / "BookVoice.App.csproj"
+    if not project.is_file():
+        raise SystemExit("desktop/BookVoice.App/BookVoice.App.csproj missing")
+    dotnet = shutil.which("dotnet")
+    if not dotnet:
+        raise SystemExit(
+            "the dotnet SDK was not found on PATH; it is required to build "
+            "desktop/BookVoice.App (skip with --skip-desktop)"
+        )
+    target = DIST / "desktop"
+    if target.exists():
+        # A fresh publish, so no stale self-contained DLLs linger from an
+        # earlier build of a different Windows App SDK version.
+        shutil.rmtree(target)
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    run(
+        [
+            dotnet,
+            "publish",
+            str(project),
+            "-c",
+            "Release",
+            "-r",
+            "win-x64",
+            "-o",
+            str(target),
+            "-p:BookVoiceVersion=" + version,
+            "--nologo",
+        ],
+        ROOT,
+    )
+    print(f"[build] staged desktop shell → {target}")
 
 
 def runtime_contract_errors(dist: Path) -> list[str]:
@@ -547,7 +601,7 @@ def check_static_sync():
     return module
 
 
-def validate(committed_static_problems: list[str] | None = None):
+def validate(committed_static_problems: list[str] | None = None, legacy_launcher: bool = False):
     errors = []
     index = DIST / "static" / "index.html"
     if not index.is_file():
@@ -563,15 +617,22 @@ def validate(committed_static_problems: list[str] | None = None):
     required = [
         "main.py",
         "launch.py",
+        "serve_bookvoice.py",
         "system_tray.py",
         "VERSION",
         "release-manifest.json",
         "requirements.txt",
         "BookVoice.bat",
+        "Start-BookVoice-Server.bat",
         "scripts/kill_stale_bookvoice.ps1",
         "runtime/worker/python.exe",
         "runtime-manifest.json",
-        "Launcher.exe",
+        "desktop/BookVoice.exe",
+        "desktop/Microsoft.WindowsAppRuntime.Bootstrap.dll",
+        "desktop/WebView2Loader.dll",
+        "desktop/resources.pri",
+        "desktop/Assets/bookvoice.png",
+        "desktop/Assets/bookvoice.ico",
         "routes/tts.py",
         "routes/voices.py",
         "routes/config.py",
@@ -596,6 +657,13 @@ def validate(committed_static_problems: list[str] | None = None):
         p = DIST / rel
         if not p.exists():
             errors.append(f"required missing: {rel}")
+
+    if not legacy_launcher and (DIST / "Launcher.exe").exists():
+        # Superseded by desktop/BookVoice.exe; a leftover would look current.
+        errors.append(
+            "stale Launcher.exe in dist — it is no longer part of the payload "
+            "(rebuild without --legacy-launcher)"
+        )
 
     default_voice_count = len(list((DIST / "data" / "default_voices").glob("*.wav")))
     if default_voice_count == 0:
@@ -683,7 +751,19 @@ def main():
         "--skip-frontend", action="store_true", help="Skip npm build (reuse frontend/dist)"
     )
     parser.add_argument(
-        "--skip-launcher", action="store_true", help="Skip PyInstaller launcher rebuild"
+        "--skip-desktop",
+        action="store_true",
+        help="Skip the WinUI desktop shell build (dist/desktop/)",
+    )
+    parser.add_argument(
+        "--legacy-launcher",
+        action="store_true",
+        help="Also build the superseded pywebview Launcher.exe (MSI-era flow)",
+    )
+    parser.add_argument(
+        "--skip-launcher",
+        action="store_true",
+        help="(No-op; Launcher.exe is only built with --legacy-launcher)",
     )
     args = parser.parse_args()
 
@@ -700,10 +780,13 @@ def main():
 
     launcher_backup = assemble_dist()
 
-    if not args.skip_launcher:
+    if not args.skip_desktop:
+        stage_desktop()
+    else:
+        print("[build] Skipping desktop shell build")
+
+    if args.legacy_launcher:
         build_launcher(launcher_backup)
-    elif launcher_backup and launcher_backup.exists():
-        shutil.copy2(launcher_backup, DIST / "Launcher.exe")
 
     # Also mirror static into backend/static for dev uvicorn-from-backend.
     # Ask whether the committed bundle was current *before* the copy lands —
@@ -717,7 +800,10 @@ def main():
     if (DIST / "static").is_dir():
         copytree(DIST / "static", backend_static)
 
-    validate(committed_static_problems=committed_static_problems)
+    validate(
+        committed_static_problems=committed_static_problems,
+        legacy_launcher=args.legacy_launcher,
+    )
     print("[build] Release package ready: dist/")
 
     if args.msi:
