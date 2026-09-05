@@ -9,7 +9,8 @@ internal sealed record ServerStateInfo(
     string? Host,
     int? Port,
     string? Book,
-    string? Error)
+    string? Error,
+    string? TunnelUrl = null)
 {
     public static ServerStateInfo? TryRead(string path)
     {
@@ -26,7 +27,8 @@ internal sealed record ServerStateInfo(
                     ? p
                     : null,
                 Book: StringOrNull(root, "book"),
-                Error: StringOrNull(root, "error"));
+                Error: StringOrNull(root, "error"),
+                TunnelUrl: StringOrNull(root, "tunnelUrl"));
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {

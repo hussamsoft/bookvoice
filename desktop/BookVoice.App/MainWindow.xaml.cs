@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
 
     private string _appDir = "";
     private string _runtimeDir = "";
+    private IReadOnlyList<string> _passthroughArgs = Array.Empty<string>();
     private BackendHost? _host;
     private ServerStateInfo? _lastReady;
     private string? _pendingBookPath;
@@ -39,9 +40,10 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Begin serving the UI; call once after Activate().</summary>
-    public void Start(string? bookPath)
+    public void Start(string? bookPath, IReadOnlyList<string>? passthroughArgs = null)
     {
         _pendingBookPath = bookPath;
+        _passthroughArgs = passthroughArgs ?? Array.Empty<string>();
         StartBackend();
     }
 
@@ -133,7 +135,7 @@ public sealed partial class MainWindow : Window
         }
 
         ShowSplash("Starting BookVoice", "Waiting for startup checks…", 5);
-        _host = new BackendHost(_appDir, _runtimeDir);
+        _host = new BackendHost(_appDir, _runtimeDir, _passthroughArgs);
         _host.StatusChanged += OnStatus;
         _host.BecameReady += OnReady;
         _host.Failed += OnFailed;
@@ -440,4 +442,7 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial void ShowWindow(nint hwnd, int command);
+
+    [LibraryImport("user32.dll", EntryPoint = "MessageBoxW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int MessageBoxW(nint window, string text, string caption, int type);
 }

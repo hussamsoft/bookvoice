@@ -27,6 +27,7 @@ internal sealed class BackendHost : IDisposable
 
     private readonly string _appDir;
     private readonly string _runtimeDir;
+    private readonly IReadOnlyList<string> _passthroughArgs;
     private readonly HttpClient _http = new() { Timeout = Timeout.InfiniteTimeSpan };
     private readonly object _logLock = new();
     private FileStream? _logStream;
@@ -35,10 +36,11 @@ internal sealed class BackendHost : IDisposable
     private int _restarts;
     private bool _spawnedOnce;
 
-    public BackendHost(string appDir, string runtimeDir)
+    public BackendHost(string appDir, string runtimeDir, IReadOnlyList<string>? passthroughArgs = null)
     {
         _appDir = appDir;
         _runtimeDir = runtimeDir;
+        _passthroughArgs = passthroughArgs ?? Array.Empty<string>();
     }
 
     public void Run()
@@ -139,6 +141,7 @@ internal sealed class BackendHost : IDisposable
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(600);
         var announcedPort = false;
+        var announcedTunnel = false;
         while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
         {
             await Task.Delay(500, ct);
@@ -165,6 +168,11 @@ internal sealed class BackendHost : IDisposable
                         StatusChanged?.Invoke(
                             "Starting reading service",
                             $"Launching locally on {state.Host}:{port}…", 58, false);
+                    }
+                    if (!string.IsNullOrEmpty(state?.TunnelUrl) && !announcedTunnel)
+                    {
+                        announcedTunnel = true;
+                        LogLine($"tunnel ready at {state.TunnelUrl}");
                     }
                     break;
             }
@@ -232,6 +240,10 @@ internal sealed class BackendHost : IDisposable
         psi.ArgumentList.Add(Path.Combine(_appDir, "serve_bookvoice.py"));
         psi.ArgumentList.Add("--host");
         psi.ArgumentList.Add("127.0.0.1");
+        foreach (var arg in _passthroughArgs)
+        {
+            psi.ArgumentList.Add(arg);
+        }
         psi.Environment["PYTHONUTF8"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         psi.Environment["PYTHONNOUSERSITE"] = "1";
