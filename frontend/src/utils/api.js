@@ -298,6 +298,20 @@ export async function saveUserConfig(partial) {
     return response.json();
 }
 
+/**
+ * Where this server is reachable from other devices, as published by the
+ * launcher once it is ready. Resolves to { available: false } when nothing
+ * published it (hosted deploys, or the server runs loopback-only).
+ * @returns {Promise<{ available: boolean, port?: number, lan?: boolean, addresses?: string[], tunnelUrl?: string }>}
+ */
+export async function getServerAddresses() {
+    const response = await fetch(`${API_BASE_URL}/server/addresses`);
+    if (!response.ok) {
+        return { available: false };
+    }
+    return response.json();
+}
+
 export async function extractTextFromImageApi(imageSrc) {
     const response = await fetch(`${API_BASE_URL}/ocr`, {
         method: 'POST',

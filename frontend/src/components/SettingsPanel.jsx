@@ -3,6 +3,7 @@ import { Settings } from 'lucide-react';
 import { useToast } from './Toast';
 import Button from './ui/Button';
 import { useUserConfig } from '../hooks/useUserConfig';
+import { getServerAddresses } from '../utils/api';
 import VoiceSettings from './VoiceSettings';
 
 export default function SettingsPanel() {
@@ -10,6 +11,7 @@ export default function SettingsPanel() {
     const { config, updateConfig } = useUserConfig();
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [access, setAccess] = useState(null);
     const panelRef = useRef(null);
     const triggerRef = useRef(null);
 
@@ -52,6 +54,28 @@ export default function SettingsPanel() {
         };
     }, [open, closeSettings]);
 
+
+    useEffect(() => {
+        if (!open || access) return undefined;
+        let cancelled = false;
+        getServerAddresses()
+            .then((value) => {
+                if (!cancelled) setAccess(value);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [open, access]);
+
+    const copyAddress = useCallback(async (url) => {
+        try {
+            await navigator.clipboard.writeText(url);
+            toast.success(`Copied ${url}`);
+        } catch {
+            toast.error('Could not copy the address');
+        }
+    }, [toast]);
 
     if (!config) {
         return (
@@ -136,8 +160,41 @@ export default function SettingsPanel() {
                         activeVoiceId={config.voice_id || null}
                         onVoiceChange={(voiceId) => handleChange('voice_id', voiceId)}
                     />
+                    {access?.available && ((access.addresses?.length ?? 0) > 0 || access.tunnelUrl) && (
+                        <>
+                            <div className="settings-row settings-devices-heading">
+                                <span>Open on another device</span>
+                            </div>
+                            {(access.addresses ?? []).map((address) => (
+                                <DeviceAddressRow
+                                    key={address}
+                                    url={`http://${address}:${access.port}`}
+                                    onCopy={copyAddress}
+                                />
+                            ))}
+                            {access.tunnelUrl && (
+                                <DeviceAddressRow url={access.tunnelUrl} onCopy={copyAddress} />
+                            )}
+                            <p className="settings-hint">
+                                Anyone with this address can use BookVoice as you while the
+                                server runs. The address survives restarts while the port
+                                stays free.
+                            </p>
+                        </>
+                    )}
                 </div>
             )}
+        </div>
+    );
+}
+
+function DeviceAddressRow({ url, onCopy }) {
+    return (
+        <div className="settings-row">
+            <a href={url} target="_blank" rel="noreferrer">{url}</a>
+            <Button variant="secondary" size="sm" onClick={() => onCopy(url)}>
+                Copy
+            </Button>
         </div>
     );
 }

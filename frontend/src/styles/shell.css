@@ -241,6 +241,17 @@
   color: var(--ink-muted);
 }
 
+.settings-devices-heading {
+  margin-top: var(--space-2);
+  font-weight: 600;
+}
+
+.settings-row a {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 /* --- Mode switcher (segmented control) -------------------------------- */
 
 /* The mode-switcher is now a child of .titlebar-center, not a separate
