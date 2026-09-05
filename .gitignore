@@ -75,3 +75,7 @@ backend/data-e2e/
 
 # Keep the committed, preloaded default voices (override the global *.wav rule)
 !voices/*.wav
+
+# WinUI desktop shell build output
+desktop/BookVoice.App/bin/
+desktop/BookVoice.App/obj/
