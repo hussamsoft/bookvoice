@@ -290,6 +290,15 @@
   color: var(--ink);
 }
 
+/* Touch devices: 44px thumb targets across the mode switcher (iOS HIG /
+ * Material). Desktop keeps the compact pill. */
+@media (pointer: coarse) {
+  .mode-segment {
+    height: 44px;
+    padding: 0 var(--space-3);
+  }
+}
+
 .mode-segment svg {
   flex-shrink: 0;
 }

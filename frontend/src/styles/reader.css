@@ -330,6 +330,17 @@
   min-width: 0;
 }
 
+/* Narrow reading widths: the single-line toolbar cannot fit a phone viewport,
+ * and nowrap spills its zoom/fit controls past the container's overflow-x
+ * clip where they cannot be reached. Wrap into stacked rows instead. */
+@media (max-width: 720px) {
+  .reader-navigation,
+  .reader-nav-primary {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+}
+
 .reader-nav-primary .page-jump {
   display: inline-flex;
   align-items: center;

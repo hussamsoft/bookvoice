@@ -114,14 +114,28 @@ button:disabled {
   height: 20px;
 }
 
+/* Touch devices: every interactive control meets the 44px target that iOS
+ * HIG and Material set (WCAG 2.5.8's AA floor is 24px). Pointer-specific so
+ * desktop pointer density is untouched. Fields also go to a 16px font,
+ * below which iOS Safari zooms the viewport on focus. */
 @media (pointer: coarse) {
   .icon-btn {
     width: 44px;
     height: 44px;
   }
+  .btn,
   .btn-compact,
   .btn.btn-compact {
     min-height: var(--control-h-lg);
+  }
+  input[type="text"],
+  input[type="search"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px;
   }
 }
 
