@@ -105,7 +105,7 @@ describe('PdfViewer Component', () => {
     await waitFor(() => expect(container.querySelector('.pdf-toolbar')).toBeInTheDocument());
     expect(screen.getByRole('toolbar', { name: 'Reader navigation' })).toBeInTheDocument();
     // The options panel owns its trigger now; it opens its own popover/sheet.
-    const optionsTrigger = screen.getByRole('button', { name: 'Reading options' });
+    const optionsTrigger = screen.getByRole('button', { name: 'Voice & options' });
     expect(optionsTrigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('region', { name: 'Narration player' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Original PDF' })).toBeInTheDocument();
@@ -122,7 +122,7 @@ describe('PdfViewer Component', () => {
 
     const navigation = await screen.findByRole('toolbar', { name: 'Reader navigation' });
     expect(within(navigation).getByRole('button', { name: 'Zoom in' })).toBeVisible();
-    expect(within(navigation).getByRole('checkbox', { name: 'Follow narration' })).toBeVisible();
+    expect(within(navigation).getByRole('checkbox', { name: 'Auto-turn pages' })).toBeVisible();
   });
 
   it('scrolls normally and zooms only with Ctrl+wheel', async () => {

@@ -334,6 +334,17 @@
   gap: var(--space-2);
 }
 
+.library-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.library-row .prepared-book-row {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Narrow screens: the rail becomes a bottom bar; the workspace column wins
  * the vertical space. Targets stay >= 44px (pointer: coarse rules apply). */
 @media (max-width: 720px) {

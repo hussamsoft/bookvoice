@@ -68,6 +68,12 @@ button:disabled {
   box-shadow: var(--shadow-raised);
 }
 
+.btn.secondary.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent);
+}
+
 .btn.text {
   background: transparent;
   border-color: transparent;

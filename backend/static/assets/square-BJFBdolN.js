@@ -1,1 +1,0 @@
-import{vt as e}from"./index-Xt4A9p1k.js";var t=e(`square`,[[`rect`,{width:`18`,height:`18`,x:`3`,y:`3`,rx:`2`,key:`afitv7`}]]);export{t};

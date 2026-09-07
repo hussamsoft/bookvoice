@@ -94,7 +94,7 @@ function sourceKindFromName(name = '') {
     return 'pdf';
 }
 
-export default function PdfViewer({ onDirty }) {
+export default function PdfViewer({ onDirty, onExit }) {
 
     const toast = useToast();
     const [isGenerating, setIsGenerating] = useState(false);
@@ -2325,6 +2325,16 @@ export default function PdfViewer({ onDirty }) {
                         onToggleBookmark={() => setBookmarks((items) => toggleBookmark(items, pageNumber))}
                         isExporting={isExporting}
                         onExportThroughCurrentPage={handleExportThroughCurrentPage}
+                        onBack={onExit}
+                        canPrepareBook={!!modelReady && !!libraryBookId}
+                        preparationRunning={preparation?.status === 'RUNNING'}
+                        onPrepareWholeBook={handlePrepareWholeBook}
+                        hasProfile={!!activeProfileId}
+                        onCreatePreparedFile={handleCreatePreparedFile}
+                        onExportAudiobook={handleExportAudiobook}
+                        onCancelExportAudiobook={handleCancelAudiobook}
+                        isExportingAudiobook={isExportingAudiobook}
+                        audiobookProgress={audiobook}
                     />
 
                     <ReadingOptionsPanel
@@ -2336,15 +2346,6 @@ export default function PdfViewer({ onDirty }) {
                         disabled={isGenerating || isOcring}
                         isOcring={isOcring}
                         onForceOcr={handleForceOcr}
-                        canPrepareBook={!!modelReady && !!libraryBookId}
-                        preparationRunning={preparation?.status === 'RUNNING'}
-                        onPrepareWholeBook={handlePrepareWholeBook}
-                        hasProfile={!!activeProfileId}
-                        onCreatePreparedFile={handleCreatePreparedFile}
-                        onExportAudiobook={handleExportAudiobook}
-                        onCancelExportAudiobook={handleCancelAudiobook}
-                        isExportingAudiobook={isExportingAudiobook}
-                        audiobookProgress={audiobook}
                         isTextBook={isTextBook}
                     />
 

@@ -12,9 +12,6 @@ const baseProps = {
     disabled: false,
     isOcring: false,
     onForceOcr: () => {},
-    canPrepareBook: false,
-    preparationRunning: false,
-    onPrepareWholeBook: () => {},
 };
 
 function renderPanel(props = {}) {
@@ -26,7 +23,7 @@ function renderPanel(props = {}) {
 }
 
 function openPanel() {
-    fireEvent.click(screen.getByRole('button', { name: /reading options/i }));
+    fireEvent.click(screen.getByRole('button', { name: /voice & options/i }));
 }
 
 describe('ReadingOptionsPanel trigger and popover', () => {
@@ -34,7 +31,7 @@ describe('ReadingOptionsPanel trigger and popover', () => {
         const { container } = renderPanel();
         expect(screen.queryByRole('dialog')).toBeNull();
 
-        const trigger = screen.getByRole('button', { name: /reading options/i });
+        const trigger = screen.getByRole('button', { name: /voice & options/i });
         expect(trigger.getAttribute('aria-expanded')).toBe('false');
         openPanel();
 
@@ -71,34 +68,15 @@ describe('ReadingOptionsPanel trigger and popover', () => {
         fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
         expect(dialog.contains(document.activeElement)).toBe(true);
     });
-});
 
-describe('ReadingOptionsPanel audiobook export', () => {
-    it('offers the export only when a narration profile is active', () => {
-        const noProfile = renderPanel({ hasProfile: false });
+    it('offers whole-book OCR for PDFs but not for text books', () => {
+        const pdf = renderPanel({ isTextBook: false });
         openPanel();
-        expect(screen.queryByRole('menuitem', { name: /export audiobook/i })).toBeNull();
-        noProfile.unmount();
+        expect(screen.getByRole('button', { name: /re-run ocr/i })).toBeInTheDocument();
+        pdf.unmount();
 
-        renderPanel({ hasProfile: true });
+        renderPanel({ isTextBook: true });
         openPanel();
-        fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
-        expect(screen.getByRole('menuitem', { name: /export audiobook/i })).toBeTruthy();
-    });
-
-    it('switches to a cancel control with progress while exporting', () => {
-        const cancel = vi.fn();
-        renderPanel({
-            hasProfile: true,
-            isExportingAudiobook: true,
-            audiobookProgress: { jobId: 'j', pagesDone: 2, pageCount: 5 },
-            onCancelExportAudiobook: cancel,
-        });
-        openPanel();
-        fireEvent.click(screen.getByRole('button', { name: /book actions/i }));
-
-        fireEvent.click(screen.getByRole('menuitem', { name: /cancel export \(2\/5\)/i }));
-
-        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('button', { name: /re-run ocr/i })).toBeNull();
     });
 });

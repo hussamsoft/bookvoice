@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+    ArrowLeft,
     Bookmark,
     BookmarkCheck,
     ChevronDown,
@@ -20,10 +21,10 @@ const ZOOM_LIMITS = { min: 0.7, max: 2.6, step: 0.15 };
 
 /**
  * Reader toolbar, two-tier structure:
- *  - Tier 1 (always visible, single row): page navigation (prev / page X of N /
- *    next) + zoom (out / value / in) + fullscreen.
- *  - Tier 2 (overflow menu via "More" button): search, bookmark, prepared
- *    library, export.
+ *  - Tier 1 (always visible, single row): back to Library, page navigation
+ *    (prev / page X of N / next), bookmark toggle + jump, zoom, follow, Play.
+ *  - Tier 2 "Book menu" (one overflow level): find in book, export range,
+ *    and the whole-book actions (prepare, .bookvoice file, audiobook).
  */
 function ReaderToolbar({
     pageNumber,
@@ -46,6 +47,16 @@ function ReaderToolbar({
     onToggleBookmark,
     isExporting,
     onExportThroughCurrentPage,
+    onBack,
+    canPrepareBook = false,
+    preparationRunning = false,
+    onPrepareWholeBook,
+    hasProfile = false,
+    onCreatePreparedFile,
+    onExportAudiobook,
+    onCancelExportAudiobook,
+    isExportingAudiobook = false,
+    audiobookProgress = null,
 }) {
     const {
         moreOpen,
@@ -59,6 +70,17 @@ function ReaderToolbar({
         <div className="reader-navigation" role="toolbar" aria-label="Reader navigation">
             {/* Tier 1: Primary row (always visible, single line) */}
             <div className="reader-nav-primary">
+                {onBack ? (
+                    <button
+                        type="button"
+                        className="btn secondary btn-compact"
+                        onClick={onBack}
+                        title="Back to Library"
+                    >
+                        <ArrowLeft size={15} aria-hidden="true" />
+                        <span className="nav-btn-label">Library</span>
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     className="btn secondary btn-compact"
@@ -95,6 +117,39 @@ function ReaderToolbar({
                 </button>
                 <button
                     type="button"
+                    className={`btn secondary btn-compact${bookmarks.includes(pageNumber) ? ' is-active' : ''}`}
+                    onClick={() => onToggleBookmark()}
+                    aria-label={bookmarks.includes(pageNumber) ? `Remove bookmark from page ${pageNumber}` : `Bookmark page ${pageNumber}`}
+                    aria-pressed={bookmarks.includes(pageNumber)}
+                    title={bookmarks.includes(pageNumber) ? 'Bookmarked — click to remove' : 'Bookmark this page'}
+                >
+                    {bookmarks.includes(pageNumber) ? (
+                        <BookmarkCheck size={15} aria-hidden="true" />
+                    ) : (
+                        <Bookmark size={15} aria-hidden="true" />
+                    )}
+                </button>
+                {bookmarks.length ? (
+                    <select
+                        className="bookmark-jump"
+                        aria-label="Go to bookmark"
+                        value=""
+                        onChange={(event) => {
+                            if (event.target.value) {
+                                onGoToPage(Number(event.target.value));
+                            }
+                        }}
+                    >
+                        <option value="">Bookmarks ({bookmarks.length})</option>
+                        {bookmarks.map((page) => (
+                            <option key={page} value={page}>
+                                Page {page}
+                            </option>
+                        ))}
+                    </select>
+                ) : null}
+                <button
+                    type="button"
                     className="btn secondary btn-compact"
                     onClick={() => onZoom(Math.max(ZOOM_LIMITS.min, +(zoom - ZOOM_LIMITS.step).toFixed(2)))}
                     disabled={zoom <= ZOOM_LIMITS.min}
@@ -126,7 +181,7 @@ function ReaderToolbar({
                         checked={followNarration}
                         onChange={(event) => onFollowNarration(event.target.checked)}
                     />
-                    <span>Follow narration</span>
+                    <span>Auto-turn pages</span>
                 </label>
                 <button
                     type="button"
@@ -139,7 +194,7 @@ function ReaderToolbar({
                 </button>
             </div>
 
-            {/* Tier 2: Overflow menu for secondary actions */}
+            {/* Tier 2: Book menu (single level) */}
             <div className="reader-nav-more" ref={moreRootRef}>
                 <button
                     ref={moreTriggerRef}
@@ -148,12 +203,12 @@ function ReaderToolbar({
                     onClick={() => setMoreOpen((open) => !open)}
                     aria-expanded={moreOpen}
                     aria-haspopup="true"
-                    aria-label="More reader actions"
+                    aria-label="Book menu"
                 >
                     <MoreVertical size={16} aria-hidden="true" />
                 </button>
                 {moreOpen ? (
-                    <div className="reader-nav-menu" aria-label="More reader actions">
+                    <div className="reader-nav-menu" aria-label="Book menu">
                         <div className="reader-nav-menu-group" role="group" aria-label="Search">
                             <form className="page-search" onSubmit={onSearchSubmit}>
                                 <Search size={14} aria-hidden="true" />
@@ -169,31 +224,7 @@ function ReaderToolbar({
                                 </button>
                             </form>
                         </div>
-                        <div className="reader-nav-menu-group" role="group" aria-label="Track narration">
-                            <label className="reader-follow">
-                                <input
-                                    type="checkbox"
-                                    checked={followNarration}
-                                    onChange={(event) => onFollowNarration(event.target.checked)}
-                                />
-                                Follow narration
-                            </label>
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact"
-                                onClick={() => onToggleBookmark()}
-                                aria-label={bookmarks.includes(pageNumber) ? `Remove bookmark from page ${pageNumber}` : `Bookmark page ${pageNumber}`}
-                                aria-pressed={bookmarks.includes(pageNumber)}
-                            >
-                                {bookmarks.includes(pageNumber) ? (
-                                    <BookmarkCheck size={15} aria-hidden="true" />
-                                ) : (
-                                    <Bookmark size={15} aria-hidden="true" />
-                                )}
-                                {bookmarks.includes(pageNumber) ? `Bookmarked ${pageNumber}` : 'Bookmark'}
-                            </button>
-                        </div>
-                        <div className="reader-nav-menu-group" role="group" aria-label="Export">
+                        <div className="reader-nav-menu-group" role="group" aria-label="Export range">
                             {pageNumber > 1 ? (
                                 <button
                                     type="button"
@@ -203,31 +234,62 @@ function ReaderToolbar({
                                     title={`Export cached audio for pages 1 through ${pageNumber}`}
                                 >
                                     {isExporting ? <Loader2 className="spinner" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
-                                    Export 1\u2013{pageNumber}
+                                    Export 1–{pageNumber}
                                 </button>
-                            ) : null}
+                            ) : (
+                                <p className="reader-nav-menu-hint">Open a page and play it to export its audio.</p>
+                            )}
                         </div>
-                        <div className="reader-nav-menu-group" role="group" aria-label="Bookmarks">
-                            {bookmarks.length ? (
-                                <select
-                                    className="bookmark-jump"
-                                    aria-label="Go to bookmark"
-                                    value=""
-                                    onChange={(event) => {
-                                        if (event.target.value) {
-                                            onGoToPage(Number(event.target.value));
-                                            closeMore();
-                                        }
+                        <div className="reader-nav-menu-group" role="group" aria-label="Whole book">
+                            {isExportingAudiobook ? (
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => {
+                                        onCancelExportAudiobook();
+                                        closeMore();
                                     }}
                                 >
-                                    <option value="">Bookmarks ({bookmarks.length})</option>
-                                    {bookmarks.map((page) => (
-                                        <option key={page} value={page}>
-                                            Page {page}
-                                        </option>
-                                    ))}
-                                </select>
-                            ) : null}
+                                    Cancel export ({audiobookProgress?.pagesDone ?? 0}/{audiobookProgress?.pageCount ?? '—'})
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="btn primary btn-compact"
+                                    onClick={() => {
+                                        onPrepareWholeBook();
+                                        closeMore();
+                                    }}
+                                    disabled={!canPrepareBook || preparationRunning}
+                                    title={canPrepareBook ? 'Extract and narrate every page in the background' : 'Open a library book and wait for the voices'}
+                                >
+                                    Prepare whole book
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                disabled={!hasProfile}
+                                title={hasProfile ? 'Download a portable .bookvoice archive' : 'Prepare the book first'}
+                                onClick={() => {
+                                    onCreatePreparedFile();
+                                    closeMore();
+                                }}
+                            >
+                                <Download size={15} aria-hidden="true" /> Save .bookvoice file
+                            </button>
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                disabled={!hasProfile}
+                                title={hasProfile ? 'Render a chaptered M4B audiobook' : 'Prepare the book first'}
+                                onClick={() => {
+                                    onExportAudiobook();
+                                    closeMore();
+                                }}
+                            >
+                                Export audiobook
+                            </button>
                         </div>
                     </div>
                 ) : null}

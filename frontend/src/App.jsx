@@ -125,6 +125,14 @@ export default function App() {
         <PdfViewer
             key={`reader-${readerEpoch}`}
             onDirty={() => { /* progress persists; leaving the reader is always safe */ }}
+            onExit={() => {
+                try {
+                    window.history.replaceState(null, '', '/');
+                } catch {
+                    /* Deep-link cleanup is best-effort. */
+                }
+                navigate('library');
+            }}
         />
     );
 

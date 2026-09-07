@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, ChevronDown, Download, ScanText, SlidersHorizontal, X } from 'lucide-react';
+import { ScanText, SlidersHorizontal, X } from 'lucide-react';
 import VoiceSettings from '../VoiceSettings';
 import { SUPPORTED_LANGUAGES } from '../../utils/languages';
 
 /**
  * Reading options with a self-managed trigger: anchored popover at >=1024px,
- * bottom sheet below. Voice + language stay inline; "Whole book" actions
- * (prepare, export) collapse into a single "Book actions" dropdown.
+ * bottom sheet below. Voice + language stay inline; whole-book actions live
+ * in the reader's Book menu, not here.
  */
 export default function ReadingOptionsPanel({
     modelReady,
@@ -17,38 +17,19 @@ export default function ReadingOptionsPanel({
     disabled,
     isOcring,
     onForceOcr,
-    canPrepareBook,
-    preparationRunning,
-    onPrepareWholeBook,
-    hasProfile,
-    onCreatePreparedFile,
-    onExportAudiobook,
-    onCancelExportAudiobook,
-    isExportingAudiobook = false,
-    audiobookProgress = null,
     isTextBook = false,
 }) {
     const [open, setOpen] = useState(false);
-    const [bookActionsOpen, setBookActionsOpen] = useState(false);
     const rootRef = useRef(null);
     const triggerRef = useRef(null);
     const panelRef = useRef(null);
-    const bookActionsRef = useRef(null);
-    const bookActionsOpenRef = useRef(false);
-    useEffect(() => {
-        bookActionsOpenRef.current = bookActionsOpen;
-    }, [bookActionsOpen]);
 
     const close = useCallback(() => {
         setOpen(false);
         triggerRef.current?.focus();
     }, []);
 
-    const closeBookActions = useCallback(() => {
-        setBookActionsOpen(false);
-    }, []);
-
-    // Initial focus: only when panel opens, not on every bookActionsOpen toggle.
+    // Initial focus: only when panel opens.
     useEffect(() => {
         if (!open) return;
         panelRef.current?.querySelector('button, select, input')?.focus();
@@ -59,11 +40,7 @@ export default function ReadingOptionsPanel({
 
         const onKeyDown = (event) => {
             if (event.key === 'Escape') {
-                if (bookActionsOpenRef.current) {
-                    closeBookActions();
-                } else {
-                    close();
-                }
+                close();
                 return;
             }
             if (event.key !== 'Tab' || !panelRef.current) return;
@@ -80,10 +57,6 @@ export default function ReadingOptionsPanel({
             }
         };
         const onMouseDown = (event) => {
-            if (bookActionsRef.current && !bookActionsRef.current.contains(event.target)) {
-                closeBookActions();
-                return;
-            }
             if (rootRef.current && !rootRef.current.contains(event.target)) {
                 close();
             }
@@ -94,9 +67,7 @@ export default function ReadingOptionsPanel({
             document.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('mousedown', onMouseDown);
         };
-    }, [open, close, closeBookActions]);
-
-
+    }, [open, close]);
 
     return (
         <div className="reading-options-root" ref={rootRef}>
@@ -108,7 +79,7 @@ export default function ReadingOptionsPanel({
                 aria-expanded={open}
                 aria-haspopup="dialog"
             >
-                <SlidersHorizontal size={15} aria-hidden="true" /> Reading options
+                <SlidersHorizontal size={15} aria-hidden="true" /> Voice &amp; options
             </button>
             {open ? (
                 <>
@@ -126,7 +97,7 @@ export default function ReadingOptionsPanel({
                         className="reading-options-popover"
                     >
                         <header className="reading-options-header">
-                            <span>Reading options</span>
+                            <span>Voice &amp; options</span>
                             <button
                                 type="button"
                                 className="btn secondary btn-compact"
@@ -170,76 +141,6 @@ export default function ReadingOptionsPanel({
                                 </button>
                             </div>
                         ) : null}
-                        <div className="reading-option-field reading-options-span book-actions" ref={bookActionsRef}>
-                            <button
-                                type="button"
-                                className="btn secondary btn-compact book-actions-trigger"
-                                onClick={() => setBookActionsOpen((value) => !value)}
-                                aria-expanded={bookActionsOpen}
-                                aria-haspopup="true"
-                            >
-                                <BookOpen size={15} aria-hidden="true" /> Book actions
-                                <ChevronDown size={14} aria-hidden="true" className={`book-actions-chevron ${bookActionsOpen ? 'open' : ''}`} />
-                            </button>
-                            {bookActionsOpen ? (
-                                <div className="book-actions-menu" role="menu" aria-label="Book actions">
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        className="btn primary btn-compact"
-                                        onClick={() => {
-                                            onPrepareWholeBook();
-                                            closeBookActions();
-                                        }}
-                                        disabled={!canPrepareBook || preparationRunning}
-                                    >
-                                        Prepare whole book
-                                    </button>
-                                    {hasProfile ? (
-                                        <>
-                                            <button
-                                                type="button"
-                                                role="menuitem"
-                                                className="btn secondary btn-compact"
-                                                onClick={() => {
-                                                    onCreatePreparedFile();
-                                                    closeBookActions();
-                                                }}
-                                            >
-                                                <Download size={15} aria-hidden="true" /> Save .bookvoice file
-                                            </button>
-                                            {isExportingAudiobook ? (
-                                                <button
-                                                    type="button"
-                                                    role="menuitem"
-                                                    className="btn secondary btn-compact"
-                                                    onClick={() => {
-                                                        onCancelExportAudiobook();
-                                                        closeBookActions();
-                                                    }}
-                                                >
-                                                    {audiobookProgress
-                                                        ? `Cancel export (${audiobookProgress.pagesDone}/${audiobookProgress.pageCount})`
-                                                        : 'Cancel export'}
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    role="menuitem"
-                                                    className="btn secondary btn-compact"
-                                                    onClick={() => {
-                                                        onExportAudiobook();
-                                                        closeBookActions();
-                                                    }}
-                                                >
-                                                    Export audiobook
-                                                </button>
-                                            )}
-                                        </>
-                                    ) : null}
-                                </div>
-                            ) : null}
-                        </div>
                     </section>
 
                 </>
