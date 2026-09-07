@@ -95,7 +95,7 @@ def port_free(host: str, port: int) -> bool:
             return False
 
 
-def choose_port(runtime_dir: str, bind_host: str, pinned: int, log: launch.Logger) -> tuple[int, str]:
+def choose_port(runtime_dir: str, bind_host: str, pinned: int, log: launch.Logger, exclude: tuple = ()) -> tuple[int, str]:
     """Pick the port: explicit pin, then the sticky last-ready port, then scan.
 
     A pinned port never falls back (something is routed to it — see
@@ -105,12 +105,13 @@ def choose_port(runtime_dir: str, bind_host: str, pinned: int, log: launch.Logge
     if pinned:
         return launch.pick_port(log, bind_host, pinned), "pinned"
     sticky = sticky_port(runtime_dir)
-    if sticky and port_free(bind_host, sticky):
+    skipped = {int(port) for port in (exclude or ())}
+    if sticky and sticky not in skipped and port_free(bind_host, sticky):
         log.write(f"reusing sticky port {sticky}")
         return sticky, "sticky"
     if sticky:
         log.write(f"previous port {sticky} is busy; scanning for another")
-    return launch.pick_port(log, bind_host, 0), "scan"
+    return launch.pick_port(log, bind_host, 0, exclude=tuple(sorted(skipped))), "scan"
 
 
 def remember_port(runtime_dir: str, port: int) -> None:
@@ -344,7 +345,11 @@ def main(argv: list[str] | None = None) -> int:
             "Pass --allow-lan (or BOOKVOICE_ALLOW_LAN=1) to expose "
             "the app to the local network."
         )
-    port, port_source = choose_port(runtime_dir, bind_host, launch.resolve_pinned_port(args.port), log)
+    pinned = launch.resolve_pinned_port(args.port)
+    try:
+        port, port_source = choose_port(runtime_dir, bind_host, pinned, log)
+    except launch.PortUnavailable as exc:
+        return fail(str(exc))
     env = launch.apply_network_env(
         launch.build_env(app_dir, runtime_dir), bind_host, allow_lan=allow_lan
     )
@@ -397,7 +402,37 @@ def main(argv: list[str] | None = None) -> int:
 
     cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
     process = start_backend(cmd, app_dir, env, log)
+    start_time = time.monotonic()
     base_url = f"http://127.0.0.1:{port}"
+    excluded = [port]
+    while True:
+        time.sleep(0.5)
+        if process.poll() is None:
+            break
+        if pinned or time.monotonic() - start_time > launch.STEAL_WINDOW_S:
+            stop_backend(process)
+            return fail("the reading service exited early (code "
+                        f"{process.returncode}); see bookvoice_server.log")
+        server_log = os.path.join(runtime_dir, "bookvoice_server.log")
+        if not launch.port_stolen(bind_host, port, server_log):
+            stop_backend(process)
+            return fail("the reading service exited early (code "
+                        f"{process.returncode}); see bookvoice_server.log")
+        stop_backend(process)
+        log.write(f"port {port} was taken between scan and bind; scanning again")
+        try:
+            port, port_source = choose_port(runtime_dir, bind_host, pinned, log, exclude=tuple(excluded))
+        except launch.PortUnavailable as exc:
+            return fail(str(exc))
+        excluded.append(port)
+        env = launch.apply_network_env(
+            launch.build_env(app_dir, runtime_dir), bind_host, allow_lan=allow_lan
+        )
+        write_state(runtime_dir, state="starting", host=bind_host, port=port)
+        cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
+        process = start_backend(cmd, app_dir, env, log)
+        start_time = time.monotonic()
+        base_url = f"http://127.0.0.1:{port}"
     data_dir = env["DATA_DIR"]
     restarts = 0
     book_id = None

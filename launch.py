@@ -51,6 +51,13 @@ APP_NAME = "BookVoice"
 PORT_START = 8000
 PORT_END = 8020
 
+
+class PortUnavailable(OSError):
+    """No usable port: a pinned port is taken or the 8000-8020 scan is exhausted."""
+
+
+STEAL_WINDOW_S = 20
+
 # services/update_service.py exits with this after staging an installer. The
 # watchdog restarts a backend that dies, so an ordinary exit is indistinguishable
 # from a crash; this code plus the sentinel file below is how the app says
@@ -716,29 +723,89 @@ def lan_addresses() -> list[str]:
     return found
 
 
-def pick_port(log: Logger, host: str = LOOPBACK_HOST, pinned: int = 0) -> int:
+def port_bind_error(text: str) -> bool:
+    """A uvicorn/backend exit looks like a lost bind race, not another bug."""
+    lowered = str(text or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "address already in use",
+            "address in use",
+            "eaddrinuse",
+            "winerror 10013",
+            "winerror 10048",
+            "errno 13",
+            "errno 48",
+            "errno 98",
+            "errno 10013",
+            "errno 10048",
+            "error while attempting to bind",
+            "jvm_bind",
+        )
+    )
+
+
+def log_tail(path: str, lines: int = 25, limit: int = 16000) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            tail = "\n".join(handle.read().splitlines()[-lines:])
+    except OSError:
+        return ""
+    return tail[-limit:]
+
+
+def pick_port(log: Logger, host: str = LOOPBACK_HOST, pinned: int = 0, exclude: tuple = ()) -> int:
+    """Return a free port, or raise PortUnavailable with a user-ready message.
+
+    A pinned port fails fast: something is routed to that exact port, so
+    silently moving would read as a broken tunnel rather than a conflict.
+    An exhausted scan raises instead of handing back a busy port that the
+    backend then dies on.
+    """
+    skipped = {int(port) for port in (exclude or ())}
     if pinned:
-        # Deliberately not falling back to another port: something is routed to
-        # this one, and starting elsewhere would look like a broken tunnel
-        # rather than a port conflict.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
                 sock.bind((host, pinned))
             except OSError:
-                log.write(
-                    f"WARNING: port {pinned} is already in use. Close whatever is "
-                    "holding it — BookVoice will try to start on it anyway."
+                message = (
+                    f"Port {pinned} is already in use. Close whatever is holding it, "
+                    "or relaunch without --port to scan 8000-8020 for a free one."
                 )
+                log.write(f"fatal: {message}")
+                raise PortUnavailable(message)
         return pinned
+    busy: list[int] = []
     for port in range(PORT_START, PORT_END + 1):
+        if port in skipped:
+            continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
                 sock.bind((host, port))
                 return port
             except OSError:
+                busy.append(port)
                 continue
-    log.write("all ports busy; falling back to 8000")
-    return PORT_START
+    message = (
+        "Every port 8000-8020 is busy. Close the other app holding one "
+        "(or pass --port N for a port outside that range) and try again."
+    )
+    log.write(f"fatal: {message} busy={busy}")
+    raise PortUnavailable(message)
+
+def port_stolen(host: str, port: int, server_log: str = "") -> bool:
+    """Whether a fast backend exit looks like a lost bind race.
+
+    Evidence, not guesswork: the probed-free port is now occupied, or the
+    backend log says the bind failed. Either means something else took the
+    port between the scan and uvicorn's bind.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return True
+    return bool(server_log) and port_bind_error(log_tail(server_log))
 
 
 def backend_readiness(base_url: str) -> tuple[bool, str, bool]:
@@ -1052,6 +1119,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "mobile layout on this PC — no phone needed."
         ),
     )
+    parser.add_argument(
+        "book_path",
+        nargs="?",
+        default=None,
+        help="A .bookvoice archive to import once the server is ready.",
+    )
+    return parser.parse_args(argv)
+
+
 def create_main_window(webview_module, app_dir: str | None = None, phone_view: bool = False):
     # Let Windows own the non-client frame. Native chrome provides reliable
     # resize borders, Snap Layouts, taskbar-aware maximization, and standard
@@ -1167,9 +1243,88 @@ def main(argv: list[str] | None = None) -> int:
                 log.write(f"fatal: {state['error']}")
                 show_error(window, state["error"], log.path)
                 return
-            port = pick_port(log, bind_host, resolve_pinned_port(args.port))
+            pinned = resolve_pinned_port(args.port)
+            try:
+                port = pick_port(log, bind_host, pinned)
+            except PortUnavailable as exc:
+                state["error"] = str(exc)
+                log.write(f"fatal: {state['error']}")
+                show_error(window, state["error"], log.path)
+                return
             env = apply_network_env(build_env(app_dir, runtime_dir), bind_host, allow_lan=allow_lan)
             status("Preparing local service", "Selecting a private local address…", 30)
+            server_log = os.path.join(runtime_dir, "bookvoice_server.log")
+
+
+            def spawn_backend(candidate: int):
+                """Spawn uvicorn on candidate; Popen itself rarely fails."""
+                try:
+                    if os.path.isfile(server_log):
+                        prev = os.path.join(runtime_dir, "bookvoice_server.prev.log")
+                        if os.path.isfile(prev):
+                            os.remove(prev)
+                        os.replace(server_log, prev)
+                except OSError:
+                    pass
+                handle = open(server_log, "w", encoding="utf-8", errors="replace")
+                proc = subprocess.Popen(
+                    [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(candidate)],
+                    cwd=app_dir,
+                    env=env,
+                    stdout=handle,
+                    stderr=subprocess.STDOUT,
+                    creationflags=_no_window(),
+                )
+                return proc, handle
+
+            status("Starting reading service", f"Launching locally on {bind_host}:{port}…", 58)
+            try:
+                process, log_file = spawn_backend(port)
+            except OSError as exc:
+                state["error"] = f"Could not start the reading service on port {port}: {exc}"
+                log.write(f"fatal: {state['error']}")
+                show_error(window, state["error"], log.path)
+                return
+            start_time = time.monotonic()
+            log.write(f"started pid={process.pid}")
+
+            excluded = [port]
+            while True:
+                time.sleep(0.5)
+                if process.poll() is None:
+                    break
+                if pinned or time.monotonic() - start_time > STEAL_WINDOW_S:
+                    state["error"] = "Backend exited early"
+                    show_error(window, state["error"], server_log)
+                    return
+                if not port_stolen(bind_host, port, server_log):
+                    state["error"] = "Backend exited early"
+                    show_error(window, state["error"], server_log)
+                    return
+                log.write(f"port {port} was taken between scan and bind; scanning again")
+                try:
+                    log_file.close()
+                except OSError:
+                    pass
+                try:
+                    port = pick_port(log, bind_host, 0, exclude=tuple(excluded))
+                except PortUnavailable as exc:
+                    state["error"] = str(exc)
+                    log.write(f"fatal: {state['error']}")
+                    show_error(window, state["error"], log.path)
+                    return
+                excluded.append(port)
+                status("Starting reading service", f"Launching locally on {bind_host}:{port}…", 58)
+                try:
+                    process, log_file = spawn_backend(port)
+                except OSError as exc:
+                    state["error"] = f"Could not start the reading service on port {port}: {exc}"
+                    log.write(f"fatal: {state['error']}")
+                    show_error(window, state["error"], log.path)
+                    return
+                start_time = time.monotonic()
+                log.write(f"started pid={process.pid}")
+
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env VOICE_DATA_DIR={env['VOICE_DATA_DIR']}")
             log.write(f"env MODEL_DIR={env['MODEL_DIR']}")
@@ -1212,7 +1367,6 @@ def main(argv: list[str] | None = None) -> int:
                     hostname_warning = tunnel.missing_hostname_warning(tunnel_settings)
                     if hostname_warning:
                         log.write(f"WARNING: {hostname_warning}")
-                        status("Tunnel needs a hostname", hostname_warning, 46)
                     if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
                         log.write(
                             "WARNING: the tunnel is reachable from the public internet "
@@ -1234,28 +1388,8 @@ def main(argv: list[str] | None = None) -> int:
                         "profiles and Studio projects."
                     )
 
-            status("Starting reading service", f"Launching locally on {bind_host}:{port}…", 58)
-            server_log = os.path.join(runtime_dir, "bookvoice_server.log")
-            try:
-                if os.path.isfile(server_log):
-                    prev = os.path.join(runtime_dir, "bookvoice_server.prev.log")
-                    if os.path.isfile(prev):
-                        os.remove(prev)
-                    os.replace(server_log, prev)
-            except OSError:
-                pass
-            log_file = open(server_log, "w", encoding="utf-8", errors="replace")
-            cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
-            process = subprocess.Popen(
-                cmd,
-                cwd=app_dir,
-                env=env,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                creationflags=_no_window(),
-            )
-            log.write(f"started pid={process.pid}")
             status("Loading reading engine", "Waiting for voices and media tools…", 72)
+            cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
 
             def stop_server():
                 """Terminate the backend process tree; safe to call repeatedly."""

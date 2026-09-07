@@ -276,9 +276,12 @@ def main() -> int:
         if not py:
             print("[fail] packaged worker runtime missing")
             return 1
-        port = launch.pick_port(log)
+        try:
+            port = launch.pick_port(log)
+        except launch.PortUnavailable as exc:
+            print(f"[fail] {exc}")
+            return 1
         env = launch.build_env(str(app_dir), smoke_runtime)
-        server_log_path = Path(smoke_runtime) / "bookvoice_server.log"
         with server_log_path.open("wb") as server_log:
             proc = subprocess.Popen(
                 [py, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],

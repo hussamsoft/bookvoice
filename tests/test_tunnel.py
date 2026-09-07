@@ -295,14 +295,38 @@ class PinnedPortTests(unittest.TestCase):
             with patch.dict(os.environ, {"BOOKVOICE_PORT": value}):
                 self.assertEqual(launch.resolve_pinned_port(None), 0)
 
-    def test_a_pinned_port_is_honoured_even_when_busy(self):
+    def test_a_busy_pinned_port_fails_fast(self):
         # Silently moving would look like a broken tunnel rather than a
-        # port conflict, so it starts there anyway and says so.
+        # port conflict, so it fails with a message naming the fix.
         log = MagicMock()
         with patch.object(launch.socket, "socket") as sock:
             sock.return_value.__enter__.return_value.bind.side_effect = OSError("in use")
-            self.assertEqual(launch.pick_port(log, "127.0.0.1", pinned=8000), 8000)
-        self.assertIn("already in use", log.write.call_args[0][0])
+            with self.assertRaises(launch.PortUnavailable) as raised:
+                launch.pick_port(log, "127.0.0.1", pinned=8000)
+        self.assertIn("Port 8000 is already in use", str(raised.exception))
+
+    def test_an_exhausted_scan_fails_instead_of_returning_a_busy_port(self):
+        log = MagicMock()
+        with patch.object(launch.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.bind.side_effect = OSError("in use")
+            with self.assertRaises(launch.PortUnavailable) as raised:
+                launch.pick_port(log, "127.0.0.1")
+        self.assertIn("Every port 8000-8020 is busy", str(raised.exception))
+
+    def test_excluded_ports_are_skipped(self):
+        log = MagicMock()
+        attempts = []
+
+        def bind(address):
+            attempts.append(address[1])
+            if address[1] < 8002:
+                raise OSError("in use")
+
+        with patch.object(launch.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.bind.side_effect = bind
+            self.assertEqual(launch.pick_port(log, "127.0.0.1", exclude=(8002,)), 8003)
+        self.assertEqual(attempts[0], 8000)
+        self.assertNotIn(8002, attempts)
 
     def test_scanning_still_finds_the_first_free_port(self):
         log = MagicMock()
@@ -317,6 +341,13 @@ class PinnedPortTests(unittest.TestCase):
             sock.return_value.__enter__.return_value.bind.side_effect = bind
             self.assertEqual(launch.pick_port(log, "127.0.0.1"), 8002)
         self.assertEqual(attempts, [8000, 8001, 8002])
+
+    def test_bind_errors_are_recognized_across_platforms(self):
+        self.assertTrue(launch.port_bind_error("ERROR: [Errno 98] Address already in use"))
+        self.assertTrue(launch.port_bind_error("[WinError 10048] only one usage of each socket address"))
+        self.assertTrue(launch.port_bind_error("error while attempting to bind on address"))
+        self.assertFalse(launch.port_bind_error("ModuleNotFoundError: No module named 'torch'"))
+        self.assertFalse(launch.port_bind_error(""))
 
 
 class TunnelProcessTests(unittest.TestCase):

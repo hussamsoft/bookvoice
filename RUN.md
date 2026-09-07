@@ -36,7 +36,9 @@ Anyone who can reach the port gets full access unless
 - The port is dynamic: the server reuses the port it last came up on and
   only scans 8000-8020 when that port is taken, so bookmarked URLs keep
   working across restarts. Pass `--port N` (or set `BOOKVOICE_PORT`) to pin
-  one.
+  one — a taken pinned port fails fast naming the holder fix rather than
+  starting elsewhere, an exhausted scan reports every port busy, and a port
+  stolen between scan and bind is retried automatically.
 - The Settings panel in the app shows the current addresses to open on
   another device, with copy buttons (via `GET /api/server/addresses`).
 - Cloudflare Tunnel is built in:

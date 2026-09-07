@@ -27,7 +27,9 @@
 
 ### Removed
 
-- `StudioStart.jsx`, and the CSS it took with it: the orphaned `.studio-start-*` rules, the unused `.reader-placeholder` and `.mode-hint` rules, and a duplicate `.reader-zoom-pct` rule that silently overrode the toolbar's zoom styling. The new reader's synthetic placeholder book is gone with them.
+### Fixed
+
+- **Port conflicts now fail fast with the fix named, and a stolen port is retried.** A pinned `--port`/`BOOKVOICE_PORT` that is taken used to log a warning and bind anyway, so uvicorn died on the conflict; it now fails with "Port N is already in use — close whatever is holding it, or relaunch without --port to scan 8000-8020". An exhausted 8000-8020 scan used to hand back busy 8000 and die the same way; it now fails with "Every port 8000-8020 is busy". And when another process takes the probed port between the scan and uvicorn's bind, the launcher retries the scan (excluding the stolen port) instead of reporting "Backend exited early" — discrimination is evidence-based (port now occupied, or a bind-failure signature in the server log) and pinned ports still fail rather than move. Also restored the missing `book_path` positional in `launch.parse_args`, which the desktop worker already consumed for `.bookvoice` double-click imports.
 
 ### Test results
 

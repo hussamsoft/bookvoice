@@ -205,7 +205,10 @@ def main() -> int:
         if not worker:
             raise SystemExit("Packaged worker runtime is missing.")
         env = launch.build_env(str(app_dir), str(runtime / "runtime"))
-        port = launch.pick_port(log)
+        try:
+            port = launch.pick_port(log)
+        except launch.PortUnavailable:
+            raise SystemExit("Every port 8000-8020 is busy; close the holder and retry.")
         base = f"http://127.0.0.1:{port}"
         server_log_path = runtime / "server.log"
         with server_log_path.open("wb") as server_log:

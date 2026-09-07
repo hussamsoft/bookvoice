@@ -140,9 +140,14 @@ def main(argv: list[str] | None = None) -> int:
 
             launch.kill_stale_servers(app_dir, runtime_dir, log)
             bind_host = launch.resolve_bind_host(args.host)
-            port = launch.pick_port(log, bind_host, launch.resolve_pinned_port(args.port))
-            env = launch.apply_network_env(launch.build_env(app_dir, runtime_dir), bind_host)
-
+            pinned = launch.resolve_pinned_port(args.port)
+            try:
+                port = launch.pick_port(log, bind_host, pinned)
+            except launch.PortUnavailable as exc:
+                state["error"] = str(exc)
+                log.write(f"fatal: {state['error']}")
+                launch.show_error(window, state["error"], log.path)
+                return
             status("Preparing local service", "Selecting a private local address…", 30)
             log.write(f"python={py}")
             log.write(f"port={port}")
