@@ -1045,23 +1045,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "book_path",
-        nargs="?",
-        help="A .bookvoice archive to import and open.",
+        "--phone-view",
+        action="store_true",
+        help=(
+            "Open the desktop window at phone size (390x844) for testing the "
+            "mobile layout on this PC — no phone needed."
+        ),
     )
-    return parser.parse_args(argv)
-
-
-def create_main_window(webview_module, app_dir: str | None = None):
+def create_main_window(webview_module, app_dir: str | None = None, phone_view: bool = False):
     # Let Windows own the non-client frame. Native chrome provides reliable
     # resize borders, Snap Layouts, taskbar-aware maximization, and standard
     # title-bar double-click behavior without reimplementing Win32 hit testing.
+    if phone_view:
+        width, height, min_size = 390, 844, (360, 640)
+    else:
+        width, height, min_size = 1440, 900, (1024, 700)
     return webview_module.create_window(
         "BookVoice",
         html=splash_html(os.path.join(app_dir or resolve_app_dir(), "bookvoice.ico")),
-        width=1440,
-        height=900,
-        min_size=(1024, 700),
+        width=width,
+        height=height,
+        min_size=min_size,
         resizable=True,
         frameless=False,
         easy_drag=False,
@@ -1131,7 +1135,7 @@ def main(argv: list[str] | None = None) -> int:
             "webview gpu args="
             + os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "(default)")
         )
-        window = create_main_window(webview, app_dir)
+        window = create_main_window(webview, app_dir, phone_view=bool(args.phone_view))
         tray_controller = configure_system_tray(window, app_dir, log)
 
     state = {"error": None}

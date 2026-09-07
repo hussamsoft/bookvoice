@@ -23,7 +23,12 @@ Same backend in the default browser. Use F12 devtools for console errors.
 - [ ] No console errors on load, navigation, narration start
 - [ ] Refresh mid-narration: page restores sensibly
 
-## 3 — LAN server / mobile (`3-LAN-Server-Mobile.bat`)
+## 3a — Phone view on this PC (`3b-Phone-View-On-PC.bat`)
+
+Same mobile layout in a 390x844 desktop window — no phone needed.
+All of §3 applies, with mouse instead of touch.
+
+## 3b — LAN server / real phone (`3-LAN-Server-Mobile.bat`)
 
 Touch interface on a phone/tablet: open the printed `http://192.168.x.x:PORT`.
 
