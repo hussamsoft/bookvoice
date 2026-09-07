@@ -5,10 +5,15 @@ import sys
 import os
 import threading
 
-# Start uvicorn server in dist/
+# Start uvicorn server in dist/ on a free loopback port (never assume 8000).
 print("Starting standalone API server in dist/...")
+import socket as _socket
+
+with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
+    _probe.bind(("127.0.0.1", 0))
+    _port = _probe.getsockname()[1]
 server_process = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
+    [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
     cwd="dist",
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
@@ -23,10 +28,11 @@ threading.Thread(target=stream_logs, args=(server_process,), daemon=True).start(
 
 # Wait for server to be ready
 print("Waiting for server to start...")
+_base = f"http://127.0.0.1:{_port}"
 time.sleep(5)
 for _ in range(30):
     try:
-        resp = requests.get("http://127.0.0.1:8000/api/translate/", timeout=2)
+        resp = requests.get(_base + "/api/translate/", timeout=2)
         if resp.status_code in [404, 405, 422]: # API is up
             break
     except:
@@ -36,7 +42,7 @@ success = True
 try:
     # 1. Test frontend static serving
     print("\n--- Testing Frontend Static Serving ---")
-    resp = requests.get("http://127.0.0.1:8000/")
+    resp = requests.get(_base + "/")
     print(f"GET / Status: {resp.status_code}")
     if resp.status_code != 200 or "<html" not in resp.text:
         print("FAIL: Frontend not served correctly.")
@@ -46,7 +52,7 @@ try:
 
     # 2. Test Translation API (Arabic — supported language)
     print("\n--- Testing Translation API ---")
-    resp = requests.post("http://127.0.0.1:8000/api/translate/", json={"text": "Hello world", "target_lang": "ar"})
+    resp = requests.post(_base + "/api/translate/", json={"text": "Hello world", "target_lang": "ar"})
     print(f"POST /api/translate Status: {resp.status_code}")
     if resp.status_code != 200:
         print("FAIL: Translation API failed.")
@@ -56,7 +62,7 @@ try:
 
     # 3. Test TTS Narration API (English)
     print("\n--- Testing TTS Narration API (English) ---")
-    resp = requests.post("http://127.0.0.1:8000/api/tts/narrate", json={
+    resp = requests.post(_base + "/api/tts/narrate", json={
         "text": "This is a backend test.",
         "session_id": "test_session_123",
         "page_index": 0,
@@ -78,7 +84,7 @@ try:
 
     # 4. Test TTS Pronounce API
     print("\n--- Testing TTS Pronounce API ---")
-    resp = requests.post("http://127.0.0.1:8000/api/tts/pronounce", json={
+    resp = requests.post(_base + "/api/tts/pronounce", json={
         "text": "hello",
         "session_id": "test_session_123",
         "language_id": "en"
@@ -92,7 +98,7 @@ try:
 
     # 5. Test partial narration clip_suffix (page_index stays within limit)
     print("\n--- Testing partial narrate clip_suffix ---")
-    resp = requests.post("http://127.0.0.1:8000/api/tts/narrate", json={
+    resp = requests.post(_base + "/api/tts/narrate", json={
         "text": "partial clip test.",
         "session_id": "test_session_123",
         "page_index": 2,

@@ -11,13 +11,20 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$REPO_ROOT/.venv-linux"
 
 GPU=0
+PORT=8000
 for arg in "$@"; do
   case "$arg" in
     --gpu) GPU=1 ;;
+    --port=*) PORT="${arg#--port=}" ;;
+    --port)
+      shift
+      PORT="${1:?--port needs a value}"
+      ;;
     -h|--help)
-      echo "usage: scripts/setup_linux.sh [--gpu]"
+      echo "usage: scripts/setup_linux.sh [--gpu] [--port N]"
       echo "  --gpu  install backend/requirements.txt plus CUDA torch/torchaudio"
       echo "         instead of the CPU-only requirements-ci.txt profile"
+      echo "  --port N  port printed in the next-steps uvicorn command (default: 8000)"
       exit 0
       ;;
     *)
@@ -90,9 +97,9 @@ cat <<EOF
   export BOOKVOICE_SERVER_MODE=1
   export BOOKVOICE_ACCESS_PASSWORD='<a long password>'
   cd "$REPO_ROOT/backend"
-  python -m uvicorn main:app --host 127.0.0.1 --port 8000
+  python -m uvicorn main:app --host 127.0.0.1 --port $PORT
 
-Then verify: curl http://127.0.0.1:8000/api/health   # {"status":"ready"}
+Then verify: curl http://127.0.0.1:$PORT/api/health   # {"status":"ready"}
 
 See deploy/linux.md for model weights, systemd, and TLS notes.
 For a full server install (env file + hardened systemd unit + updates),

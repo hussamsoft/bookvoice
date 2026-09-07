@@ -5,8 +5,14 @@ import sys
 import os
 
 print("Starting standalone API server in dist/...")
+import socket as _socket
+
+with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
+    _probe.bind(("127.0.0.1", 0))
+    _port = _probe.getsockname()[1]
+_base = f"http://127.0.0.1:{_port}"
 server_process = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
+    [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
     cwd="dist",
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL
@@ -16,7 +22,7 @@ print("Waiting for server to start...")
 time.sleep(5)
 for _ in range(30):
     try:
-        resp = requests.get("http://localhost:8000/api/translate/", timeout=2)
+        resp = requests.get(_base + "/api/translate/", timeout=2)
         if resp.status_code in [404, 405, 422]:
             break
     except:
@@ -35,7 +41,7 @@ try:
         with open(wav_path, "rb") as f:
             files = {"file": ("clone_test.wav", f, "audio/wav")}
             data = {"name": "Test Profile"}
-            resp = requests.post("http://localhost:8000/api/voices/", files=files, data=data)
+            resp = requests.post(_base + "/api/voices/", files=files, data=data)
         
         print(f"POST /api/voices/ Status: {resp.status_code}")
         print(f"Response: {resp.json()}")

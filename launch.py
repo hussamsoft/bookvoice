@@ -808,6 +808,27 @@ def port_stolen(host: str, port: int, server_log: str = "") -> bool:
     return bool(server_log) and port_bind_error(log_tail(server_log))
 
 
+def next_free_port(log: Logger, host: str, port: int, server_log: str, taken: tuple = ()) -> int:
+    """A restart-safe port: the old one if it is actually free, else a fresh scan.
+
+    A watchdog that re-binds blindly fights whoever took the port while the
+    backend was down. Proving the old port free first keeps sticky URLs
+    stable; the scan excludes every port already known taken.
+    """
+    skipped = {int(candidate) for candidate in (taken or ())}
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return port
+        except OSError:
+            skipped.add(port)
+    log.write(f"port {port} is taken; scanning for another")
+    fresh = pick_port(log, host, 0, exclude=tuple(sorted(skipped)))
+    if port_bind_error(log_tail(server_log)):
+        log.write(f"restarting on {fresh} (was {port})")
+    return fresh
+
+
 def backend_readiness(base_url: str) -> tuple[bool, str, bool]:
     """Return readiness as soon as the HTTP application is available.
 
@@ -1421,7 +1442,7 @@ def main(argv: list[str] | None = None) -> int:
                 model warmup never trips it — and restart on sustained
                 failure or process exit.
                 """
-                nonlocal process, log_file
+                nonlocal process, log_file, port, cmd
                 misses = 0
                 restarts = 0
                 while True:
@@ -1475,6 +1496,19 @@ def main(argv: list[str] | None = None) -> int:
                         log_file.close()
                     except OSError:
                         pass
+                    if not pinned:
+                        try:
+                            port = next_free_port(log, bind_host, port, server_log)
+                            cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
+                            fresh_url = f"http://127.0.0.1:{port}"
+                            watch_url = fresh_url
+                            params = {"shell": "native"} if window is not None else {}
+                            reload_url = f"{fresh_url}/?{urllib.parse.urlencode(params)}" if params else fresh_url
+                        except PortUnavailable as exc:
+                            state["error"] = str(exc)
+                            log.write(f"fatal: {state['error']}")
+                            show_error(window, state["error"], log.path)
+                            return
                     log_file = open(server_log, "a", encoding="utf-8", errors="replace")
                     process = subprocess.Popen(
                         cmd,

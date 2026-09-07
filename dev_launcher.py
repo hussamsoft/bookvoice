@@ -173,20 +173,64 @@ def main(argv: list[str] | None = None) -> int:
                     log.write(f"tunnel failed: {exc}")
 
             status("Starting backend", "Launching the BookVoice reading engine…", 60)
-            cmd = [
-                py, "-m", "uvicorn", "main:app",
-                "--host", bind_host, "--port", str(port),
-                "--reload", "--reload-dir", str(HERE / "backend"),
-            ]
-            log.write(f"cmd: {' '.join(cmd)}")
 
-            log_file_path = os.path.join(runtime_dir, "bookvoice_backend.log")
-            log_file = open(log_file_path, "a", encoding="utf-8", errors="replace")
-            process = subprocess.Popen(
-                cmd, env={**os.environ, **env},
-                stdout=log_file, stderr=subprocess.STDOUT,
-                creationflags=launch._no_window(),
-            )
+            def spawn_dev(candidate: int):
+                handle = open(log_file_path, "w", encoding="utf-8", errors="replace")
+                proc = subprocess.Popen(
+                    [py, "-m", "uvicorn", "main:app",
+                     "--host", bind_host, "--port", str(candidate),
+                     "--reload", "--reload-dir", str(HERE / "backend")],
+                    env={**os.environ, **env},
+                    stdout=handle, stderr=subprocess.STDOUT,
+                    creationflags=launch._no_window(),
+                )
+                return proc, handle
+
+            try:
+                process, log_file = spawn_dev(port)
+            except OSError as exc:
+                state["error"] = f"Could not start the reading service on port {port}: {exc}"
+                log.write(f"fatal: {state['error']}")
+                launch.show_error(window, state["error"], log_file_path)
+                return
+            start_time = time.monotonic()
+            log.write(f"cmd: {' '.join([py, '-m', 'uvicorn', 'main:app', '--host', bind_host, '--port', str(port)])}")
+            excluded = [port]
+            while True:
+                time.sleep(0.5)
+                if process.poll() is None:
+                    break
+                if pinned or time.monotonic() - start_time > launch.STEAL_WINDOW_S:
+                    state["error"] = "Backend exited early. See log:\n" + log_file_path
+                    log.write(state["error"])
+                    launch.show_error(window, state["error"], log_file_path)
+                    return
+                if not launch.port_stolen(bind_host, port, log_file_path):
+                    state["error"] = "Backend exited early. See log:\n" + log_file_path
+                    log.write(state["error"])
+                    launch.show_error(window, state["error"], log_file_path)
+                    return
+                log.write(f"port {port} was taken between scan and bind; scanning again")
+                try:
+                    log_file.close()
+                except OSError:
+                    pass
+                try:
+                    port = launch.pick_port(log, bind_host, 0, exclude=tuple(excluded))
+                except launch.PortUnavailable as exc:
+                    state["error"] = str(exc)
+                    log.write(f"fatal: {state['error']}")
+                    launch.show_error(window, state["error"], log_file_path)
+                    return
+                excluded.append(port)
+                try:
+                    process, log_file = spawn_dev(port)
+                except OSError as exc:
+                    state["error"] = f"Could not start the reading service on port {port}: {exc}"
+                    log.write(f"fatal: {state['error']}")
+                    launch.show_error(window, state["error"], log_file_path)
+                    return
+                start_time = time.monotonic()
 
             def wait_ready(timeout_s: float = 60.0, interval: float = 1.0) -> tuple[bool, str]:
                 """Poll health until the backend answers, mirroring launch.py's loop.

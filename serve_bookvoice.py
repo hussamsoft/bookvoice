@@ -438,13 +438,24 @@ def main(argv: list[str] | None = None) -> int:
     book_id = None
 
     def restart_backend(reason: str) -> bool:
-        nonlocal restarts, process
+        nonlocal restarts, process, port, port_source, cmd, base_url
         if restarts >= MAX_RESTARTS:
             return False
         restarts += 1
         log.write(f"watchdog: {reason}; restart {restarts}/{MAX_RESTARTS}")
         emit(f"The reading service stopped responding; restarting ({restarts}/{MAX_RESTARTS})…")
         stop_backend(process)
+        if not pinned:
+            try:
+                port, port_source = choose_port(runtime_dir, bind_host, 0, log)
+            except launch.PortUnavailable as exc:
+                emit(f"BookVoice could not restart: {exc}")
+                log.write(f"fatal: {exc}")
+                return False
+            cmd = [py, "-m", "uvicorn", "main:app", "--host", bind_host, "--port", str(port)]
+            base_url = f"http://127.0.0.1:{port}"
+            remember_port(runtime_dir, port)
+            write_access_file(data_dir, bind_host, port, tunnel_url, log)
         write_state(runtime_dir, state="starting", host=bind_host, port=port, tunnelUrl=tunnel_url)
         process = start_backend(cmd, app_dir, env, log)
         return True

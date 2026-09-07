@@ -142,6 +142,22 @@ def kill_tree(proc: subprocess.Popen) -> None:
             pass
 
 
+def free_port(preferred: int = 0) -> int:
+    """A free loopback port: the preferred one when open, else an OS-assigned one."""
+    import socket as _socket
+
+    if preferred:
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind(("127.0.0.1", preferred))
+                return preferred
+            except OSError:
+                pass
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 def start_server(runtime_dir: Path, port: int, extra_env: dict | None = None) -> subprocess.Popen:
     py = VENV_PY if VENV_PY.is_file() else Path(sys.executable)
     env = {
@@ -591,17 +607,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Journey-level BookVoice simulation")
     parser.add_argument("--heavy", action="store_true", help="include real CPU conversion journeys")
     parser.add_argument("--port", type=int, default=8011)
-    args = parser.parse_args()
-
     with tempfile.TemporaryDirectory(prefix="bookvoice-sim-", ignore_cleanup_errors=True) as runtime:
         runtime_dir = Path(runtime)
-        proc = start_server(runtime_dir, args.port)
+        live_port = free_port(args.port)
+        if live_port != args.port:
+            print(f"[warn] port {args.port} busy; simulating on {live_port}")
+        proc = start_server(runtime_dir, live_port)
         try:
-            base = f"http://127.0.0.1:{args.port}"
+            base = f"http://127.0.0.1:{live_port}"
             api = Api(base, DEVICE_A)
             if not wait_until(lambda: api.get("/api/health")[0] == 200, 150):
                 print("[FAIL] main server never became healthy")
-                log = Path(runtime_dir) / f"server-{args.port}.log"
+                log = Path(runtime_dir) / f"server-{live_port}.log"
                 if log.is_file():
                     print(log.read_text(encoding="utf-8", errors="replace")[-1500:])
                 return 1
@@ -632,7 +649,7 @@ def main() -> int:
 
         finally:
             kill_tree(proc)
-        journey_access(runtime_dir, args.port + 1)
+        journey_access(runtime_dir, free_port(live_port + 1))
 
     print(f"\n=== simulation: {PASS} passed, {FAIL} failed ===")
     return 0 if FAIL == 0 else 1

@@ -349,6 +349,23 @@ class PinnedPortTests(unittest.TestCase):
         self.assertFalse(launch.port_bind_error("ModuleNotFoundError: No module named 'torch'"))
         self.assertFalse(launch.port_bind_error(""))
 
+    def test_restart_keeps_a_free_port(self):
+        log = MagicMock()
+        self.assertEqual(launch.next_free_port(log, "127.0.0.1", 8005, ""), 8005)
+
+    def test_restart_moves_off_a_taken_port(self):
+        log = MagicMock()
+
+        def bind(address):
+            if address[1] == 8005:
+                raise OSError("taken")
+
+        with patch.object(launch.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.bind.side_effect = bind
+            fresh = launch.next_free_port(log, "127.0.0.1", 8005, "")
+        self.assertNotEqual(fresh, 8005)
+        self.assertGreaterEqual(fresh, 8000)
+        self.assertLessEqual(fresh, 8020)
 
 class TunnelProcessTests(unittest.TestCase):
     def setUp(self):
