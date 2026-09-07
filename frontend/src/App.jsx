@@ -1,52 +1,47 @@
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioWaveform, FileText, ScanLine } from 'lucide-react';
-import TitleBar from './components/TitleBar';
-import UpdateBanner from './components/UpdateBanner';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Sidebar from './components/shell/Sidebar';
+import TopBar from './components/shell/TopBar';
+import HomeView from './components/shell/HomeView';
+import LibraryView from './components/shell/LibraryView';
+import { engineStatusFromTts } from './components/shell/engineStatus';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import Shortcuts from './components/Shortcuts';
-import { getAppMode, setAppMode } from './utils/appSession';
+import { getAppView, setAppView, getLastBookId, setLastBookId } from './utils/appSession';
 import { useKeyboardShortcuts } from './hooks/reader/useKeyboardShortcuts';
+import { useTtsStatus } from './hooks/useTtsStatus';
+import { useTheme } from './hooks/useTheme';
 
 const BookSession = lazy(() => import('./components/BookSession'));
 const PdfViewer = lazy(() => import('./components/PdfViewer'));
 const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 const Reader = lazy(() => import('./components/reader/Reader'));
 
-const MODE_LABELS = {
-    pdf: 'reader',
-    camera: 'scanner',
-    studio: 'voice studio',
+const VIEW_TITLES = {
+    home: 'Home',
+    library: 'Library',
+    reader: 'Reading',
+    scan: 'Scan pages',
+    studio: 'Voice Studio',
 };
 
-const MODE_HINTS = {
-    pdf: 'Read PDF, EPUB, or text files',
-    camera: 'Capture physical books with your camera',
-    studio: 'Create and repair speech recordings',
-};
-
-const MODE_ICONS = {
-    pdf: FileText,
-    camera: ScanLine,
-    studio: AudioWaveform,
-};
-
-const MODE_SHORT_LABELS = {
-    pdf: 'Read',
-    camera: 'Scan',
-    studio: 'Studio',
-};
-
-function App() {
-    const [mode, setMode] = useState(getAppMode);
-    const [sessionDirty, setSessionDirty] = useState(false);
-    const [pendingMode, setPendingMode] = useState(null);
+export default function App() {
+    const [view, setViewState] = useState(() => {
+        // A `?book=` deep link opens the reader directly (desktop shell,
+        // .bookvoice double-click, addresses card).
+        if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('book')) {
+            return 'reader';
+        }
+        return getAppView();
+    });
+    const [readerEpoch, setReaderEpoch] = useState(0);
+    const [workspaceEpoch, setWorkspaceEpoch] = useState(0);
+    const [lastBookId, setLastBookIdState] = useState(getLastBookId);
+    const [scanDirty, setScanDirty] = useState(false);
+    const [pendingView, setPendingView] = useState(null);
     const [transitioning, setTransitioning] = useState(false);
-    const [displayMode, setDisplayMode] = useState(mode);
-    const prevModeRef = useRef(mode);
-    // Epoch increments on every mode switch so in-flight async handlers from a
-    // previous mode can detect they're stale and bail out (no state update on
-    // unmounted/wrong-mode components, no phantom toasts).
-    const epochRef = useRef(0);
+    const [displayView, setDisplayView] = useState(view);
+    const prevViewRef = useRef(view);
+
     // Stage A feature flag. The new reader composition is being extracted
     // from PdfViewer.jsx: `?reader=new` previews it while the production
     // PdfViewer stays the default (including for `?reader=old` or any
@@ -57,187 +52,138 @@ function App() {
         return new URLSearchParams(window.location.search).get('reader') === 'new';
     }, []);
 
-    // Global `?` opens the keyboard shortcuts sheet. The per-mode keyboard
-    // hook (PageUp / Space / F / etc.) lives in the mode components; this
-    // handler is intentionally narrow so the `?` shortcut works regardless
-    // of which mode is active.
+    const theme = useTheme();
+    const tts = useTtsStatus();
+    const engineStatus = engineStatusFromTts(tts);
+
+    // Global `?` opens the keyboard shortcuts sheet. The per-view keyboard
+    // hooks (Space / PageUp / F / etc.) live in the view components; this
+    // handler is intentionally narrow so the `?` shortcut works anywhere.
     const [showShortcuts, setShowShortcuts] = useState(false);
     useKeyboardShortcuts({
         onShowShortcuts: () => setShowShortcuts(true),
     });
 
     useEffect(() => {
-        if (mode !== prevModeRef.current) {
+        if (view !== prevViewRef.current) {
             setTransitioning(true);
-            setDisplayMode(prevModeRef.current);
+            setDisplayView(prevViewRef.current);
             const timer = setTimeout(() => {
-                setDisplayMode(mode);
+                setDisplayView(view);
                 setTransitioning(false);
-                prevModeRef.current = mode;
+                prevViewRef.current = view;
             }, 200);
             return () => clearTimeout(timer);
         }
-        // Rapid double-switch: mode returned to previous before timer fired.
-        // Reset transitioning so the stage doesn't stay invisible.
+        // Rapid double-switch: view returned to the previous one before the
+        // timer fired. Reset transitioning so the stage doesn't stay hidden.
         setTransitioning(false);
-    }, [mode]);
+    }, [view]);
 
-
-    useEffect(() => {
-        const track = document.querySelector('.mode-switcher-track');
-        const indicator = document.querySelector('.mode-indicator');
-        if (!track || !indicator) return;
-        const position = () => {
-            const segments = track.querySelectorAll('.mode-segment');
-            const modeKeys = Object.keys(MODE_LABELS);
-            const index = modeKeys.indexOf(mode);
-            if (index < 0 || !segments[index]) return;
-            const segment = segments[index];
-            const trackRect = track.getBoundingClientRect();
-            const segmentRect = segment.getBoundingClientRect();
-            indicator.style.width = `${segmentRect.width}px`;
-            indicator.style.transform = `translateX(${segmentRect.left - trackRect.left - 2}px)`;
-        };
-        position();
-        // ResizeObserver may not exist in all environments (e.g., jsdom tests).
-        if (typeof ResizeObserver !== 'undefined') {
-            const observer = new ResizeObserver(position);
-            observer.observe(track);
-            window.addEventListener('resize', position);
-            return () => {
-                observer.disconnect();
-                window.removeEventListener('resize', position);
-            };
-        }
-        return undefined;
-    }, [mode]);
-
-    const switchTo = (next) => {
-        epochRef.current += 1;
-        setSessionDirty(false);
-        setMode(next);
-        setAppMode(next);
-    };
-
-    const requestMode = (next) => {
-        if (next === mode) return;
-        if (sessionDirty) {
-            setPendingMode(next);
+    const navigate = useCallback((next) => {
+        if (next === 'reader') return; // readers are entered via openBook only
+        if (next === view) return;
+        if (scanDirty && view === 'scan' && next !== 'scan') {
+            setPendingView(next);
             return;
         }
-        switchTo(next);
-    };
+        if (next === 'scan' || next === 'studio') setWorkspaceEpoch((n) => n + 1);
+        setViewState(next);
+        setAppView(next);
+    }, [view, scanDirty]);
 
-    const confirmPendingMode = () => {
-        const next = pendingMode;
-        setPendingMode(null);
+    const confirmPendingView = () => {
+        const next = pendingView;
+        setPendingView(null);
         if (!next) return;
-        switchTo(next);
+        setScanDirty(false);
+        setWorkspaceEpoch((n) => n + 1);
+        setViewState(next);
+        setAppView(next);
     };
 
-    // ARIA tabs pattern: arrow keys / Home / End move the selected mode
-    // tab with roving tabindex; mouse and touch keep their click behavior.
-    const handleModeSwitcherKeyDown = (event) => {
-        const key = event.key;
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
-        const tabs = Array.from(event.currentTarget.querySelectorAll('[role="tab"]'));
-        const index = tabs.indexOf(document.activeElement);
-        if (index === -1) return;
-        event.preventDefault();
-        const _modeKeys = Object.keys(MODE_LABELS);
-        let nextIndex;
-        if (key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
-        else if (key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
-        else if (key === 'Home') nextIndex = 0;
-        else nextIndex = tabs.length - 1;
-        tabs[nextIndex]?.focus();
-        // Directly update tabindex for immediate effect (avoids render timing issues)
-        tabs.forEach((tab, i) => { tab.tabIndex = i === nextIndex ? 0 : -1; });
-        tabs[nextIndex]?.click();
-    };
+    /** Enter the reader for a book (Home/Library rows, added files, deep links). */
+    const openBook = useCallback((book) => {
+        const id = book?.id;
+        if (id == null) return;
+        setLastBookId(id);
+        setLastBookIdState(String(id));
+        try {
+            window.history.replaceState(null, '', `/?book=${id}`);
+        } catch {
+            /* Deep-link sync is best-effort (e.g. sandboxed frames). */
+        }
+        setReaderEpoch((n) => n + 1);
+        setViewState('reader');
+    }, []);
 
-    // The mode switcher lives in the title bar (single 56 px row). Each
-    // segment carries its hint as a native tooltip; TitleBar's optional
-    // `contextTitle` slot below the tablist is reserved for a future
-    // per-mode context label.
-    const modeSwitcher = (
-        <div
-            className="mode-switcher-track"
-            role="tablist"
-            aria-label="Reading mode"
-            onKeyDown={handleModeSwitcherKeyDown}
-        >
-            {Object.keys(MODE_LABELS).map((modeKey) => {
-                const Icon = MODE_ICONS[modeKey];
-                const isActive = mode === modeKey;
-                return (
-                    <button
-                        key={modeKey}
-                        type="button"
-                        className={`mode-segment ${isActive ? 'is-active' : ''}`}
-                        role="tab"
-                        aria-selected={isActive}
-                        aria-label={`${MODE_LABELS[modeKey]} mode`}
-                        title={MODE_HINTS[modeKey]}
-                        tabIndex={isActive ? 0 : -1}
-                        onClick={() => requestMode(modeKey)}
-                    >
-                        <Icon size={14} aria-hidden="true" />
-                        <span>{MODE_SHORT_LABELS[modeKey]}</span>
-                    </button>
-                );
-            })}
-            <span className="mode-indicator" aria-hidden="true" />
-        </div>
+    const markScanDirty = useCallback(() => setScanDirty(true), []);
+
+    const reader = useNewReader ? (
+        <Reader key={`reader-${readerEpoch}`} />
+    ) : (
+        <PdfViewer
+            key={`reader-${readerEpoch}`}
+            onDirty={() => { /* progress persists; leaving the reader is always safe */ }}
+        />
     );
+
+    const contextTitle = view === 'reader' ? VIEW_TITLES.reader : VIEW_TITLES[view] || '';
 
     return (
         <div className="app-shell">
             <a href="#main-content" className="skip-link">Skip to main content</a>
-            <header className="main-header">
-                <TitleBar
-                    currentMode={mode}
-                    modeLabels={MODE_LABELS}
-                    modeSwitcher={modeSwitcher}
-                />
-            </header>
-
-            <main id="main-content" className="main-content reading-stage">
-                <UpdateBanner />
-                <Suspense fallback={
-                    <div className="loading-state" role="status">
-                        Loading {MODE_LABELS[mode] || 'app'}…
-                    </div>
-                }>
-                    <div className={`mode-stage ${transitioning ? 'is-transitioning' : ''}`}>
-                        {displayMode === 'camera' ? (
-                            <BookSession
-                                key={`camera-${epochRef.current}`}
-                                epoch={epochRef.current}
-                                onDirty={() => setSessionDirty(true)}
-                            />
-                        ) : displayMode === 'studio' ? (
-                            <VoiceStudio key={`studio-${epochRef.current}`} />
-                        ) : useNewReader ? (
-                            <Reader key={`reader-${epochRef.current}`} />
-                        ) : (
-                            <PdfViewer
-                                key={`pdf-${epochRef.current}`}
-                                onDirty={() => setSessionDirty(true)}
-                            />
-
-                        )}
-                    </div>
-                </Suspense>
-            </main>
+            <Sidebar view={view} onNavigate={navigate} />
+            <div className="app-column">
+                <header className="main-header">
+                    <TopBar
+                        title={contextTitle}
+                        engineStatus={engineStatus}
+                        theme={theme}
+                        onThemeToggle={theme.toggleMode}
+                    />
+                </header>
+                <main id="main-content" className="main-content">
+                    <Suspense fallback={
+                        <div className="loading-state" role="status">
+                            {view === 'reader' ? 'Opening your book…' : `Loading ${VIEW_TITLES[view] || 'app'}…`}
+                        </div>
+                    }>
+                        <div className={`mode-stage ${transitioning ? 'is-transitioning' : ''}`}>
+                            {displayView === 'home' && (
+                                <HomeView
+                                    lastBookId={lastBookId}
+                                    onOpenBook={openBook}
+                                    onNavigate={navigate}
+                                    onError={() => {}}
+                                />
+                            )}
+                            {displayView === 'library' && (
+                                <LibraryView onOpenBook={openBook} onError={() => {}} />
+                            )}
+                            {displayView === 'reader' && reader}
+                            {displayView === 'scan' && (
+                                <BookSession
+                                    key={`scan-${workspaceEpoch}`}
+                                    epoch={workspaceEpoch}
+                                    onDirty={markScanDirty}
+                                />
+                            )}
+                            {displayView === 'studio' && (
+                                <VoiceStudio key={`studio-${workspaceEpoch}`} />
+                            )}
+                        </div>
+                    </Suspense>
+                </main>
+            </div>
 
             <ConfirmDialog
-                open={pendingMode !== null}
-                title="Leave this session?"
-                message="Switching modes leaves your current reading session. Your book and progress stay saved."
-                confirmLabel="Switch mode"
-                onConfirm={confirmPendingMode}
-                onCancel={() => setPendingMode(null)}
+                open={pendingView !== null}
+                title="Leave the scan session?"
+                message="Pages captured in this session are not saved yet. Save to Library from the scan toolbar to keep them."
+                confirmLabel="Leave without saving"
+                onConfirm={confirmPendingView}
+                onCancel={() => setPendingView(null)}
             />
             <Shortcuts
                 open={showShortcuts}
@@ -246,5 +192,3 @@ function App() {
         </div>
     );
 }
-
-export default App;

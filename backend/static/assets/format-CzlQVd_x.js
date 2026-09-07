@@ -1,1 +1,0 @@
-function e(e){let t=Number(e);if(!Number.isFinite(t)||t<0)return`0:00`;let n=Math.floor(t);return`${Math.floor(n/60)}:${String(n%60).padStart(2,`0`)}`}function t(e){let t=Math.max(0,Number(e)||0);return`${Math.floor(t/60)}:${(t%60).toFixed(1).padStart(4,`0`)}`}export{t as n,e as t};

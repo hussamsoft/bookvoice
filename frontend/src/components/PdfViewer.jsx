@@ -79,11 +79,11 @@ import {
     activePreparedProfile,
     missingPreparedTextPages,
     preparationForActiveProfile,
-    preparedBookDetails,
     shouldAdoptPreparedProfile,
 } from '../utils/preparedPages';
 import { normalizePronunciationText, pronounceWithSystemVoice, stopSystemPronunciation } from '../utils/wordPronunciation';
 import { preparedPageAudioEntry, resolvePageContent } from '../utils/pageContentResolver';
+import PreparedBookRow from './shell/PreparedBookRow';
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.6;
 const ZOOM_STEP = 0.15;
@@ -93,28 +93,6 @@ function sourceKindFromName(name = '') {
     if (/\.(txt|md)$/i.test(name)) return 'txt';
     return 'pdf';
 }
-
-const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
-    const details = preparedBookDetails(book);
-    return (
-        <button
-            type="button"
-            className="prepared-book-row"
-            onClick={() => onOpen(book)}
-        >
-            <span className="prepared-book-row-heading">
-                <span className="source-kind-badge">
-                    {(book.sourceKind || 'pdf').toUpperCase()}
-                </span>
-                {book.title}
-            </span>
-            <small>
-                Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
-                {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
-            </small>
-        </button>
-    );
-});
 
 export default function PdfViewer({ onDirty }) {
 
