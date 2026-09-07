@@ -112,7 +112,7 @@ Pin it to the taskbar or Start menu like any other app.
 Launcher flags: `--repair` forces a reinstall, `--machine` installs for all users
 (elevates via UAC), `--quiet` installs silently, and `--manifest-url` points at a
 different release manifest. Everything else is forwarded to the app
-(`--browser`, `--host lan`, `--tunnel`, a `.bookvoice` file, ...). Downloads are
+(`--browser`, `--host lan --allow-lan`, `--tunnel`, a `.bookvoice` file, ...). Downloads are
 SHA-256-verified against the signed-in-repo `release-assets.json`.
 
 See [RUN.md](RUN.md) for first-launch behavior, logs, and troubleshooting.

@@ -29,11 +29,14 @@ from services.path_utils import safe_join
 from services.security import is_allowed_browser_origin, public_origins
 from services.tts_service import TtsPriority, preload_model, submit_tts
 
+
 # Seed default voices on startup (paths resolved from env at call time).
 try:
     voices.seed_default_voices()
 except Exception as _seed_err:
     print(f"[main] voice seed skipped: {_seed_err}")
+
+
 
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("application/javascript", ".js")
@@ -112,6 +115,7 @@ async def protect_local_api(request: Request, call_next):
         request_scheme=request.url.scheme,
         request_host=request.headers.get("host", ""),
         forwarded_proto=request.headers.get("x-forwarded-proto", ""),
+        trust_proxy_headers=access_service.trust_proxy_headers(),
     ):
         print(
             "[security] rejected browser origin "

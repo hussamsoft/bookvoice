@@ -27,11 +27,6 @@ vi.mock('./components/reader/Reader', () => ({
     default: () => <div data-testid="reader-mock">New Reader Component</div>,
 }));
 
-// The gear dropdown is replaced by the Settings view in a later slice.
-vi.mock('./components/SettingsPanel', () => ({
-    default: () => <div data-testid="settings-panel-mock" />,
-}));
-
 // Library data for HomeView's continue-reading list.
 vi.mock('./hooks/reader/usePreparedLibrary', () => ({
     usePreparedLibrary: () => ({

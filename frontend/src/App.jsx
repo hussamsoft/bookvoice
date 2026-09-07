@@ -3,6 +3,7 @@ import Sidebar from './components/shell/Sidebar';
 import TopBar from './components/shell/TopBar';
 import HomeView from './components/shell/HomeView';
 import LibraryView from './components/shell/LibraryView';
+import SettingsView from './components/shell/SettingsView';
 import { engineStatusFromTts } from './components/shell/engineStatus';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import Shortcuts from './components/Shortcuts';
@@ -181,6 +182,7 @@ export default function App() {
                             {displayView === 'studio' && (
                                 <VoiceStudio key={`studio-${workspaceEpoch}`} />
                             )}
+                            {displayView === 'settings' && <SettingsView />}
                         </div>
                     </Suspense>
                 </main>

@@ -19,6 +19,17 @@ from services.config_service import app_version
 from services.path_utils import validate_language_id, validate_page_index, validate_voice_id
 
 SCHEMA_VERSION = 1
+# On-disk source file per book kind. PDF manifests predate ``sourceKind`` and
+# are treated as "pdf"; EPUB/TXT imports record their kind at import time.
+SOURCE_FILES = {"pdf": "source.pdf", "epub": "source.epub", "txt": "source.txt"}
+# Expected archive magic per kind. Plain text has no magic prefix, so TXT
+# sources are verified by checksum only.
+SOURCE_MAGIC = {"pdf": b"%PDF", "epub": b"PK"}
+SOURCE_MEDIA_TYPES = {
+    "pdf": "application/pdf",
+    "epub": "application/epub+zip",
+    "txt": "text/plain",
+}
 MAX_ARCHIVE_ENTRIES = 20_000
 MAX_ARCHIVE_BYTES = 8 * 1024 * 1024 * 1024
 MAX_ARCHIVE_METADATA_BYTES = 4 * 1024 * 1024
@@ -55,6 +66,19 @@ def book_dir(book_id: str) -> Path:
     if not book_id or len(book_id) != 64 or any(c not in "0123456789abcdef" for c in book_id):
         raise ValueError("Invalid book id.")
     return library_root() / book_id
+
+
+def source_kind(manifest: dict) -> str:
+    """Return the book's source kind, defaulting legacy manifests to PDF."""
+    kind = manifest.get("sourceKind", "pdf")
+    if kind not in SOURCE_FILES:
+        raise ValueError("Prepared-book manifest has an unsupported source type.")
+    return kind
+
+
+def source_filename(manifest: dict) -> str:
+    """Return the on-disk source file name for this book (source.pdf/epub/txt)."""
+    return SOURCE_FILES[source_kind(manifest)]
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -686,6 +710,17 @@ def update_progress(book_id: str, progress: dict) -> dict:
         return manifest["progress"]
 
 
+def _matches_source_magic(kind: str, prefix: bytes) -> bool:
+    magic = SOURCE_MAGIC.get(kind)
+    if magic is None:
+        return True
+    return bytes(prefix)[: len(magic)] == magic
+
+
+def _is_archive_source_entry(name: str) -> bool:
+    return name.startswith("document/source.") and len(PurePosixPath(name).parts) == 2
+
+
 def _safe_archive_members(bundle: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     infos = bundle.infolist()
     if len(infos) > MAX_ARCHIVE_ENTRIES:
@@ -705,8 +740,8 @@ def _safe_archive_members(bundle: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
             name == "manifest.json" or name.startswith("pages/")
         ) and int(info.file_size) > MAX_ARCHIVE_METADATA_BYTES:
             raise ValueError("Prepared-book metadata entry is too large.")
-        if name == "document/source.pdf" and int(info.file_size) > MAX_ARCHIVE_SOURCE_BYTES:
-            raise ValueError("Prepared-book source PDF is too large.")
+        if _is_archive_source_entry(name) and int(info.file_size) > MAX_ARCHIVE_SOURCE_BYTES:
+            raise ValueError("Prepared-book source file is too large.")
         mode = (info.external_attr >> 16) & 0o170000
         if mode == 0o120000:
             raise ValueError("Prepared-book archive cannot contain symbolic links.")
@@ -747,7 +782,11 @@ def create_archive(book_id: str, profile: str) -> dict:
     try:
         with zipfile.ZipFile(temp_output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as bundle:
             bundle.writestr("manifest.json", json.dumps(export_manifest, indent=2, ensure_ascii=False))
-            bundle.write(book_dir(book_id) / "source.pdf", "document/source.pdf")
+            source_name = source_filename(manifest)
+            source_path = book_dir(book_id) / source_name
+            if not source_path.is_file():
+                raise FileNotFoundError("Prepared-book source file is missing.")
+            bundle.write(source_path, f"document/{source_name}")
             for page_path in page_paths:
                 bundle.write(page_path, f"pages/{page_path.name}")
             for audio_path in audio_paths:
@@ -876,14 +915,17 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
             raise ValueError("Prepared-book archive contains an invalid narration profile.")
         book_id = str(manifest.get("id") or "")
         target = book_dir(book_id)
-        source_info = info_by_name.get("document/source.pdf")
+        kind = source_kind(manifest)
+        source_disk_name = SOURCE_FILES[kind]
+        source_entry = f"document/{source_disk_name}"
+        source_info = info_by_name.get(source_entry)
         if not source_info:
-            raise ValueError("Prepared-book archive has no source PDF.")
+            raise ValueError("Prepared-book archive has no source file.")
         source_digest, source_prefix = _zip_member_digest(bundle, source_info)
-        if source_prefix != b"%PDF":
-            raise ValueError("Prepared-book source is not a PDF.")
+        if not _matches_source_magic(kind, source_prefix):
+            raise ValueError(f"Prepared-book source is not a {kind.upper()} file.")
         if source_digest != manifest.get("sourceSha256") or book_id != manifest.get("sourceSha256"):
-            raise ValueError("Prepared-book PDF checksum does not match its manifest.")
+            raise ValueError("Prepared-book source checksum does not match its manifest.")
 
         names = set(info_by_name)
         page_hashes = manifest.get("pageHashes")
@@ -891,7 +933,7 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
         if not isinstance(page_hashes, dict) or not isinstance(audio_checksums, dict):
             raise ValueError("Prepared-book manifest is missing entry checksums.")
         audio_names = set()
-        for name in names - {"manifest.json", "document/source.pdf"}:
+        for name in names - {"manifest.json", source_entry}:
             if name.startswith("pages/"):
                 filename_part = PurePosixPath(name).name
                 if len(PurePosixPath(name).parts) != 2 or not filename_part.removesuffix(".json").isdigit():
@@ -935,8 +977,8 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
             if name == "manifest.json":
                 continue
             destination = (
-                staging / "source.pdf"
-                if name == "document/source.pdf"
+                staging / source_disk_name
+                if name == source_entry
                 else staging.joinpath(*PurePosixPath(name).parts)
             )
             _extract_zip_member(bundle, info, destination)
@@ -1031,6 +1073,7 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
         GenerationCancellation,
         GenerationCancelled,
         TtsPriority,
+        TtsQueueFull,
         narrate_text,
         submit_tts,
     )
@@ -1058,12 +1101,24 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                 if _job_cancel_requested(job):
                     _update_job(job, status="CANCELLED")
                     break
-                future = submit_tts(
-                    TtsPriority.PREPARE,
-                    narrate_text,
-                    page_meta["text"], session, page, voice_id, language_id,
-                    cancel_event=cancellation,
-                )
+                try:
+                    future = submit_tts(
+                        TtsPriority.PREPARE,
+                        narrate_text,
+                        page_meta["text"], session, page, voice_id, language_id,
+                        cancel_event=cancellation,
+                    )
+                except TtsQueueFull:
+                    # Interactive narrations outrank preparation. Back off and
+                    # retry the same page instead of spinning or failing.
+                    _update_job(job, status="PAUSED", error="Waiting for the narration engine.")
+                    _persist_job(job)
+                    time.sleep(5.0)
+                    if _job_cancel_requested(job):
+                        _update_job(job, status="CANCELLED", error=None)
+                        break
+                    _update_job(job, status="RUNNING", error=None)
+                    continue
                 _update_job(job, _future=future)
                 try:
                     result = future.result()

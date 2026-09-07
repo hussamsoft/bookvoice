@@ -85,23 +85,41 @@ def _convert_to_wav_pcm(data: bytes) -> bytes:
         except wave.Error:
             pass
 
-    try:
-        import librosa
-        import soundfile as sf
-    except ImportError as e:
-        raise ValueError(
-            "Only standard PCM .wav files are supported without audio converters."
-        ) from e
+    # Non-WAV uploads (webm/opus recordings, ogg, mp3) go through the
+    # bundled FFmpeg — the same tool Studio uses — instead of librosa,
+    # which ships in the packaged worker but was never in requirements.txt
+    # and so was missing for every dev/CI install.
+    from services import media_tools
 
+    staged = staged_converted = None
     try:
-        y, sr = librosa.load(BytesIO(data), sr=22050, mono=True)
-        out = BytesIO()
-        sf.write(out, y, sr, format="WAV", subtype="PCM_16")
-        return out.getvalue()
-    except Exception as e:
+        fd, staged = tempfile.mkstemp(prefix="voice-upload-", suffix=".src")
+        with os.fdopen(fd, "wb") as buffer:
+            buffer.write(data)
+        converted = Path(str(staged) + ".wav")
+        staged_converted = converted
+        media_tools.run_media_tool(
+            "ffmpeg",
+            [
+                "-y", "-v", "error", "-i", str(staged),
+                "-map", "0:a:0", "-vn",
+                "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
+                "-f", "wav", str(converted),
+            ],
+            timeout=120,
+        )
+        return converted.read_bytes()
+    except (RuntimeError, ValueError, OSError) as e:
         raise ValueError(
             f"Could not decode audio as WAV. Record again or upload a .wav file. ({e})"
         ) from e
+    finally:
+        for path in (staged, staged_converted):
+            if path:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 def _validate_wav_duration(data: bytes, min_sec: float = 0.3, max_sec: float = 60.0):

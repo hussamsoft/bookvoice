@@ -378,7 +378,7 @@ class LauncherTunnelEnvironmentTests(unittest.TestCase):
         self.assertEqual(env["BOOKVOICE_COOKIE_SECURE"], "1")
 
     def test_a_lan_bind_and_a_tunnel_can_be_served_at_once(self):
-        env = launch.apply_network_env({}, "0.0.0.0")
+        env = launch.apply_network_env({}, "0.0.0.0", allow_lan=True)
         env = launch.apply_tunnel_env(env, "https://bookvoice.example.com")
         # Plain HTTP on the LAN would discard a Secure cookie, so the weaker
         # setting has to survive; the tunnel works either way.

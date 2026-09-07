@@ -833,16 +833,27 @@ def apply_tunnel_env(env: dict, origin: str) -> dict:
     env.setdefault("BOOKVOICE_COOKIE_SECURE", "1")
     return env
 
+def lan_opt_in_env() -> bool:
+    """Whether the operator opted into LAN exposure via the environment."""
+    return str(os.environ.get("BOOKVOICE_ALLOW_LAN", "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
-def apply_network_env(env: dict, host: str) -> dict:
-    """Let LAN browsers through when the app is deliberately bound beyond loopback.
 
-    A phone on the same Wi-Fi arrives with a private-address Origin, which the
-    loopback-only policy would reject, and over plain HTTP a Secure session
-    cookie would be discarded. Both are relaxed only for a non-loopback bind,
-    and only when the operator has not already made the call.
+def apply_network_env(
+    env: dict, host: str, *, allow_lan: bool = False
+) -> dict:
+    """Let LAN browsers through only with explicit operator consent.
+
+    A phone on the same Wi-Fi arrives with a private-address Origin, which
+    the loopback-only policy would reject, and over plain HTTP a Secure
+    session cookie would be discarded. Both are relaxed only for a
+    non-loopback bind *and* an explicit opt-in (--allow-lan or
+    BOOKVOICE_ALLOW_LAN=1): binding is one flag, and silently dropping two
+    access controls behind it once put every voice profile and Studio
+    project within reach of the whole network.
     """
-    if is_loopback_host(host):
+    if is_loopback_host(host) or not allow_lan:
         return env
     env.setdefault("BOOKVOICE_ALLOW_PRIVATE_ORIGINS", "1")
     env.setdefault("BOOKVOICE_COOKIE_SECURE", "0")
@@ -1025,6 +1036,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help=(
+            "Required together with a non-loopback --host: lets browsers on "
+            "the local network reach the app over plain HTTP. Without it a "
+            "LAN bind starts loopback-only so a typo cannot expose the app."
+        ),
+    )
+    parser.add_argument(
         "book_path",
         nargs="?",
         help="A .bookvoice archive to import and open.",
@@ -1133,8 +1153,18 @@ def main(argv: list[str] | None = None) -> int:
 
             kill_stale_servers(app_dir, runtime_dir, log)
             bind_host = resolve_bind_host(args.host)
+            allow_lan = bool(args.allow_lan) or lan_opt_in_env()
+            if not is_loopback_host(bind_host) and not allow_lan:
+                state["error"] = (
+                    "Refusing a network-wide bind without --allow-lan. "
+                    "Pass --allow-lan (or BOOKVOICE_ALLOW_LAN=1) to expose "
+                    "the app to the local network."
+                )
+                log.write(f"fatal: {state['error']}")
+                show_error(window, state["error"], log.path)
+                return
             port = pick_port(log, bind_host, resolve_pinned_port(args.port))
-            env = apply_network_env(build_env(app_dir, runtime_dir), bind_host)
+            env = apply_network_env(build_env(app_dir, runtime_dir), bind_host, allow_lan=allow_lan)
             status("Preparing local service", "Selecting a private local address…", 30)
             log.write(f"env DATA_DIR={env['DATA_DIR']}")
             log.write(f"env VOICE_DATA_DIR={env['VOICE_DATA_DIR']}")

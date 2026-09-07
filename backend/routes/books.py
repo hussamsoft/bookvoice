@@ -1,6 +1,7 @@
 """Prepared-book library, generation jobs, and .bookvoice archives."""
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -83,15 +84,27 @@ async def import_book(file: UploadFile = File(...)):
             _error("UPLOAD_TOO_LARGE", "Book files may not exceed 2 GB.", 413)
         filename = file.filename or "book.pdf"
         suffix = Path(filename).suffix.lower()
+        # Hashing, copying, and extracting a book can take minutes on large
+        # files. Doing it inline would stall the event loop — including the
+        # /api/health poll the launcher watchdog uses to decide whether the
+        # backend is still alive.
         try:
             if suffix == ".bookvoice":
-                return library.import_bookvoice_path(staged, filename)
+                return await asyncio.to_thread(
+                    library.import_bookvoice_path, staged, filename
+                )
             if suffix == ".pdf":
-                return library.import_pdf_path(staged, filename)
+                return await asyncio.to_thread(
+                    library.import_pdf_path, staged, filename
+                )
             if suffix == ".epub":
-                return library.import_epub_path(staged, filename)
+                return await asyncio.to_thread(
+                    library.import_epub_path, staged, filename
+                )
             if suffix in {".txt", ".md"}:
-                return library.import_text_path(staged, filename)
+                return await asyncio.to_thread(
+                    library.import_text_path, staged, filename
+                )
             _error(
                 "INVALID_BOOK_FILE",
                 "Unsupported book file type. Supported types: .pdf, .epub, .txt, .md, .bookvoice",
@@ -101,7 +114,6 @@ async def import_book(file: UploadFile = File(...)):
     finally:
         if staged is not None:
             staged.unlink(missing_ok=True)
-
 
 @router.get("/{book_id}")
 async def get_book(book_id: str):
@@ -124,10 +136,13 @@ async def delete_book(book_id: str):
 @router.get("/{book_id}/source")
 async def get_source(book_id: str):
     try:
-        source = library.book_dir(book_id) / "source.pdf"
+        manifest = library.get_book(book_id)
+        kind = library.source_kind(manifest)
+        source_name = library.SOURCE_FILES[kind]
+        source = library.book_dir(book_id) / source_name
         if not source.is_file():
-            raise FileNotFoundError("Book PDF was not found.")
-        return FileResponse(source, media_type="application/pdf", filename=f"{book_id}.pdf")
+            raise FileNotFoundError("Book source file was not found.")
+        return FileResponse(source, media_type=library.SOURCE_MEDIA_TYPES[kind], filename=f"{book_id}{Path(source_name).suffix}")
     except (ValueError, FileNotFoundError) as exc:
         _error("BOOK_NOT_FOUND", str(exc), 404)
 

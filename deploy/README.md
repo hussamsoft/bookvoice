@@ -16,9 +16,8 @@ before.
 | `BOOKVOICE_HOST` | Address to bind. Default `127.0.0.1` (this machine only). `lan` binds `0.0.0.0` for local-network access. |
 | `BOOKVOICE_ALLOW_PRIVATE_ORIGINS` | Accept browsers at private/link-local addresses. Set automatically by a non-loopback bind. Public hostnames are still refused. |
 | `BOOKVOICE_SECRET_KEY` | Optional session signing key. Defaults to a key derived from the password, so changing the password signs everyone out. |
-| `BOOKVOICE_COOKIE_SECURE` | Set to `0` only for local plain-HTTP testing. |
-
-Sessions are a signed cookie with a 30-day lifetime. There is no server-side
+| `BOOKVOICE_TRUST_PROXY_HEADERS` | Honor `X-Forwarded-Proto`/`X-Forwarded-For` from a proxy you control. Leave unset on an open port: any client can forge them. |
+| `BOOKVOICE_SESSION_EPOCH` | Internal revocation counter bumped by "log out everywhere". Tokens minted earlier stop working. |
 session store, so there is nothing to clean up and no state to lose.
 
 ## Reaching the desktop app from your phone (LAN)
@@ -27,10 +26,13 @@ The desktop app binds to `127.0.0.1`, so nothing else on your network can see
 it. To open it from a phone or another computer on the same Wi-Fi:
 
 ```bat
-BookVoice.bat --host lan
+BookVoice.bat --host lan --allow-lan
 ```
 
-or set `BOOKVOICE_HOST=lan`. The launcher then binds `0.0.0.0`, logs the
+or set `BOOKVOICE_HOST=lan` with `BOOKVOICE_ALLOW_LAN=1`. A non-loopback bind
+without that explicit opt-in is refused, so a typo cannot silently relax the
+browser-origin policy and the session-cookie rules. With consent, the
+launcher then binds `0.0.0.0`, logs the
 addresses it is reachable at, and relaxes two things that would otherwise block
 a LAN browser: private-network origins are accepted
 (`BOOKVOICE_ALLOW_PRIVATE_ORIGINS`), and the session cookie stops requiring

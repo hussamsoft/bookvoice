@@ -42,12 +42,17 @@ class BindHostTests(unittest.TestCase):
 
 class NetworkEnvironmentTests(unittest.TestCase):
     def test_a_loopback_bind_changes_nothing(self):
-        env = launch.apply_network_env({}, "127.0.0.1")
+        env = launch.apply_network_env({}, "127.0.0.1", allow_lan=True)
         self.assertNotIn("BOOKVOICE_ALLOW_PRIVATE_ORIGINS", env)
         self.assertNotIn("BOOKVOICE_COOKIE_SECURE", env)
 
-    def test_a_lan_bind_admits_private_origins_and_plain_http_cookies(self):
+    def test_a_lan_bind_without_consent_changes_nothing(self):
         env = launch.apply_network_env({}, "0.0.0.0")
+        self.assertNotIn("BOOKVOICE_ALLOW_PRIVATE_ORIGINS", env)
+        self.assertNotIn("BOOKVOICE_COOKIE_SECURE", env)
+
+    def test_a_lan_bind_with_consent_admits_private_origins(self):
+        env = launch.apply_network_env({}, "0.0.0.0", allow_lan=True)
         self.assertEqual(env["BOOKVOICE_ALLOW_PRIVATE_ORIGINS"], "1")
         # Without this the Secure session cookie is discarded over plain HTTP.
         self.assertEqual(env["BOOKVOICE_COOKIE_SECURE"], "0")
@@ -56,6 +61,7 @@ class NetworkEnvironmentTests(unittest.TestCase):
         env = launch.apply_network_env(
             {"BOOKVOICE_ALLOW_PRIVATE_ORIGINS": "0", "BOOKVOICE_COOKIE_SECURE": "1"},
             "0.0.0.0",
+            allow_lan=True,
         )
         self.assertEqual(env["BOOKVOICE_ALLOW_PRIVATE_ORIGINS"], "0")
         self.assertEqual(env["BOOKVOICE_COOKIE_SECURE"], "1")
@@ -66,7 +72,13 @@ class PrivateOriginPolicyTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("BOOKVOICE_ALLOW_PRIVATE_ORIGINS", None)
             self.assertFalse(security.allow_private_origins())
-            self.assertFalse(security.is_allowed_browser_origin("http://192.168.1.50:8000"))
+            self.assertFalse(
+                security.is_allowed_browser_origin(
+                    "http://192.168.1.50:8000",
+                    request_scheme="http",
+                    request_host="192.168.1.50:8000",
+                )
+            )
 
     def test_lan_origins_are_accepted_once_enabled(self):
         with patch.dict(os.environ, {"BOOKVOICE_ALLOW_PRIVATE_ORIGINS": "1"}):
@@ -77,20 +89,53 @@ class PrivateOriginPolicyTests(unittest.TestCase):
                 "http://hussam-laptop:8000",
                 "http://hussam-laptop.local:8000",
             ):
-                self.assertTrue(security.is_allowed_browser_origin(origin), origin)
+                host = origin.removeprefix("http://")
+                self.assertTrue(
+                    security.is_allowed_browser_origin(
+                        origin, request_scheme="http", request_host=host
+                    ),
+                    origin,
+                )
 
     def test_public_addresses_stay_refused_even_when_enabled(self):
         with patch.dict(os.environ, {"BOOKVOICE_ALLOW_PRIVATE_ORIGINS": "1"}):
-            self.assertFalse(security.is_allowed_browser_origin("https://example.com"))
-            self.assertFalse(security.is_allowed_browser_origin("http://8.8.8.8"))
-            self.assertFalse(security.is_allowed_browser_origin("http://evil.example.com"))
+            self.assertFalse(
+                security.is_allowed_browser_origin(
+                    "https://example.com",
+                    request_scheme="https",
+                    request_host="example.com",
+                )
+            )
+            self.assertFalse(
+                security.is_allowed_browser_origin(
+                    "http://8.8.8.8", request_scheme="http", request_host="8.8.8.8"
+                )
+            )
+            self.assertFalse(
+                security.is_allowed_browser_origin(
+                    "http://evil.example.com",
+                    request_scheme="http",
+                    request_host="evil.example.com",
+                )
+            )
 
     def test_loopback_keeps_working_regardless(self):
         with patch.dict(os.environ, {"BOOKVOICE_ALLOW_PRIVATE_ORIGINS": "1"}):
-            self.assertTrue(security.is_allowed_browser_origin("http://127.0.0.1:8000"))
+            self.assertTrue(
+                security.is_allowed_browser_origin(
+                    "http://127.0.0.1:8000",
+                    request_scheme="http",
+                    request_host="127.0.0.1:8000",
+                )
+            )
         with patch.dict(os.environ, {"BOOKVOICE_ALLOW_PRIVATE_ORIGINS": "0"}):
-            self.assertTrue(security.is_allowed_browser_origin("http://127.0.0.1:8000"))
-
+            self.assertTrue(
+                security.is_allowed_browser_origin(
+                    "http://127.0.0.1:8000",
+                    request_scheme="http",
+                    request_host="127.0.0.1:8000",
+                )
+            )
 
 class LauncherArgumentForwardingTests(unittest.TestCase):
     """`BookVoice.bat --host lan` has to actually reach launch.py."""

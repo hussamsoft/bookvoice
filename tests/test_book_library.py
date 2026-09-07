@@ -819,5 +819,129 @@ class BookUploadRouteTests(unittest.TestCase):
         self.assertFalse(staged_paths[0].exists())
 
 
+def _write_minimal_epub(path: Path) -> None:
+    """Single-chapter EPUB fixture for archive tests (extraction itself is covered in test_book_ingestion)."""
+    container = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+        'media-type="application/oebps-package+xml"/></rootfiles>'
+        "</container>"
+    )
+    opf = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        "<dc:title>Minimal Fixture</dc:title>"
+        "</metadata>"
+        "<manifest>"
+        '<item id="c1" href="text/c1.xhtml" media-type="application/xhtml+xml"/>'
+        "</manifest>"
+        '<spine><itemref idref="c1"/></spine>'
+        "</package>"
+    )
+    chapter = "<html><body><h1>One</h1><p>Chapter one text.</p></body></html>"
+    with zipfile.ZipFile(path, "w") as bundle:
+        bundle.writestr("mimetype", "application/epub+zip")
+        bundle.writestr("META-INF/container.xml", container)
+        bundle.writestr("OEBPS/content.opf", opf)
+        bundle.writestr("OEBPS/text/c1.xhtml", chapter)
+
+
+class BookArchiveSourceTests(unittest.TestCase):
+    """Phase A2: .bookvoice archives preserve non-PDF sources."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self.temp.name
+        library._jobs.clear()
+        library._archives.clear()
+
+    def tearDown(self):
+        if self.previous is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self.previous
+        self.temp.cleanup()
+
+    def _prepare_with_audio(self, book_id):
+        profile = library.profile_id("Aria", "en")
+        audio = library.book_dir(book_id) / "audio" / profile / "page-1.wav"
+        audio.parent.mkdir(parents=True)
+        audio.write_bytes(valid_wav_bytes())
+        library.mark_page_audio(book_id, profile, 1, audio, [], 1.2, "Aria", "en")
+        return profile
+
+    def test_archive_roundtrip_preserves_epub_source(self):
+        staged = Path(self.temp.name) / "Fixture.epub"
+        _write_minimal_epub(staged)
+        summary = library.import_epub_path(staged, "Fixture.epub")
+        profile = self._prepare_with_audio(summary["id"])
+
+        archive = library.create_archive(summary["id"], profile)
+        with zipfile.ZipFile(archive["path"]) as bundle:
+            names = set(bundle.namelist())
+        self.assertIn("document/source.epub", names)
+        self.assertNotIn("document/source.pdf", names)
+
+        imported = library.import_bookvoice(Path(archive["path"]).read_bytes(), "copy.bookvoice")
+        self.assertEqual(imported["id"], summary["id"])
+        self.assertEqual(imported["sourceKind"], "epub")
+        self.assertTrue((library.book_dir(summary["id"]) / "source.epub").is_file())
+
+        response = asyncio.run(book_routes.get_source(summary["id"]))
+        self.assertEqual(response.media_type, "application/epub+zip")
+
+    def test_archive_roundtrip_preserves_txt_source(self):
+        staged = Path(self.temp.name) / "notes.txt"
+        staged.write_bytes(b"Part one\x0cPart two")
+        summary = library.import_text_path(staged, "notes.txt")
+        profile = self._prepare_with_audio(summary["id"])
+
+        archive = library.create_archive(summary["id"], profile)
+        with zipfile.ZipFile(archive["path"]) as bundle:
+            names = set(bundle.namelist())
+        self.assertIn("document/source.txt", names)
+        self.assertNotIn("document/source.pdf", names)
+
+        imported = library.import_bookvoice(Path(archive["path"]).read_bytes(), "copy.bookvoice")
+        self.assertEqual(imported["id"], summary["id"])
+        self.assertEqual(imported["sourceKind"], "txt")
+        self.assertTrue((library.book_dir(summary["id"]) / "source.txt").is_file())
+
+        response = asyncio.run(book_routes.get_source(summary["id"]))
+        self.assertEqual(response.media_type, "text/plain")
+
+    def test_archive_rejects_source_kind_mismatch(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+        library.save_page(book["id"], 1, "Page one", 1)
+        profile = self._prepare_with_audio(book["id"])
+        archive = library.create_archive(book["id"], profile)
+
+        members = {}
+        with zipfile.ZipFile(archive["path"]) as bundle:
+            for name in bundle.namelist():
+                members[name] = bundle.read(name)
+        manifest = json.loads(members["manifest.json"])
+        manifest["sourceKind"] = "epub"
+        members["manifest.json"] = json.dumps(manifest).encode("utf-8")
+        tampered = io.BytesIO()
+        with zipfile.ZipFile(tampered, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+            for name, data in members.items():
+                bundle.writestr(name, data)
+
+        with self.assertRaisesRegex(ValueError, "no source file"):
+            library.import_bookvoice(tampered.getvalue(), "copy.bookvoice")
+
+    def test_source_route_serves_legacy_pdf(self):
+        book = library.import_pdf(b"%PDF fixture", "A Book.pdf")
+
+        response = asyncio.run(book_routes.get_source(book["id"]))
+
+        self.assertEqual(response.media_type, "application/pdf")
+        self.assertTrue(str(response.path).endswith("source.pdf"))
+
+
 if __name__ == "__main__":
     unittest.main()

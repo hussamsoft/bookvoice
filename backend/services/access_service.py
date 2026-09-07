@@ -68,6 +68,27 @@ def _signing_key() -> bytes:
     return hashlib.sha256(f"bookvoice-session\0{password}".encode("utf-8")).digest()
 
 
+def _revocation_counter() -> int:
+    """Generation invalidating sessions issued under an older one.
+
+    A plain wall-clock epoch cannot separate "issued" from "revoked" inside
+    the same second. The counter is bumped on every revoke-all, embedded in
+    each token, and any token carrying an older generation is rejected even
+    though its signature still verifies.
+    """
+    try:
+        return max(0, int(os.environ.get("BOOKVOICE_SESSION_EPOCH", "") or "0"))
+    except ValueError:
+        return 0
+
+
+def revoke_all_sessions() -> int:
+    """Invalidate every outstanding session; returns the new generation."""
+    generation = _revocation_counter() + 1
+    os.environ["BOOKVOICE_SESSION_EPOCH"] = str(generation)
+    return generation
+
+
 def _sign(payload: bytes) -> str:
     digest = hmac.new(_signing_key(), payload, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
@@ -81,26 +102,83 @@ def verify_password(candidate: str | None) -> bool:
 
 
 def issue_session(now: float | None = None) -> str:
-    """Return a signed, self-contained session token."""
+    """Return a signed, self-contained session token.
+
+    Format ``generation.expires.signature`` over ``generation.expires``.
+    Tokens issued before this change (``expires.signature``) are still
+    accepted as generation 0, so the first revoke-all retires them too.
+    """
     expires = int((now if now is not None else time.time()) + SESSION_TTL_SECONDS)
-    payload = str(expires).encode("ascii")
-    return f"{expires}.{_sign(payload)}"
+    generation = _revocation_counter()
+    payload = f"{generation}.{expires}".encode("ascii")
+    return f"{generation}.{expires}.{_sign(payload)}"
+
+
+def _token_parts(token: str | None) -> tuple[bytes, str, int, int] | None:
+    """Split a token into (payload, signature, generation, expires)."""
+    parts = str(token or "").split(".")
+    if len(parts) == 3:
+        generation_text, expires_text, signature = parts
+        try:
+            generation = int(generation_text)
+            expires = int(expires_text)
+        except ValueError:
+            return None
+        if generation < 0 or expires <= 0 or not signature:
+            return None
+        return f"{generation}.{expires}".encode("ascii"), signature, generation, expires
+    if len(parts) == 2:
+        # Pre-generation tokens predate revoke-all; they belong to
+        # generation 0 and are retired by the first revoke.
+        expires_text, signature = parts
+        try:
+            expires = int(expires_text)
+        except ValueError:
+            return None
+        if not signature:
+            return None
+        return expires_text.encode("ascii"), signature, 0, expires
+    return None
 
 
 def is_valid_session(token: str | None, now: float | None = None) -> bool:
     if not auth_required():
         return True
-    raw = str(token or "")
-    expires_text, _, signature = raw.partition(".")
-    if not expires_text or not signature:
+    parsed = _token_parts(token)
+    if parsed is None:
         return False
-    try:
-        expires = int(expires_text)
-    except ValueError:
+    payload, signature, generation, expires = parsed
+    moment = now if now is not None else time.time()
+    if expires <= moment:
         return False
-    if expires <= (now if now is not None else time.time()):
+    if not hmac.compare_digest(signature, _sign(payload)):
         return False
-    return hmac.compare_digest(signature, _sign(expires_text.encode("ascii")))
+    return generation >= _revocation_counter()
+
+
+def trust_proxy_headers() -> bool:
+    """Whether proxy headers may identify login clients.
+
+    X-Forwarded-For is forgeable by any direct client, so the shared
+    throttle key only uses it when the deployment runs behind a proxy it
+    controls. Otherwise every client behind that proxy would share one
+    throttle bucket — a single guesser could lock everyone else out.
+    """
+    return (
+        str(os.environ.get("BOOKVOICE_TRUST_PROXY_HEADERS", ""))
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+
+def throttle_key(client_host: str, forwarded_for: str = "", *, trust_proxy_headers: bool = False) -> str:
+    """Throttle key for a login attempt: direct address, or the proxied one."""
+    if trust_proxy_headers:
+        first = str(forwarded_for or "").split(",", 1)[0].strip()
+        if first:
+            return f"proxy:{first}"
+    return f"direct:{client_host or 'unknown'}"
 
 
 def login_blocked_seconds(key: str) -> int:

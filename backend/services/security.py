@@ -66,35 +66,66 @@ def _is_private_host(hostname: str) -> bool:
     return bool(address.is_private or address.is_link_local)
 
 
+def _request_host_is_loopbackish(host_header: str) -> bool:
+    """Whether Host names this machine's own loopback interface.
+
+    The browser reaching the desktop app always addresses loopback (or the
+    machine's own LAN address in --host lan mode), so a Host that is not one
+    of those cannot be this server being addressed directly. Comparing
+    attacker-controlled Host against Origin is what made DNS rebinding
+    possible; only Host values we would bind to ourselves count here.
+    """
+    host = str(host_header or "").strip()
+    if not host:
+        return False
+    # Strip any port before comparing: "[::1]:8000" -> "::1".
+    if host.startswith("["):
+        candidate = host[1:].split("]", 1)[0]
+    else:
+        candidate = host.split(":")[0]
+    candidate = candidate.strip().lower().rstrip(".")
+    if candidate in LOOPBACK_HOSTS:
+        return True
+    # A LAN bind is still this machine; a public hostname never is.
+    return allow_private_origins() and _is_private_host(candidate)
+
+
 def _matches_request_origin(
     normalized_origin: str,
     *,
     request_scheme: str = "",
     request_host: str = "",
     forwarded_proto: str = "",
+    trust_proxy_headers: bool = False,
 ) -> bool:
-    """Return whether Origin is the same public origin that received the request.
+    """Return whether Origin is the same origin that received the request.
 
-    Reverse proxies such as Cloudflare terminate HTTPS before forwarding to the
-    local HTTP server. The browser's Origin is therefore HTTPS while
-    ``request.url.scheme`` is HTTP. Host remains the public hostname and
-    X-Forwarded-Proto records the browser-facing scheme.
+    Only direct loopback (or LAN, when deliberately bound beyond loopback)
+    requests qualify. ``X-Forwarded-Proto`` is honored only when the caller
+    says a trusted proxy set it: on an open port any client can forge the
+    header, and trusting it would let a plain-HTTP attacker claim HTTPS.
+    Hosted deployments behind a proxy must authenticate at the gate and list
+    their exact browser origin in ``BOOKVOICE_PUBLIC_ORIGIN`` instead.
     """
-    host = str(request_host or "").strip()
-    if not host:
+    if not _request_host_is_loopbackish(request_host):
+        return False
+    parsed = urlparse(normalized_origin)
+    request_host_part = str(request_host or "").strip().lower()
+    if request_host_part.startswith("["):
+        request_host_part = request_host_part[1:].split("]", 1)[0]
+    else:
+        request_host_part = request_host_part.split(":")[0]
+    if (parsed.hostname or "").lower() != request_host_part.rstrip("."):
         return False
     schemes = []
-    forwarded = str(forwarded_proto or "").split(",", 1)[0].strip().lower()
-    if forwarded in {"http", "https"}:
-        schemes.append(forwarded)
+    if trust_proxy_headers:
+        forwarded = str(forwarded_proto or "").split(",", 1)[0].strip().lower()
+        if forwarded in {"http", "https"}:
+            schemes.append(forwarded)
     direct = str(request_scheme or "").strip().lower()
     if direct in {"http", "https"} and direct not in schemes:
         schemes.append(direct)
-    return any(
-        _normalize_origin(f"{scheme}://{host}") == normalized_origin
-        for scheme in schemes
-    )
-
+    return parsed.scheme in schemes
 
 def is_allowed_browser_origin(
     origin: str | None,
@@ -102,6 +133,7 @@ def is_allowed_browser_origin(
     request_scheme: str = "",
     request_host: str = "",
     forwarded_proto: str = "",
+    trust_proxy_headers: bool = False,
 ) -> bool:
     """Allow native requests, same-origin browsers, and configured origins."""
     if origin is None or not origin.strip():
@@ -111,12 +143,16 @@ def is_allowed_browser_origin(
         return False
     parsed = urlparse(normalized)
     if parsed.hostname in LOOPBACK_HOSTS:
-        return True
+        # A loopback Origin is only same-origin when the request actually
+        # arrived on loopback. Otherwise any rebinding domain that resolves
+        # to 127.0.0.1 could mint a trusted Origin for this server.
+        return _request_host_is_loopbackish(request_host)
     if _matches_request_origin(
         normalized,
         request_scheme=request_scheme,
         request_host=request_host,
         forwarded_proto=forwarded_proto,
+        trust_proxy_headers=trust_proxy_headers,
     ):
         return True
     if normalized in public_origins():

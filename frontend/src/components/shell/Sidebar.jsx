@@ -1,4 +1,4 @@
-import { Home, Library, ScanLine, AudioWaveform } from 'lucide-react';
+import { Home, Library, ScanLine, AudioWaveform, Settings } from 'lucide-react';
 
 const NAV_ITEMS = [
     { view: 'home', label: 'Home', icon: Home, hint: 'Continue reading and quick actions' },
@@ -37,6 +37,18 @@ export default function Sidebar({ view, onNavigate }) {
                     );
                 })}
             </nav>
+            <div className="sidebar-footer">
+                <button
+                    type="button"
+                    className={`sidebar-item ${view === 'settings' ? 'is-active' : ''}`}
+                    aria-current={view === 'settings' ? 'page' : undefined}
+                    title="Appearance, narration, and connections"
+                    onClick={() => onNavigate('settings')}
+                >
+                    <Settings size={20} aria-hidden="true" />
+                    <span className="sidebar-item-label">Settings</span>
+                </button>
+            </div>
         </div>
     );
 }

@@ -67,7 +67,7 @@ Anyone who can reach the port gets full access unless
 
 `BookVoice.bat` starts the same backend and opens the default browser instead
 of the desktop window — useful when the WebView2 Runtime is missing. It
-accepts the same flags (`--host lan`, `--port`, a `.bookvoice` path, ...).
+accepts the same flags (`--host lan --allow-lan`, `--port`, a `.bookvoice` path, ...).
 
 ## Developer / build artifact
 

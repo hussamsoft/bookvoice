@@ -20,6 +20,7 @@ from services.tts_service import (
     GenerationCancelled,
     GenerationCancellation,
     TtsPriority,
+    TtsQueueFull,
     bump_generation,
     export_cached_pages,
     narrate_text,
@@ -172,7 +173,6 @@ async def pronounce(request: PronounceRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    loop = asyncio.get_running_loop()
     try:
         future = submit_tts(
             TtsPriority.INTERACTIVE,
@@ -182,7 +182,7 @@ async def pronounce(request: PronounceRequest):
             request.voice_id,
             language_id,
         )
-        result = await loop.run_in_executor(None, future.result)
+        result = await asyncio.wrap_future(future)
         if isinstance(result, str):
             return NarrateResponse(audio_url=result)
         return _build_response(result)
@@ -203,21 +203,25 @@ async def narrate(request: NarrateRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     priority = _priority_from_str(request.priority)
-    loop = asyncio.get_running_loop()
     cancellation = _register_cancellation(request.request_id)
     try:
-        future = submit_tts(
-            priority,
-            narrate_text,
-            text,
-            session_id,
-            page_index,
-            request.voice_id,
-            language_id,
-            request.clip_suffix,
-            cancellation,
-        )
-        result = await loop.run_in_executor(None, future.result)
+        try:
+            future = submit_tts(
+                priority,
+                narrate_text,
+                text,
+                session_id,
+                page_index,
+                request.voice_id,
+                language_id,
+                request.clip_suffix,
+                cancellation,
+            )
+        except TtsQueueFull as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        # wrap_future resumes on the loop without parking an executor thread
+        # per waiting request.
+        result = await asyncio.wrap_future(future)
         if isinstance(result, str):
             return NarrateResponse(audio_url=result)
         _cache_completed_page(request, text, page_index, result)
@@ -256,10 +260,12 @@ async def export_audio(request: ExportRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    loop = asyncio.get_running_loop()
     try:
-        future = submit_tts(TtsPriority.CURRENT, export_cached_pages, session_id, start_page, end_page)
-        result = await loop.run_in_executor(None, future.result)
+        try:
+            future = submit_tts(TtsPriority.CURRENT, export_cached_pages, session_id, start_page, end_page)
+        except TtsQueueFull as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        result = await asyncio.wrap_future(future)
         return ExportResponse(**result)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -307,7 +313,11 @@ async def narrate_stream(request: NarrateRequest):
         # progressive synthesis on asyncio's generic executor allowed it to
         # contend with preparation/model work and could invoke CUDA from an
         # unexpected thread.
-        producer_future = submit_tts(_priority_from_str(request.priority), run_sync)
+        try:
+            producer_future = submit_tts(_priority_from_str(request.priority), run_sync)
+        except TtsQueueFull as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+            return
 
         try:
             while True:

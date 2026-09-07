@@ -57,12 +57,26 @@ class AccessServiceTests(unittest.TestCase):
             self.assertFalse(access_service.is_valid_session(expired))
 
             token = access_service.issue_session()
-            expires, _, signature = token.partition(".")
+            generation, expires, signature = token.split(".")
             # Extending the expiry without a matching signature must not work.
             self.assertFalse(
-                access_service.is_valid_session(f"{int(expires) + 86_400}.{signature}")
+                access_service.is_valid_session(f"{generation}.{int(expires) + 86_400}.{signature}")
             )
-            self.assertFalse(access_service.is_valid_session(f"{expires}.{signature[:-1]}x"))
+            self.assertFalse(access_service.is_valid_session(f"{generation}.{expires}.{signature[:-1]}x"))
+
+    def test_revoke_all_invalidates_outstanding_sessions(self):
+        with patch.dict(
+            os.environ,
+            {"BOOKVOICE_ACCESS_PASSWORD": PASSWORD, "BOOKVOICE_SESSION_EPOCH": "0"},
+        ):
+            token = access_service.issue_session()
+            self.assertTrue(access_service.is_valid_session(token))
+            access_service.revoke_all_sessions()
+            self.assertFalse(access_service.is_valid_session(token))
+            # Sessions minted after the revoke keep working.
+            self.assertTrue(
+                access_service.is_valid_session(access_service.issue_session())
+            )
 
     def test_changing_the_password_invalidates_outstanding_sessions(self):
         with patch.dict(os.environ, {"BOOKVOICE_ACCESS_PASSWORD": PASSWORD}):
@@ -108,6 +122,18 @@ class AccessServiceTests(unittest.TestCase):
             # Static UI assets are public; the API behind them is not.
             self.assertFalse(access_service.requires_session("/"))
             self.assertFalse(access_service.requires_session("/assets/index.js"))
+
+    def test_throttle_key_ignores_forwarded_headers_by_default(self):
+        self.assertEqual(
+            access_service.throttle_key("10.0.0.9", "203.0.113.7, 10.0.0.9"),
+            "direct:10.0.0.9",
+        )
+        self.assertEqual(
+            access_service.throttle_key(
+                "10.0.0.9", "203.0.113.7, 10.0.0.9", trust_proxy_headers=True
+            ),
+            "proxy:203.0.113.7",
+        )
 
     def test_no_path_is_gated_without_a_configured_password(self):
         with patch.dict(os.environ, _clear_env()):

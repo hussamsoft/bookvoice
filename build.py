@@ -530,7 +530,6 @@ def runtime_contract_errors(dist: Path) -> list[str]:
         "numpy",
         "cv2",
         "soundfile",
-        "librosa",
     ):
         if not (packages / package).is_dir() and not (packages / f"{package}.py").is_file():
             errors.append(f"runtime worker missing import: {package}")

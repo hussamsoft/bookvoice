@@ -1,6 +1,7 @@
 """Voice Studio projects, media assets, profiles, narration, and repair jobs."""
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import uuid
@@ -181,7 +182,8 @@ async def update_project(project_id: str, request: ProjectPatch):
 @router.post("/projects/{project_id}/copies", status_code=201)
 async def duplicate_project(project_id: str):
     try:
-        return studio.duplicate_project(project_id)
+        # Copies whole media trees; must not stall the event loop.
+        return await asyncio.to_thread(studio.duplicate_project, project_id)
     except ValueError as exc:
         _error("INVALID_PROJECT_ID", str(exc))
     except FileNotFoundError as exc:
@@ -191,7 +193,8 @@ async def duplicate_project(project_id: str):
 @router.delete("/projects/{project_id}", status_code=204)
 async def delete_project(project_id: str):
     try:
-        studio.delete_project(project_id)
+        # Recursive media-tree removal blocks on large projects.
+        await asyncio.to_thread(studio.delete_project, project_id)
     except ValueError as exc:
         _error("INVALID_PROJECT_ID", str(exc))
     except FileNotFoundError as exc:

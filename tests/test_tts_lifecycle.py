@@ -206,6 +206,27 @@ class TtsLifecycleTests(unittest.TestCase):
 
         self.assertNotEqual(normal, expressive)
 
+    def test_book_audio_filename_tracks_engine_versions(self):
+        plain = self.tts._audio_filename(1, "Hello", None, "en", None)
+        with patch.object(self.tts, "app_version", return_value="9.9.9-test"):
+            bumped = self.tts._audio_filename(1, "Hello", None, "en", None)
+
+        self.assertNotEqual(plain, bumped)
+
+    def test_book_audio_filename_changes_when_voice_reference_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            os.environ, {"DATA_DIR": temp_dir}
+        ):
+            voices = Path(temp_dir) / "voices"
+            voices.mkdir()
+            reference = voices / "voice-a.wav"
+            reference.write_bytes(b"first reference")
+            first = self.tts._audio_filename(1, "Hello", "voice-a", "en", None)
+            reference.write_bytes(b"replacement reference")
+            second = self.tts._audio_filename(1, "Hello", "voice-a", "en", None)
+
+        self.assertNotEqual(first, second)
+
     def test_studio_audio_filename_changes_when_voice_reference_changes(self):
         settings = {"pace": 1.0, "expression": 0.5, "temperature": 0.8, "guidance": None, "seed": 7}
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
@@ -268,6 +289,29 @@ class TtsLifecycleTests(unittest.TestCase):
             )
 
         self.assertEqual(result["cfg_weight"], 0.65)
+
+    def test_nonpositive_guidance_falls_back_to_automatic_curve(self):
+        # 0.0 cannot disable CFG (the batch-2 contract needs doubled tokens),
+        # so it maps onto the automatic expression curve instead of crashing.
+        for bad in (0.0, -0.25):
+            with self.subTest(guidance=bad):
+                result = self.tts._generation_kwargs({"expression": 0.5, "guidance": bad})
+                self.assertGreater(result["cfg_weight"], 0.0)
+                self.assertAlmostEqual(
+                    result["cfg_weight"], self.tts._auto_guidance(0.5)
+                )
+
+    def test_unparseable_guidance_falls_back_to_automatic_curve(self):
+        for bad in ("loud", float("nan")):
+            with self.subTest(guidance=bad):
+                result = self.tts._generation_kwargs({"expression": 0.5, "guidance": bad})
+                self.assertAlmostEqual(
+                    result["cfg_weight"], self.tts._auto_guidance(0.5)
+                )
+
+    def test_guidance_above_one_is_clamped(self):
+        result = self.tts._generation_kwargs({"expression": 0.5, "guidance": 2.0})
+        self.assertEqual(result["cfg_weight"], 1.0)
 
     def test_studio_cache_identity_includes_the_generation_pipeline_version(self):
         settings = {
@@ -569,6 +613,12 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertIn("audio_url", done_events[0])
         self.assertAlmostEqual(done_events[0]["duration_s"], 1.5)
         self.assertEqual(len(done_events[0]["segments"]), 3)
+        # Streaming and one-shot narration share one canonical cache identity.
+        expected_full = self.tts._audio_filename(0, "one. two. three.", None, "en", None)
+        self.assertTrue(done_events[0]["audio_url"].endswith(f"/{expected_full}"))
+        chunk_stem = expected_full.removesuffix(".wav")
+        for index, event in enumerate(chunk_events):
+            self.assertTrue(event["url"].endswith(f"/{chunk_stem}_c{index}.wav"))
 
     def test_streaming_respects_generation_cancellation(self):
         """A mid-stream bump_generation aborts remaining chunks."""
@@ -640,8 +690,9 @@ class TtsLifecycleTests(unittest.TestCase):
             old = session_dir / "page_1_aaaaaaaaaaaaaaaa.wav"
             latest = session_dir / "page_1_bbbbbbbbbbbbbbbb.wav"
             page_two = session_dir / "page_2_cccccccccccccccc.wav"
-            chunk = session_dir / "page_2_c0_cccccccccccccccc.wav"
-            for path in (old, latest, page_two, chunk):
+            chunk = session_dir / "page_2_cccccccccccccccc_c0.wav"
+            partial = session_dir / "page_1_pfoo_bbbbbbbbbbbbbbbb.wav"
+            for path in (old, latest, page_two, chunk, partial):
                 path.touch()
             os.utime(old, (1, 1))
             os.utime(latest, (2, 2))

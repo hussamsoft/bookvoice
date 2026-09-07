@@ -22,7 +22,6 @@ REQUIRED_PACKAGES = (
     "numpy",
     "cv2",
     "soundfile",
-    "librosa",
 )
 WORKER_RELATIVE_PATH = Path("runtime") / "worker"
 

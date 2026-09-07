@@ -1,12 +1,8 @@
-import { lazy, Suspense } from 'react';
 import { Moon, Sun } from 'lucide-react';
-
-const SettingsPanel = lazy(() => import('../SettingsPanel'));
 
 /**
  * Slim top bar over the workspace: where you are, one honest engine status,
- * and the quiet personalization controls. The full settings surface moves
- * to its own view; the gear dropdown stays here until then.
+ * and the quick theme toggle. Everything else lives in the Settings view.
  */
 export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
     const dark = theme.mode === 'dark';
@@ -31,9 +27,6 @@ export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
                 >
                     {dark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
-                <Suspense fallback={null}>
-                    <SettingsPanel />
-                </Suspense>
             </div>
         </header>
     );

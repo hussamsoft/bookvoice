@@ -244,6 +244,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help=(
+            "Required together with a non-loopback --host: lets browsers on "
+            "the local network reach the app over plain HTTP."
+        ),
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=None,
@@ -329,9 +337,17 @@ def main(argv: list[str] | None = None) -> int:
 
     launch.kill_stale_servers(app_dir, runtime_dir, log)
     bind_host = launch.resolve_bind_host(args.host)
+    allow_lan = bool(args.allow_lan) or launch.lan_opt_in_env()
+    if not launch.is_loopback_host(bind_host) and not allow_lan:
+        return fail(
+            "Refusing a network-wide bind without --allow-lan. "
+            "Pass --allow-lan (or BOOKVOICE_ALLOW_LAN=1) to expose "
+            "the app to the local network."
+        )
     port, port_source = choose_port(runtime_dir, bind_host, launch.resolve_pinned_port(args.port), log)
-    env = launch.apply_network_env(launch.build_env(app_dir, runtime_dir), bind_host)
-    log.write(f"bind={bind_host} port={port} source={port_source}")
+    env = launch.apply_network_env(
+        launch.build_env(app_dir, runtime_dir), bind_host, allow_lan=allow_lan
+    )
     write_state(runtime_dir, state="starting", host=bind_host, port=port)
 
     tunnel_handle = None

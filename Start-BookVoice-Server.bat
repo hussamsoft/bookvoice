@@ -18,7 +18,7 @@ if errorlevel 1 (
 set "PYTHON=python"
 
 :run
-"%PYTHON%" "%~dp0serve_bookvoice.py" --host lan %*
+"%PYTHON%" "%~dp0serve_bookvoice.py" --host lan --allow-lan %*
 echo.
 echo BookVoice server stopped.
 pause

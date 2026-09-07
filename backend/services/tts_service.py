@@ -76,9 +76,30 @@ def _ensure_tts_worker() -> None:
         _tts_worker_started = True
 
 
+_TTS_MAX_QUEUED = 16
+
+
+class TtsQueueFull(RuntimeError):
+    """Raised when the TTS lane is saturated and callers should back off."""
+
+
+def tts_queue_depth() -> int:
+    """Number of jobs waiting for (or holding) the single TTS worker."""
+    queue = _tts_job_queue
+    return queue.qsize() if queue is not None else 0
+
+
 def submit_tts(priority: TtsPriority, fn, *args, **kwargs) -> Future:
     """Submit a TTS job with priority (lower = sooner). Returns a Future."""
     _ensure_tts_worker()
+    # The lane is single-threaded and each job can run for minutes on CPU.
+    # Refusing to queue without bound keeps a prefetch storm or a second
+    # client from parking unbounded memory and executor threads behind it.
+    # Interactive work (pronunciation taps) always gets through.
+    if priority > TtsPriority.INTERACTIVE and tts_queue_depth() >= _TTS_MAX_QUEUED:
+        raise TtsQueueFull(
+            "The narration engine is busy. Try again when the current audio finishes."
+        )
     future: Future = Future()
     seq = _next_tts_seq()
     _tts_job_queue.put((int(priority), seq, fn, args, kwargs, future))  # type: ignore[union-attr]
@@ -246,7 +267,19 @@ def _generation_kwargs(settings: dict | None, *, chunk_index: int = 0) -> dict:
     }
     guidance = settings.get("guidance")
     if guidance is not None:
-        result["cfg_weight"] = float(guidance)
+        try:
+            cfg_weight = float(guidance)
+        except (TypeError, ValueError):
+            cfg_weight = _auto_guidance(expression)
+        else:
+            if not cfg_weight > 0.0:
+                # 0.0, negatives, and NaN cannot disable CFG: the batch-2
+                # contract inside t3.py requires doubled tokens, and a 0.0
+                # weight saves no compute. Fall back to the automatic value.
+                cfg_weight = _auto_guidance(expression)
+            elif cfg_weight > 1.0:
+                cfg_weight = 1.0
+        result["cfg_weight"] = cfg_weight
     else:
         result["cfg_weight"] = _auto_guidance(expression)
     seed = settings.get("seed")
@@ -264,6 +297,10 @@ def _chatterbox_model_version() -> str:
     return "bundled-unknown"
 
 
+_voice_checksum_cache: dict[tuple, str] = {}
+_VOICE_CHECKSUM_CACHE_MAX = 256
+
+
 def _voice_reference_checksum(voice_id: str | None) -> str:
     if not voice_id:
         return "default"
@@ -271,11 +308,24 @@ def _voice_reference_checksum(voice_id: str | None) -> str:
     prompt = Path(voices_dir) / f"{validate_voice_id(voice_id)}.wav"
     if not prompt.is_file():
         return "missing"
+    try:
+        stat = prompt.stat()
+    except OSError:
+        return "missing"
+    # Keyed on size+mtime so a re-recorded voice prompt invalidates the entry.
+    cache_key = (str(prompt), stat.st_size, stat.st_mtime_ns)
+    cached = _voice_checksum_cache.get(cache_key)
+    if cached is not None:
+        return cached
     digest = hashlib.sha256()
     with prompt.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
+    result = digest.hexdigest()
+    if len(_voice_checksum_cache) >= _VOICE_CHECKSUM_CACHE_MAX:
+        _voice_checksum_cache.clear()
+    _voice_checksum_cache[cache_key] = result
+    return result
 
 
 def _apply_pace(
@@ -877,7 +927,6 @@ def maybe_cleanup_sessions(force: bool = False) -> None:
             if name == "pronunciation-cache":
                 _trim_pronunciation_cache(path)
                 continue
-            mtime = os.path.getmtime(path)
             if now - mtime > _SESSION_MAX_AGE_SECONDS:
                 for root, dirs, files in os.walk(path, topdown=False):
                     for f in files:
@@ -886,8 +935,41 @@ def maybe_cleanup_sessions(force: bool = False) -> None:
                         os.rmdir(os.path.join(root, d))
                 os.rmdir(path)
                 _log(f"Cleaned old session: {name}")
+                continue
+            _reap_stream_chunks(path, now)
         except OSError as e:
             _log(f"Session cleanup skipped for {name}: {e}")
+
+
+_CHUNK_FILE_RE = re.compile(r"_c\d+\.wav$")
+_CHUNK_GRACE_SECONDS = 3600
+
+
+def _reap_stream_chunks(session_path: str, now: float) -> None:
+    """Delete stale progressive-streaming chunk files in a live session.
+
+    Each chunk is also concatenated into the canonical full-page file, and
+    the client switches to that file when the stream completes. The chunk
+    files are then pure duplication — roughly doubling session disk use for
+    heavy readers. A one-hour grace covers any still-playing stream (active
+    generations run minutes, not hours) without racing the player.
+    """
+    try:
+        names = os.listdir(session_path)
+    except OSError:
+        return
+    for name in names:
+        if not _CHUNK_FILE_RE.search(name):
+            continue
+        chunk = os.path.join(session_path, name)
+        try:
+            if not os.path.isfile(chunk):
+                continue
+            if now - os.path.getmtime(chunk) <= _CHUNK_GRACE_SECONDS:
+                continue
+            os.remove(chunk)
+        except OSError as exc:
+            _log(f"Chunk cleanup skipped for {name}: {exc}")
 
 
 def _synthesize_audio(
@@ -1090,21 +1172,26 @@ def _audio_filename(
     clip_suffix: str | None,
     generation_settings: dict | None = None,
 ) -> str:
-    """Return an immutable filename for one narration input revision."""
+    """Return an immutable filename for one narration input revision.
+
+    The voice reference checksum and the model/app versions are always part
+    of the identity: re-recording a voice prompt or upgrading the engine
+    must never silently serve audio rendered under different conditions.
+    """
     identity_parts = [
         str(page_index),
         text,
         voice_id or "default",
         language_id,
         str(clip_suffix or ""),
+        _voice_reference_checksum(voice_id),
+        _chatterbox_model_version(),
+        app_version(),
     ]
     if generation_settings is not None:
         identity_parts.extend(
             [
                 json.dumps(generation_settings, sort_keys=True, separators=(",", ":")),
-                _voice_reference_checksum(voice_id),
-                _chatterbox_model_version(),
-                app_version(),
                 STUDIO_GENERATION_PIPELINE_VERSION,
             ]
         )
@@ -1642,15 +1729,19 @@ def narrate_text_streaming(
     device = getattr(model, "device", _resolve_device())
     sr = float(getattr(model, "sr", 24000) or 24000)
 
-    page_hash = hashlib.sha256(
-        "\0".join((str(page_index), text, voice_id or "default", language_id, clip_suffix or "")).encode("utf-8")
-    ).hexdigest()[:16]
+    # The full-page file shares the canonical batch-narration identity (text,
+    # voice checksum, engine versions) so streaming and one-shot narration of
+    # the same page resolve to the same cached audio instead of silently
+    # diverging. Chunk files hang a _c{i} marker off that stem so the export
+    # full-page pattern never mistakes a partial for a complete page.
+    full_filename = _audio_filename(page_index, text, voice_id, language_id, clip_suffix)
+    chunk_stem = full_filename.removesuffix(".wav")
 
     output_dir = safe_join(sessions_dir, session_id)
     os.makedirs(output_dir, exist_ok=True)
 
     _log(
-        f"[tts] stream file=page_{page_index}_{page_hash}.wav chars={len(text)} "
+        f"[tts] stream file={full_filename} chars={len(text)} "
         f"chunks={total} device={device} lang={language_id}"
     )
 
@@ -1685,7 +1776,7 @@ def narrate_text_streaming(
                 dur = samples / sr if sr > 0 else 0.0
 
                 # Save this chunk immediately so the client can play it now.
-                chunk_file = f"page_{page_index}_c{i}_{page_hash}.wav"
+                chunk_file = f"{chunk_stem}_c{i}.wav"
                 chunk_path = safe_join(output_dir, chunk_file)
                 if part.dim() == 1:
                     save_part = part.unsqueeze(0)
@@ -1729,7 +1820,6 @@ def narrate_text_streaming(
     wav = _concat_wavs(wav_parts)
     if wav.dim() == 1:
         wav = wav.unsqueeze(0)
-    full_filename = f"page_{page_index}_{page_hash}.wav"
     full_path = safe_join(output_dir, full_filename)
     ta.save(full_path, wav, model.sr)
 
