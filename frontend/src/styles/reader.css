@@ -1176,6 +1176,37 @@
   gap: var(--space-3);
 }
 
+.header-top-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Step tracker entries are real controls once their content exists. */
+.step-track-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.step-track-button:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+.step-track-button:not(button) {
+  cursor: default;
+}
+
 .step-indicator {
   display: flex;
   align-items: center;

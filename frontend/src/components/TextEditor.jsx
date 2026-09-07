@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, RotateCcw, Languages, Undo2 } from 'lucide-react';
+import { Play, RotateCcw, Languages, Save, Undo2 } from 'lucide-react';
 import { translateText } from '../utils/api';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
 import { useToast } from './Toast';
@@ -7,6 +7,7 @@ import { useToast } from './Toast';
 export default function TextEditor({
     initialText,
     onNarrate,
+    onSaveText,
     onRetake,
     onTranslateChange,
     targetLanguage,
@@ -127,6 +128,16 @@ export default function TextEditor({
                 {onRetake && (
                     <button onClick={onRetake} className="btn secondary" disabled={isNarrating}>
                         <RotateCcw size={16} /> Retake photo
+                    </button>
+                )}
+                {onSaveText && (
+                    <button
+                        onClick={() => onSaveText(text)}
+                        className="btn secondary"
+                        disabled={isNarrating || !text.trim()}
+                        title="Keep this page's text without narrating it"
+                    >
+                        <Save size={16} /> Save text
                     </button>
                 )}
                 <button

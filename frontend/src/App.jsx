@@ -175,6 +175,7 @@ export default function App() {
                                     key={`scan-${workspaceEpoch}`}
                                     epoch={workspaceEpoch}
                                     onDirty={markScanDirty}
+                                    onOpenBook={openBook}
                                 />
                             )}
                             {displayView === 'studio' && (

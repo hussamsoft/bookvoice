@@ -5,14 +5,14 @@ import NarrationPlayback from './NarrationPlayback';
 import VoiceSettings from './VoiceSettings';
 import { extractTextFromImage } from '../utils/ocr';
 import { cleanExtractedText } from '../utils/cleanup';
-import { narrateText } from '../utils/api';
+import { importPreparedBook, narrateText } from '../utils/api';
 import { createSessionId } from '../utils/session';
 import { useToast } from './Toast';
 import { useTtsStatus } from '../hooks/useTtsStatus';
 import { useUserConfig } from '../hooks/useUserConfig';
 import StatusBanner from './ui/StatusBanner';
 import Button from './ui/Button';
-import { Loader2 } from 'lucide-react';
+import { FolderPlus, Loader2 } from 'lucide-react';
 
 const STEPS = ['capture', 'processing', 'review', 'playback'];
 const STEP_LABELS = {
@@ -22,9 +22,10 @@ const STEP_LABELS = {
     playback: 'Listen',
 };
 
-export default function BookSession({ epoch, onDirty }) {
+export default function BookSession({ epoch, onDirty, onOpenBook }) {
     const toast = useToast();
     const [isNarratingUi, setIsNarratingUi] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
         useTtsStatus({ pollWhileGenerating: isNarratingUi });
     const { config, updateConfig } = useUserConfig();
@@ -143,21 +144,85 @@ export default function BookSession({ epoch, onDirty }) {
         }
     };
 
+    /** Keep the page as text only — narration can happen later from the Library. */
+    const handleSaveText = (text) => {
+        if (!text.trim()) return;
+        const isNewPage = currentPageIndex >= pages.length;
+        setPages((prev) => {
+            const updated = [...prev];
+            updated[currentPageIndex] = { text };
+            return updated;
+        });
+        toast.success(`Page ${currentPageIndex + 1} text saved.`);
+        if (isNewPage) {
+            setCurrentPageIndex(currentPageIndex + 1);
+            setCurrentText('');
+            setStep('capture');
+        }
+    };
 
     const handleNextPage = () => {
-        setCurrentPageIndex(pages.length);
+        setCurrentPageIndex(Math.max(pages.length, currentPageIndex + 1));
         setCurrentText('');
         setStep('capture');
     };
 
+    /** Turn the whole session into a real Library book (.txt import). */
+    const handleSaveToLibrary = async () => {
+        const text = pages.map((page) => page?.text || '').join('\n\n').trim();
+        if (!text) return;
+        setIsSaving(true);
+        try {
+            const title = `Scanned pages ${new Date().toISOString().slice(0, 10)}`;
+            const file = new File([text], `${title}.txt`, { type: 'text/plain' });
+            const book = await importPreparedBook(file);
+            toast.success('Saved to your Library.');
+            onOpenBook?.(book);
+        } catch (error) {
+            toast.error(error.message || 'Could not save these pages to the Library.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const stepIndex = STEPS.indexOf(step);
+    const currentPage = pages[currentPageIndex] || null;
+
+    // Free navigation: a step is reachable when its content exists. The
+    // processing step is transient and never a click target.
+    const stepReachable = (stepName) => {
+        if (stepName === 'capture') return true;
+        if (stepName === 'review') return Boolean(currentText || currentPage);
+        if (stepName === 'playback') return Boolean(currentPage?.audioUrl);
+        return false;
+    };
+
+    const openHistoryPage = (index) => {
+        setCurrentPageIndex(index);
+        setCurrentText(pages[index]?.text || '');
+        setStep(pages[index]?.audioUrl ? 'playback' : 'review');
+    };
 
     return (
         <div className="book-session">
             <header className="session-header">
                 <div className="header-top">
                     <h2>Scan pages</h2>
-                    <div className="page-indicator">Page {currentPageIndex + 1}</div>
+                    <div className="header-top-actions">
+                        <span className="page-indicator">Page {currentPageIndex + 1}</span>
+                        {pages.length > 0 && (
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                icon={FolderPlus}
+                                onClick={handleSaveToLibrary}
+                                disabled={isSaving}
+                                title="Turn these pages into a book in your Library"
+                            >
+                                {isSaving ? 'Saving…' : 'Save to Library'}
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 <div className="step-tracker" role="group" aria-label="Progress">
@@ -167,16 +232,37 @@ export default function BookSession({ epoch, onDirty }) {
                     {STEPS.map((stepName, index) => {
                         const isActive = index === stepIndex;
                         const isComplete = index < stepIndex;
+                        const reachable = stepReachable(stepName);
                         const stepLabel = STEP_LABELS[stepName];
+                        const body = (
+                            <>
+                                <span className="step-dot" aria-hidden="true">
+                                    {isComplete ? '✓' : index + 1}
+                                </span>
+                                <span className="step-label">{stepLabel}</span>
+                            </>
+                        );
                         return (
                             <div
                                 key={stepName}
                                 className={`step-track-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
                             >
-                                <div className="step-dot" aria-hidden="true">
-                                    {isComplete ? '✓' : index + 1}
-                                </div>
-                                <div className="step-label">{stepLabel}</div>
+                                {reachable && !isActive ? (
+                                    <button
+                                        type="button"
+                                        className="step-track-button"
+                                        onClick={() => {
+                                            if (stepName === 'review') setCurrentText(currentPage?.text || currentText);
+                                            setStep(stepName);
+                                        }}
+                                    >
+                                        {body}
+                                    </button>
+                                ) : (
+                                    <div className="step-track-button" aria-current={isActive ? 'step' : undefined}>
+                                        {body}
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
@@ -223,21 +309,22 @@ export default function BookSession({ epoch, onDirty }) {
                 {step === 'review' && (
                     <TextEditor
                         key={`review-${currentPageIndex}-${sessionId}`}
-                        initialText={currentText}
+                        initialText={currentText || currentPage?.text || ''}
                         targetLanguage={targetLanguage}
                         onTranslateChange={handleLanguageChange}
                         onNarrate={handleNarrate}
+                        onSaveText={handleSaveText}
                         onRetake={() => setStep('capture')}
                     />
                 )}
 
-                {step === 'playback' && pages[currentPageIndex] && (
+                {step === 'playback' && currentPage?.audioUrl && (
                     <NarrationPlayback
-                        audioUrl={pages[currentPageIndex].audioUrl}
-                        text={pages[currentPageIndex].text}
-                        segments={pages[currentPageIndex].segments}
-                        duration_s={pages[currentPageIndex].duration_s}
-                        word_timings={pages[currentPageIndex].word_timings}
+                        audioUrl={currentPage.audioUrl}
+                        text={currentPage.text}
+                        segments={currentPage.segments}
+                        duration_s={currentPage.duration_s}
+                        word_timings={currentPage.word_timings}
                         languageId={targetLanguage}
                         downloadName={`captured-page-${currentPageIndex + 1}.wav`}
                         onNextPage={handleNextPage}
@@ -257,11 +344,8 @@ export default function BookSession({ epoch, onDirty }) {
                                         i === currentPageIndex ? 'active' : ''
                                     }`}
                                     aria-current={i === currentPageIndex ? 'true' : undefined}
-                                    onClick={() => {
-
-                                        setCurrentPageIndex(i);
-                                        setStep('playback');
-                                    }}
+                                    title={p.audioUrl ? 'Narrated page' : 'Text-only page'}
+                                    onClick={() => openHistoryPage(i)}
                                 >
                                     Page {i + 1}
                                 </button>
