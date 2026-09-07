@@ -39,13 +39,21 @@ button:disabled {
 }
 
 .btn.primary {
-  background: var(--ink);
-  color: var(--bg);
+  /* Solid --accent keeps WCAG text contrast; the translucent top sheen adds
+   * the glass highlight without putting text over a two-stop gradient. */
+  background-image: linear-gradient(180deg, color-mix(in srgb, #fff 14%, transparent), transparent 62%);
+  background-color: var(--accent);
+  color: var(--accent-on);
   border-color: transparent;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--ink-secondary);
+  background-color: var(--accent-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn.primary:not(:disabled):active {
+  box-shadow: none;
 }
 
 .btn.secondary {
@@ -56,6 +64,8 @@ button:disabled {
 
 .btn.secondary:hover:not(:disabled) {
   background: var(--surface);
+  border-color: var(--accent-ring);
+  box-shadow: var(--shadow-raised);
 }
 
 .btn.text {
@@ -216,7 +226,7 @@ select:focus-visible,
 textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 16px var(--accent-soft);
 }
 
 textarea {
@@ -405,6 +415,8 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: center;
   background: color-mix(in srgb, var(--ink) 45%, transparent);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   padding: var(--space-5);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out-quart);
@@ -418,7 +430,9 @@ input[type="checkbox"] {
   width: min(460px, 100%);
   max-height: min(80vh, 640px);
   overflow: auto;
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-overlay);
@@ -586,7 +600,9 @@ input[type="checkbox"] {
     right: 0;
     bottom: 0;
     z-index: var(--z-nav);
-    background: var(--surface);
+    background: var(--glass-strong);
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
     border-top: 1px solid var(--hairline);
     padding: var(--space-2) max(var(--space-3), env(safe-area-inset-left))
       calc(var(--space-2) + env(safe-area-inset-bottom));
@@ -808,6 +824,7 @@ input[type="checkbox"] {
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
+  box-shadow: 0 2px 0 var(--hairline);
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--text-xs);

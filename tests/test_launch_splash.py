@@ -50,7 +50,7 @@ def test_main_window_receives_splash_and_matching_dark_background(tmp_path):
 
     assert captured["args"] == ("BookVoice",)
     assert "Startup progress" in captured["kwargs"]["html"]
-    assert captured["kwargs"]["background_color"] == "#18181b"
+    assert captured["kwargs"]["background_color"] == "#0d0d17"
 
 
 def test_startup_error_keeps_technical_log_secondary_and_escapes_markup(tmp_path):

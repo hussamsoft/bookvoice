@@ -5,12 +5,20 @@
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  /* Aurora wash: two soft corner glows of the palette's aurora hues over
+   * the ink stage. Decoration only — chrome and cards stay on tokens. */
+  background:
+    radial-gradient(1100px 700px at 88% -12%, color-mix(in srgb, var(--aurora-a) 13%, transparent), transparent 62%),
+    radial-gradient(900px 620px at -10% 110%, color-mix(in srgb, var(--aurora-b) 10%, transparent), transparent 60%),
+    var(--bg);
 }
 
 .main-header {
   flex: none;
   padding-top: env(safe-area-inset-top);
-  background: var(--surface);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -28,9 +36,21 @@
 .titlebar-brand h1 {
   font-family: var(--font-display);
   font-size: var(--text-md);
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  color: var(--ink);
+}
+
+/* Brand wordmark carries the aurora gradient. Decorative large text only;
+ * @supports guard keeps a solid fallback where background-clip is missing. */
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  .titlebar-brand h1 {
+    background: var(--aurora);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 
 /* The center slot holds the mode switcher (segmented control) and an
@@ -73,6 +93,27 @@
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+}
+
+/* Narrow screens: the non-shrinking mode track + tools exceed the row and
+ * the centered track would spill over the brand. The active tab already
+ * names the mode, and window chrome carries the brand, so drop the
+ * redundant label first and the brand text below 560px. */
+@media (max-width: 720px) {
+  .titlebar {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .current-mode-label {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .titlebar-brand h1 {
+    display: none;
+  }
 }
 
 .titlebar-sparkle {
@@ -151,7 +192,9 @@
   max-height: min(70vh, 480px);
   overflow-y: auto;
   padding: var(--space-2);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
@@ -218,7 +261,9 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
@@ -264,6 +309,7 @@
   padding: 2px;
   background: var(--accent-soft);
   border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--hairline);
   height: var(--control-h-sm);
   flex-shrink: 0;
 }
@@ -298,7 +344,7 @@
 }
 
 .mode-segment.is-active {
-  color: var(--ink);
+  color: var(--accent-on);
 }
 
 /* Touch devices: 44px thumb targets across the mode switcher (iOS HIG /
@@ -319,10 +365,9 @@
   top: 2px;
   left: 0;
   height: calc(var(--control-h-sm) - 4px);
-  background: var(--surface-raised);
+  background: var(--accent);
   border-radius: var(--radius-pill);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 12%, transparent),
-              inset 0 0 0 1px var(--hairline-strong);
+  box-shadow: var(--shadow-glow);
   transform: translateX(0);
   transition: transform var(--dur) var(--ease-out-quart);
   z-index: 0;
@@ -335,7 +380,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: transparent;
 }
 
 .reading-stage {
@@ -374,9 +419,12 @@
 
 .access-card {
   width: min(380px, 100%);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
   padding: var(--space-6) var(--space-5);
   display: flex;
   flex-direction: column;
@@ -421,7 +469,9 @@
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--hairline-strong);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   color: var(--ink);
   box-shadow: var(--shadow-overlay);
   font-size: var(--text-sm);

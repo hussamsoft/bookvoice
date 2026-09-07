@@ -82,15 +82,15 @@ describe('TitleBar', () => {
         mockMatchMedia(false);
         const meta = document.createElement('meta');
         meta.setAttribute('name', 'theme-color');
-        meta.setAttribute('content', '#f7f5f1');
+        meta.setAttribute('content', '#0d0d17');
         document.head.appendChild(meta);
 
         render(<TitleBar />);
 
-        expect(meta).toHaveAttribute('content', '#f7f5f1');
+        expect(meta).toHaveAttribute('content', '#eef0fa');
 
         fireEvent.click(screen.getByRole('button', { name: 'Use dark mode' }));
-        expect(meta).toHaveAttribute('content', '#161513');
+        expect(meta).toHaveAttribute('content', '#0d0d17');
     });
 
     it('shows the theme selector dropdown when clicked', () => {
@@ -101,11 +101,11 @@ describe('TitleBar', () => {
         fireEvent.click(trigger);
 
         expect(screen.getByRole('menu')).toBeVisible();
-        expect(screen.getAllByText('Paper Slate').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Ethereal Blue').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Sage Green').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Muted Plum').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Sand Clay').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Aurora Ink').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Cobalt Haze').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Moss Glow').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Violet Dusk').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Ember Dusk').length).toBeGreaterThan(0);
     });
 
     it('persists the selected palette', () => {
@@ -113,7 +113,7 @@ describe('TitleBar', () => {
         render(<TitleBar />);
 
         fireEvent.click(screen.getByRole('button', { name: /Theme: / }));
-        const blueOptions = screen.getAllByText('Ethereal Blue');
+        const blueOptions = screen.getAllByText('Cobalt Haze');
         fireEvent.click(blueOptions[0]);
 
         expect(document.documentElement).toHaveAttribute('data-palette', 'blue');

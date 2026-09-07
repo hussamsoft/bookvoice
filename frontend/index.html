@@ -2,10 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/bookvoice.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Capture book pages, extract text, translate, and hear them narrated in your own voice." />
-    <meta name="theme-color" content="#F7F5F1" />
+    <meta name="theme-color" content="#0d0d17" />
     <script>
       // Match the app theme and background before first paint; TitleBar keeps
       // them in sync after mount (values mirror tokens.css --bg).
@@ -29,13 +30,13 @@
           document.documentElement.setAttribute('data-palette', palette);
           document.documentElement.setAttribute('data-mode', dark ? 'dark' : 'light');
           var bgColors = {
-            paper: dark ? '#161513' : '#f7f5f1',
-            blue: dark ? '#0f172a' : '#f0f4f8',
-            sage: dark ? '#052e16' : '#f0fdf4',
-            plum: dark ? '#1e0a2e' : '#faf5ff',
-            sand: dark ? '#1c0f08' : '#fef7ed'
+            paper: dark ? '#0d0d17' : '#eef0fa',
+            blue: dark ? '#0a0f1e' : '#edf1fb',
+            sage: dark ? '#0a1410' : '#eaf6ef',
+            plum: dark ? '#120c1e' : '#f3effb',
+            sand: dark ? '#16100a' : '#f9f3ea'
           };
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', bgColors[palette] || '#f7f5f1');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', bgColors[palette] || '#0d0d17');
         } catch (e) { /* non-browser env */ }
       })();
     </script>

@@ -892,12 +892,12 @@ def show_error(window, message: str, log_path: str | None = None) -> None:
         else ""
     )
     error_html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-    body{{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#18181b;color:#ededed;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
+    body{{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#0d0d17;color:#ededed;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}}
     .stage{{flex:1;overflow:auto;padding:3rem;max-width:44rem}}
-    .eyebrow{{color:#82aed1;font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}}
+    .eyebrow{{color:#a08dfb;font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}}
     h2{{font-size:1.6rem;margin:.6rem 0 1rem}} .message{{color:#d4d4d8;line-height:1.55}}
     .action{{color:#b6b6bd;line-height:1.55}} details{{margin-top:1.5rem;color:#a1a1aa}}
-    summary{{cursor:pointer}} pre{{background:#101012;border:1px solid rgba(255,255,255,.12);padding:1rem;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#b6b6bd}}
+    summary{{cursor:pointer}} pre{{background:#0a0a14;border:1px solid rgba(255,255,255,.12);padding:1rem;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#b6b6bd}}
     </style></head><body><main class="stage"><div class="eyebrow">Startup problem</div><h2>BookVoice could not open</h2>
     <p class="message">{safe_message}</p><p class="action">Close BookVoice and try once more. If it repeats, reinstall the latest build. The launch log is in your BookVoice runtime folder.</p>{technical}
     </main></body></html>"""
@@ -939,19 +939,19 @@ def splash_html(icon_path: str) -> str:
     return """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="color-scheme" content="dark"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{color-scheme:dark;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#18181b;color:#ededed}
-*{box-sizing:border-box} body{height:100vh;margin:0;overflow:hidden;background:#18181b}
+:root{color-scheme:dark;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;background:#0d0d17;color:#ededed}
+*{box-sizing:border-box} body{height:100vh;margin:0;overflow:hidden;background:#0d0d17}
 .splash{height:100%;display:grid;grid-template-columns:minmax(20rem,38%) 1fr}
-.brand{position:relative;isolation:isolate;display:flex;flex-direction:column;justify-content:space-between;padding:3.5rem;background:#1f1f23;overflow:hidden}
-.brand::before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(circle at 14% 18%,rgba(130,174,209,.28),transparent 42%),linear-gradient(150deg,rgba(52,80,106,.82),rgba(31,31,35,.96) 70%)}
+.brand{position:relative;isolation:isolate;display:flex;flex-direction:column;justify-content:space-between;padding:3.5rem;background:#151524;overflow:hidden}
+.brand::before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(circle at 14% 18%,rgba(160,141,251,.30),transparent 42%),linear-gradient(150deg,rgba(78,123,234,.72),rgba(13,13,23,.96) 70%)}
 .identity{display:flex;align-items:center;gap:1rem}.app-icon,.icon-fallback{width:4rem;height:4rem;flex:0 0 auto;filter:drop-shadow(0 10px 18px rgba(0,0,0,.22))}
-.icon-fallback{display:grid;place-items:center;border:1px solid rgba(255,255,255,.3);background:#34506a;color:#fff;font-size:1.15rem;font-weight:700}
+.icon-fallback{display:grid;place-items:center;border:1px solid rgba(255,255,255,.3);background:#4e7bea;color:#fff;font-size:1.15rem;font-weight:700}
 .product{font-size:1.75rem;font-weight:650;letter-spacing:-.025em}.purpose{max-width:19rem;color:#d4d4d8;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;line-height:1.55}
 .signature{display:flex;align-items:flex-end;gap:.38rem;height:4.5rem;opacity:.62}.signature span{display:block;width:.24rem;background:#a8c6dd}.signature span:nth-child(1){height:28%}.signature span:nth-child(2){height:72%}.signature span:nth-child(3){height:46%}.signature span:nth-child(4){height:100%}.signature span:nth-child(5){height:58%}
-.status-panel{display:flex;flex-direction:column;justify-content:flex-end;padding:4.25rem 4.75rem;background:#18181b;border-left:1px solid rgba(255,255,255,.08)}
-.eyebrow{color:#82aed1;font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.status-copy{min-height:7rem;margin-top:.8rem}
+.status-panel{display:flex;flex-direction:column;justify-content:flex-end;padding:4.25rem 4.75rem;background:#0d0d17;border-left:1px solid rgba(255,255,255,.08)}
+.eyebrow{color:#a08dfb;font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.status-copy{min-height:7rem;margin-top:.8rem}
 h1{margin:0;font-size:1.55rem;font-weight:620;letter-spacing:-.018em}#detail{max-width:36rem;margin:.75rem 0 0;color:#b6b6bd;font-size:.92rem;line-height:1.55}
-.progress-track{height:3px;margin-top:2.2rem;background:#27272a;overflow:hidden}.progress-bar{height:100%;width:0;background:#82aed1;transition:width 180ms ease-out}
+.progress-track{height:3px;margin-top:2.2rem;background:#27272a;overflow:hidden}.progress-bar{height:100%;width:0;background:linear-gradient(90deg,#a08dfb,#38dde8);transition:width 180ms ease-out}
 .meta{display:flex;justify-content:space-between;margin-top:.75rem;color:#70707a;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase}
 @media (max-width:760px){.splash{grid-template-columns:1fr}.brand{display:none}.status-panel{padding:3rem}}
 @media (prefers-reduced-motion:reduce){.progress-bar{transition:none}}
@@ -1045,7 +1045,7 @@ def create_main_window(webview_module, app_dir: str | None = None):
         resizable=True,
         frameless=False,
         easy_drag=False,
-        background_color="#18181b",
+        background_color="#0d0d17",
     )
 
 

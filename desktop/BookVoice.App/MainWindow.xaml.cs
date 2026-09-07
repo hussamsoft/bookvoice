@@ -15,8 +15,10 @@ namespace BookVoice.App;
 
 public sealed partial class MainWindow : Window
 {
-    private const int MinWidth = 1024;
-    private const int MinHeight = 700;
+    // UI floor, not a preference: the reader toolbar wraps at <=720px CSS px
+    // and panels scroll below that, so 780x560 keeps every control reachable.
+    private const int MinWidth = 780;
+    private const int MinHeight = 560;
 
     private string _appDir = "";
     private string _runtimeDir = "";
@@ -104,8 +106,8 @@ public sealed partial class MainWindow : Window
         }
 
         var saved = _runtimeDir.Length == 0 ? null : WindowPlacement.Load(_runtimeDir);
-        var bounds = saved ?? WindowPlacement.Default();
         var work = DisplayArea.Primary.WorkArea;
+        var bounds = saved ?? DefaultBounds(work);
         var width = Math.Min(bounds.Width, work.Width);
         var height = Math.Min(bounds.Height, work.Height);
         var x = Math.Clamp(bounds.X, work.X, work.X + Math.Max(0, work.Width - width));
@@ -118,6 +120,20 @@ public sealed partial class MainWindow : Window
         {
             AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
         }
+    }
+
+    /// <summary>
+    /// First-launch size: about 65% of the monitor's work area, centered.
+    /// Displays too small for every element to compress to that scale get
+    /// the UI floor instead (MinWidth/MinHeight).
+    /// </summary>
+    private static WindowBounds DefaultBounds(RectInt32 work)
+    {
+        var width = Math.Max(MinWidth, work.Width * 65 / 100);
+        var height = Math.Max(MinHeight, work.Height * 65 / 100);
+        var x = work.X + Math.Max(0, (work.Width - width) / 2);
+        var y = work.Y + Math.Max(0, (work.Height - height) / 2);
+        return new WindowBounds(x, y, width, height, Maximized: false);
     }
 
     private void StartBackend()

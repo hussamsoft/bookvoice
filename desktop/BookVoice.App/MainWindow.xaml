@@ -104,11 +104,13 @@
             </ScrollViewer>
         </Grid>
 
-        <!-- The app itself, served by the local backend. -->
+        <!-- The app itself, served by the local backend. The default
+             background matches the Aurora Ink dark stage color from the web
+             tokens so the WebView never flashes light before first paint. -->
         <Grid x:Name="ContentPanel" Visibility="Collapsed">
             <WebView2
                 x:Name="Web"
-                DefaultBackgroundColor="#F7F5F1" />
+                DefaultBackgroundColor="#0D0D17" />
         </Grid>
 
     </Grid>

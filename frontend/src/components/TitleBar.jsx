@@ -5,11 +5,11 @@ import { readStoredString, writeStoredString } from '../utils/storage';
 const SettingsPanel = lazy(() => import('./SettingsPanel'));
 
 const PALETTES = [
-    { id: 'paper', name: 'Paper Slate', icon: '📄' },
-    { id: 'blue', name: 'Ethereal Blue', icon: '🌊' },
-    { id: 'sage', name: 'Sage Green', icon: '🌿' },
-    { id: 'plum', name: 'Muted Plum', icon: '🍇' },
-    { id: 'sand', name: 'Sand Clay', icon: '🏺' },
+    { id: 'paper', name: 'Aurora Ink' },
+    { id: 'blue', name: 'Cobalt Haze' },
+    { id: 'sage', name: 'Moss Glow' },
+    { id: 'plum', name: 'Violet Dusk' },
+    { id: 'sand', name: 'Ember Dusk' },
 ];
 
 function prefersColorSchemeDark() {
@@ -81,13 +81,13 @@ function TitleBar({ currentMode, modeLabels, modeSwitcher = null, contextTitle =
         if (meta) {
             const dark = mode === 'dark';
             const bgColors = {
-                paper: dark ? '#161513' : '#f7f5f1',
-                blue: dark ? '#0f172a' : '#f0f4f8',
-                sage: dark ? '#052e16' : '#f0fdf4',
-                plum: dark ? '#1e0a2e' : '#faf5ff',
-                sand: dark ? '#1c0f08' : '#fef7ed',
+                paper: dark ? '#0d0d17' : '#eef0fa',
+                blue: dark ? '#0a0f1e' : '#edf1fb',
+                sage: dark ? '#0a1410' : '#eaf6ef',
+                plum: dark ? '#120c1e' : '#f3effb',
+                sand: dark ? '#16100a' : '#f9f3ea',
             };
-            meta.setAttribute('content', bgColors[palette] || '#f7f5f1');
+            meta.setAttribute('content', bgColors[palette] || '#0d0d17');
         }
     }, [palette, mode]);
 
@@ -172,11 +172,11 @@ function TitleBar({ currentMode, modeLabels, modeSwitcher = null, contextTitle =
 
 function getSwatchColor(palette, mode) {
     const colors = {
-        paper: mode === 'dark' ? '#9dbbd6' : '#3a5a78',
-        blue: mode === 'dark' ? '#60a5fa' : '#3b82f6',
-        sage: mode === 'dark' ? '#4ade80' : '#16a34a',
-        plum: mode === 'dark' ? '#c084fc' : '#8b5cf6',
-        sand: mode === 'dark' ? '#fb923c' : '#ea580c',
+        paper: mode === 'dark' ? '#a08dfb' : '#5f4bd8',
+        blue: mode === 'dark' ? '#6f9bff' : '#2f5fe0',
+        sage: mode === 'dark' ? '#5fd6a4' : '#0e8a5c',
+        plum: mode === 'dark' ? '#c79bff' : '#7a3ff0',
+        sand: mode === 'dark' ? '#f0a860' : '#b05e10',
     };
     return colors[palette] || colors.paper;
 }

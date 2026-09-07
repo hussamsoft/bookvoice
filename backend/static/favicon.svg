@@ -1,8 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="6" fill="#1f1b17"/>
-  <path d="M8 7h10a4 4 0 0 1 4 4v14H12a4 4 0 0 1-4-4V7z" fill="#c9956b" opacity="0.9"/>
-  <path d="M10 7v14a2 2 0 0 0 2 2h10V11a4 4 0 0 0-4-4H10z" fill="#f0e8dc" opacity="0.15"/>
-  <path d="M22 9c1.5 0 3 1.2 3 3.5v10.5" stroke="#d4b896" stroke-width="1.5" stroke-linecap="round"/>
-  <circle cx="24" cy="22" r="2" fill="#c9956b"/>
-  <path d="M23 22v-3.5" stroke="#1f1b17" stroke-width="1" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BookVoice">
+  <defs>
+    <linearGradient id="aurora" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6D5AE8"/>
+      <stop offset=".52" stop-color="#4E7BEA"/>
+      <stop offset="1" stop-color="#2AD4E8"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset=".42" stop-color="#0C0C18" stop-opacity="0"/>
+      <stop offset="1" stop-color="#0C0C18" stop-opacity=".36"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#aurora)"/>
+  <rect width="512" height="512" rx="116" fill="url(#shade)"/>
+  <path d="M110 206 C162 194 216 224 250 248 L250 370 C204 392 152 386 110 362 Z" fill="#fff" opacity=".965"/>
+  <path d="M402 206 C350 194 296 224 262 248 L262 370 C308 392 360 386 402 362 Z" fill="#fff" opacity=".965"/>
+  <rect x="158" y="182" width="20" height="58" rx="10" fill="#fff"/><rect x="202" y="136" width="20" height="104" rx="10" fill="#fff"/><rect x="246" y="90" width="20" height="150" rx="10" fill="#fff"/><rect x="290" y="136" width="20" height="104" rx="10" fill="#fff"/><rect x="334" y="182" width="20" height="58" rx="10" fill="#fff"/>
 </svg>

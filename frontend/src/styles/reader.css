@@ -44,7 +44,7 @@
 .reader-open-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .reader-open-hint {
@@ -170,9 +170,12 @@
 
 .pdf-upload-card {
   width: min(520px, 100%);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
   padding: var(--space-7) var(--space-6);
   text-align: center;
   display: flex;
@@ -388,7 +391,9 @@
   align-items: stretch;
   gap: var(--space-2);
   padding: var(--space-3);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
@@ -453,7 +458,9 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
-  background: var(--surface);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border-top: 1px solid var(--hairline);
 }
 
@@ -820,7 +827,9 @@
   max-height: min(72vh, 640px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow: var(--shadow-pop);
@@ -894,7 +903,9 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-2);
-  background: var(--surface-raised);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
@@ -1036,7 +1047,9 @@
   right: 0;
   margin-top: var(--space-1);
   padding: var(--space-2);
-  background: var(--surface);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
@@ -1098,11 +1111,12 @@
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .prepared-book-row:hover {
   border-color: var(--hairline-strong);
+  box-shadow: var(--shadow-raised);
 }
 
 .prepared-book-row-heading {
@@ -1285,15 +1299,19 @@
   padding: var(--space-3) var(--space-5);
   border: none;
   border-radius: var(--radius-pill);
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--accent-on);
   font-weight: 600;
   font-size: var(--text-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  box-shadow: var(--shadow-overlay);
+  box-shadow: var(--shadow-glow), var(--shadow-overlay);
+}
+
+.capture-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .audio-hidden {
@@ -1303,10 +1321,6 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
-}
-
-.capture-btn:hover:not(:disabled) {
-  filter: brightness(1.12);
 }
 
 .zoom-control,
@@ -1490,9 +1504,10 @@ video {
 }
 
 .history-item.active {
-  background: var(--ink);
+  background: var(--accent);
   border-color: transparent;
-  color: var(--bg);
+  color: var(--accent-on);
+  box-shadow: var(--shadow-glow);
 }
 
 /* --- Custom audio transport (AudioPlayer) ------------------------------------------------------ */
@@ -1520,8 +1535,9 @@ video {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--accent-on);
+  box-shadow: var(--shadow-glow);
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-instant) var(--ease-out);
 }
 

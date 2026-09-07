@@ -8,11 +8,6 @@ internal sealed record WindowBounds(int X, int Y, int Width, int Height, bool Ma
 /// <summary>Persists the shell window's bounds between runs, clamped on restore.</summary>
 internal static class WindowPlacement
 {
-    private const int DefaultWidth = 1440;
-    private const int DefaultHeight = 900;
-
-    public static WindowBounds Default() => new(0, 0, DefaultWidth, DefaultHeight, Maximized: false);
-
     public static WindowBounds? Load(string runtimeDir)
     {
         try
