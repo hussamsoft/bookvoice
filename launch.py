@@ -186,10 +186,14 @@ def resolve_app_dir() -> str:
         return exe_dir
 
     here = os.path.dirname(os.path.abspath(__file__))
+    # dist/ first: it is the shipped layout. backend/ is the same payload in a
+    # source checkout (main.py, static/, data/models/), so the launchers and the
+    # UAT scripts work from a clean clone without building dist/ first.
     for candidate in (
         here,
         os.path.join(here, "dist"),
         os.path.join(os.path.dirname(here), "dist"),
+        os.path.join(here, "backend"),
     ):
         candidate = os.path.abspath(candidate)
         if looks_like_app_dir(candidate):
@@ -592,7 +596,16 @@ def packaged_worker(app_dir: str, log: Logger) -> str | None:
     return py
 
 
-def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
+def kill_stale_servers(
+    app_dir: str, runtime_dir: str, log: Logger, extra_markers: tuple[str, ...] = ()
+) -> None:
+    """Kill leftover BookVoice backends.
+
+    Only processes whose interpreter or command line points at a known BookVoice
+    worker are touched, so an unrelated uvicorn on this machine is left alone.
+    ``extra_markers`` lets a source-checkout run add its own venv, which is
+    neither the packaged worker nor the runtime venv.
+    """
     script = os.path.join(app_dir, "scripts", "kill_stale_bookvoice.ps1")
     if os.path.isfile(script):
         try:
@@ -620,6 +633,7 @@ def kill_stale_servers(app_dir: str, runtime_dir: str, log: Logger) -> None:
     server_markers = (
         os.path.join(runtime_dir, ".venv").lower(),
         os.path.join(app_dir, "runtime", "worker").lower(),
+        *(marker.lower() for marker in extra_markers if marker),
     )
     victims = []
     try:
@@ -1149,6 +1163,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def resolve_icon_path(app_dir: str) -> str:
+    """The app icon: inside the payload, else beside this launcher (source tree)."""
+    candidate = os.path.join(app_dir, "bookvoice.ico")
+    if os.path.isfile(candidate):
+        return candidate
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bookvoice.ico")
+
+
 def create_main_window(webview_module, app_dir: str | None = None, phone_view: bool = False):
     # Let Windows own the non-client frame. Native chrome provides reliable
     # resize borders, Snap Layouts, taskbar-aware maximization, and standard
@@ -1159,7 +1181,7 @@ def create_main_window(webview_module, app_dir: str | None = None, phone_view: b
         width, height, min_size = 1440, 900, (1024, 700)
     return webview_module.create_window(
         "BookVoice",
-        html=splash_html(os.path.join(app_dir or resolve_app_dir(), "bookvoice.ico")),
+        html=splash_html(resolve_icon_path(app_dir or resolve_app_dir())),
         width=width,
         height=height,
         min_size=min_size,
@@ -1175,7 +1197,7 @@ def configure_system_tray(window, app_dir: str, log: Logger):
     try:
         controller = system_tray.SystemTray(
             window,
-            os.path.join(app_dir, "bookvoice.ico"),
+            resolve_icon_path(app_dir),
             log,
         )
         controller.start()

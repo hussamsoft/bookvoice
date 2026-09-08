@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -152,6 +153,7 @@ def test_launcher_attaches_tray_only_after_it_starts(tmp_path):
     window = _Window()
     log = _Log()
     controller = MagicMock()
+    (tmp_path / "bookvoice.ico").write_bytes(b"icon")
 
     with patch.object(system_tray, "SystemTray", return_value=controller) as factory:
         configured = launch.configure_system_tray(window, str(tmp_path), log)
@@ -164,6 +166,22 @@ def test_launcher_attaches_tray_only_after_it_starts(tmp_path):
     )
     controller.start.assert_called_once_with()
     assert window.events.minimized.callbacks == [controller.minimize_to_tray]
+
+
+def test_source_checkout_falls_back_to_the_icon_beside_the_launcher(tmp_path):
+    """A source checkout has no icon in backend/; the repo root one still counts.
+
+    Without the fallback a dev run loses both the splash artwork and the
+    notification-area icon, so UAT stops resembling the shipped app.
+    """
+    packaged = tmp_path / "payload"
+    packaged.mkdir()
+    assert launch.resolve_icon_path(str(packaged)) == os.path.join(
+        os.path.dirname(os.path.abspath(launch.__file__)), "bookvoice.ico"
+    )
+
+    (packaged / "bookvoice.ico").write_bytes(b"icon")
+    assert launch.resolve_icon_path(str(packaged)) == str(packaged / "bookvoice.ico")
 
 
 def test_launcher_keeps_normal_window_behavior_when_tray_is_unavailable(tmp_path):
