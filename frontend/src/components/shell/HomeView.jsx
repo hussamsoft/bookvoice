@@ -47,7 +47,7 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
     return (
         <div className="home">
             <section className="home-hero">
-                <h1>Read with your ears</h1>
+                <h1>Turn any book into an audiobook</h1>
                 <p>
                     Open a book to hear it narrated page by page, scan physical pages,
                     or create voices in the Studio.
@@ -103,7 +103,7 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                         <Camera size={22} aria-hidden="true" />
                         <div className="home-action-text">
                             <h3>Scan physical pages</h3>
-                            <p>Capture a page with your camera and hear it right away.</p>
+                            <p>Photograph a page and hear it read aloud.</p>
                         </div>
                         <Button onClick={() => onNavigate('scan')}>
                             <Camera size={16} aria-hidden="true" />
@@ -113,7 +113,7 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                     <div className="home-action-card">
                         <Play size={22} aria-hidden="true" />
                         <div className="home-action-text">
-                            <h3>Create with your voice</h3>
+                            <h3>Voice Studio</h3>
                             <p>Narrate scripts, convert recordings, or fix a phrase.</p>
                         </div>
                         <Button onClick={() => onNavigate('studio')}>

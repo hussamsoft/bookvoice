@@ -2242,10 +2242,9 @@ export default function PdfViewer({ onDirty, onExit }) {
                         className="file-input"
                     />
                     <div className="pdf-upload-card">
-                        <p className="pdf-upload-eyebrow">Your reading room</p>
-                        <h2>Start a listening session</h2>
+                        <h2>Open a book</h2>
                         <p className="pdf-upload-intro">
-                            Open a text-based PDF to read and hear it in one place.
+                            Open a text-based PDF and hear it read aloud.
                         </p>
                         <label htmlFor="pdf-upload" className="btn primary">
                             Select PDF Book
@@ -2253,11 +2252,11 @@ export default function PdfViewer({ onDirty, onExit }) {
                         <p className="pdf-upload-hint">
                             {deviceInfo === 'cpu'
                                 ? 'Text is ready immediately. CPU narration is slower, so page prefetch stays off.'
-                                : 'Your book stays local. Nearby pages warm in the background for seamless flipping.'}
+                                : 'This book stays on your computer. Nearby pages load ahead of time.'}
                         </p>
                         {libraryBooks.length ? (
                             <div className="prepared-library">
-                                <p className="prepared-library-title">Prepared library</p>
+                                <p className="prepared-library-title">Your books</p>
                                 <div className="prepared-library-list">
                                     {libraryBooks.map((book) => (
                                         <PreparedBookRow key={book.id} book={book} onOpen={openLibraryBook} />
@@ -2267,7 +2266,7 @@ export default function PdfViewer({ onDirty, onExit }) {
                         ) : libraryPending ? (
 
                             <div className="prepared-library" aria-busy="true">
-                                <p className="prepared-library-title">Prepared library</p>
+                                <p className="prepared-library-title">Your books</p>
                                 {[0, 1, 2].map((row) => (
                                     <div
                                         key={row}

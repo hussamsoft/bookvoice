@@ -31,7 +31,7 @@ function renderHome(props = {}) {
 describe('HomeView', () => {
     it('invites a brand-new user to add their first book', () => {
         renderHome();
-        expect(screen.getByRole('heading', { name: 'Read with your ears' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Turn any book into an audiobook' })).toBeInTheDocument();
         expect(screen.getAllByRole('button', { name: /Add a book/ }).length).toBeGreaterThan(0);
         expect(screen.queryByText('Continue reading')).not.toBeInTheDocument();
     });

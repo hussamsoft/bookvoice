@@ -72,7 +72,7 @@ describe('App shell navigation', () => {
 
     it('lands on Home with the main navigation rail', () => {
         renderApp();
-        expect(screen.getByRole('heading', { name: 'Read with your ears' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Turn any book into an audiobook' })).toBeInTheDocument();
         const nav = screen.getByRole('navigation', { name: 'Main' });
         expect(nav).toBeInTheDocument();
         for (const label of ['Home', 'Library', 'Scan', 'Studio']) {

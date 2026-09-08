@@ -148,7 +148,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                         <div><span className="studio-kicker">Reusable everywhere</span><h3 id="studio-profile-heading">Create voice profile</h3></div>
                         <ShieldCheck size={20} />
                     </div>
-                    <p>Select 5–30 seconds of clean, single-speaker audio. BookVoice stores a normalized local profile.</p>
+                    <p>Select 5–30 seconds of clean, single-speaker audio. BookVoice saves a private voice profile on this device.</p>
                     <div className="studio-profile-fields">
                         <label><span>Profile name</span><input value={profileName} onChange={(e) => setProfileName(e.target.value)} maxLength={64} /></label>
                         <label className="studio-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>I own or have permission to clone this voice.</span></label>

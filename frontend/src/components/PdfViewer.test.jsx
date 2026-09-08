@@ -88,9 +88,9 @@ describe('PdfViewer Component', () => {
 
   it('renders upload state initially', () => {
     const { unmount } = render(<PdfViewer />);
-    expect(screen.getByRole('heading', { name: 'Start a listening session' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Open a book' })).toBeInTheDocument();
     expect(screen.getByText('Select PDF Book')).toBeInTheDocument();
-    expect(screen.getByText('Open a text-based PDF to read and hear it in one place.')).toBeInTheDocument();
+    expect(screen.getByText('Open a text-based PDF and hear it read aloud.')).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute('dir', 'ltr');
     expect(document.documentElement).toHaveAttribute('lang', 'en');
     unmount();
