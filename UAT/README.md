@@ -3,6 +3,32 @@
 Four launchers, four surfaces. Run each, tick the boxes, note failures with
 steps to reproduce.
 
+## How these run
+
+They drive the **source checkout**, not a build. `dist/` does not have to exist.
+
+- 1, 2, 3b, 4 run `dev_launcher.py`; 3 runs `serve_bookvoice.py`.
+  `launch.py` is the *packaged* launcher — it refuses to start without
+  `dist/runtime/worker/python.exe`, so nothing here calls it.
+- The app payload is `backend/` (`main.py`, `static/`, `data/models/`).
+- The backend runs on `backend\.venv` — CUDA torch and chatterbox live there,
+  so narration is real. Override with `BOOKVOICE_DEV_PYTHON`.
+- The launcher shell runs on PATH `python`, which needs `pywebview` for the
+  native window (1 and 3b). Without it those two fall back to the browser.
+- Closing the window (or Ctrl+C) stops the backend. Set
+  `BOOKVOICE_DEV_RELOAD=1` for uvicorn `--reload` while editing.
+
+Setup, once:
+
+```bat
+python -m venv backend\.venv
+backend\.venv\Scripts\pip install -r backend\requirements.txt
+pip install pywebview pystray psutil
+```
+
+Logs: `%LocalAppData%\BookVoice\installs\<id>\bookvoice_launch.log` and
+`bookvoice_server.log`.
+
 ## 1 — Desktop app (`1-Desktop-App.bat`)
 
 Native window (pywebview + WebView2). Closest to the shipped product.

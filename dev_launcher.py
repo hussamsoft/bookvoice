@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -37,38 +38,91 @@ except ImportError:
     webview = None
 
 
-def resolve_dev_python() -> str | None:
-    """Use the system Python (or BOOKVOICE_DEV_PYTHON) to run the backend."""
-    env_python = os.environ.get("BOOKVOICE_DEV_PYTHON", "").strip()
-    if env_python and Path(env_python).is_file():
-        return env_python
-    # Prefer the interpreter that built this exe; fall back to PATH python.
-    candidates = [sys.executable, "python", "python3"]
-    for c in candidates:
-        found = shutil.which(c) if os.sep in c or not c.startswith(sys.executable) else c
-        if found and Path(found).is_file():
-            return found
+def dev_python_candidates() -> list[str]:
+    """Interpreters that could run the backend, best first.
+
+    The repo venv comes first: it carries the real reading engine (CUDA torch
+    and chatterbox), while the interpreter running this shell only needs
+    pywebview. The two are deliberately allowed to differ.
+    """
+    raw = [os.environ.get("BOOKVOICE_DEV_PYTHON", "").strip()]
+    for rel in (
+        ("backend", ".venv", "Scripts", "python.exe"),
+        ("backend", ".venv", "bin", "python"),
+        (".venv", "Scripts", "python.exe"),
+        (".venv", "bin", "python"),
+    ):
+        raw.append(str(HERE.joinpath(*rel)))
+    raw.append(sys.executable)
+    raw.extend(shutil.which(name) or "" for name in ("python", "python3"))
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for candidate in raw:
+        if not candidate or not Path(candidate).is_file():
+            continue
+        key = os.path.normcase(os.path.abspath(candidate))
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return ordered
+
+
+def dev_worker(log: launch.Logger) -> str | None:
+    """The first candidate interpreter that can actually import the web stack."""
+    candidates = dev_python_candidates()
+    log.write(f"dev python candidates: {candidates}")
+    for py in candidates:
+        try:
+            r = subprocess.run(
+                [py, "-c", "import fastapi, uvicorn"],
+                capture_output=True, text=True, timeout=60,
+                creationflags=launch._no_window(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            log.write(f"could not probe {py}: {exc}")
+            continue
+        if r.returncode == 0:
+            return py
+        log.write(f"{py} lacks fastapi/uvicorn: {r.stderr.strip()[:200]}")
     return None
 
 
-def dev_worker(app_dir: str, log: launch.Logger) -> str | None:
-    """Resolve a Python for the backend; dev uses the system interpreter."""
-    py = resolve_dev_python()
-    if not py:
-        return None
-    # Verify it can import fastapi/uvicorn — the backend needs them.
+def stop_backend_tree(process, log: launch.Logger) -> None:
+    """Terminate the backend and anything it spawned; safe to call twice.
+
+    Without this a closed window leaves uvicorn holding the port, and the next
+    run either picks a different port or trips over the orphan.
+    """
+    if process is None or process.poll() is not None:
+        return
+    children = []
+    if launch.psutil is not None:
+        try:
+            children = launch.psutil.Process(process.pid).children(recursive=True)
+        except Exception:
+            children = []
+    for child in children:
+        try:
+            child.terminate()
+        except Exception:
+            pass
     try:
-        r = subprocess.run(
-            [py, "-c", "import fastapi, uvicorn"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode != 0:
-            log.write(f"{py} lacks fastapi/uvicorn: {r.stderr.strip()[:200]}")
-            return None
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        log.write(f"could not probe {py}: {exc}")
-        return None
-    return py
+        process.terminate()
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+    for child in children:
+        try:
+            if child.is_running():
+                child.kill()
+        except Exception:
+            pass
+    log.write("backend stopped")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     launch.seed_voices(app_dir, voices_dir)
     os.chdir(app_dir)
 
-    py = dev_worker(app_dir, log)
+    py = dev_worker(log)
     if not py:
         msg = (
             "No suitable Python with fastapi/uvicorn found. "
@@ -124,11 +178,14 @@ def main(argv: list[str] | None = None) -> int:
     if use_webview:
         launch.configure_webview_gpu()
         launch.configure_webview_downloads(webview)
-        window = launch.create_main_window(webview, app_dir)
+        window = launch.create_main_window(
+            webview, app_dir, phone_view=bool(args.phone_view)
+        )
         tray_controller = launch.configure_system_tray(window, app_dir, log)
 
     state: dict = {"error": None}
     tunnel_handle: dict = {}
+    backend: dict = {"process": None}
 
     def worker() -> None:
         try:
@@ -138,8 +195,12 @@ def main(argv: list[str] | None = None) -> int:
 
             status("Checking runtime", "Verifying the development Python…", 12)
 
-            launch.kill_stale_servers(app_dir, runtime_dir, log)
+            launch.kill_stale_servers(
+                app_dir, runtime_dir, log,
+                extra_markers=(os.path.dirname(py),),
+            )
             bind_host = launch.resolve_bind_host(args.host)
+            allow_lan = bool(args.allow_lan) or launch.lan_opt_in_env()
             pinned = launch.resolve_pinned_port(args.port)
             try:
                 port = launch.pick_port(log, bind_host, pinned)
@@ -152,6 +213,13 @@ def main(argv: list[str] | None = None) -> int:
             log.write(f"python={py}")
             log.write(f"port={port}")
             log.write(f"bind={bind_host}")
+
+            env = launch.apply_network_env(
+                launch.build_env(app_dir, runtime_dir),
+                bind_host,
+                allow_lan=allow_lan,
+            )
+            log_file_path = os.path.join(runtime_dir, "bookvoice_server.log")
 
             tunnel_settings = launch.tunnel.resolve_settings(runtime_dir, {
                 "mode": args.tunnel,
@@ -174,16 +242,28 @@ def main(argv: list[str] | None = None) -> int:
 
             status("Starting backend", "Launching the BookVoice reading engine…", 60)
 
+            def uvicorn_cmd(candidate: int) -> list[str]:
+                cmd = [py, "-m", "uvicorn", "main:app",
+                       "--host", bind_host, "--port", str(candidate)]
+                # Off by default: the reloader forks a second process that
+                # outlives a terminate() of the parent and keeps the port, and
+                # UAT runs exercise the app rather than edit it mid-session.
+                if str(os.environ.get("BOOKVOICE_DEV_RELOAD", "")).strip().lower() in {
+                    "1", "true", "yes", "on",
+                }:
+                    cmd += ["--reload", "--reload-dir", app_dir]
+                return cmd
+
             def spawn_dev(candidate: int):
                 handle = open(log_file_path, "w", encoding="utf-8", errors="replace")
                 proc = subprocess.Popen(
-                    [py, "-m", "uvicorn", "main:app",
-                     "--host", bind_host, "--port", str(candidate),
-                     "--reload", "--reload-dir", str(HERE / "backend")],
-                    env={**os.environ, **env},
+                    uvicorn_cmd(candidate),
+                    cwd=app_dir,
+                    env=env,
                     stdout=handle, stderr=subprocess.STDOUT,
                     creationflags=launch._no_window(),
                 )
+                backend["process"] = proc
                 return proc, handle
 
             try:
@@ -194,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                 launch.show_error(window, state["error"], log_file_path)
                 return
             start_time = time.monotonic()
-            log.write(f"cmd: {' '.join([py, '-m', 'uvicorn', 'main:app', '--host', bind_host, '--port', str(port)])}")
+            log.write(f"cmd: {' '.join(uvicorn_cmd(port))}")
             excluded = [port]
             while True:
                 time.sleep(0.5)
@@ -262,12 +342,23 @@ def main(argv: list[str] | None = None) -> int:
                 launch.show_error(window, state["error"], log_file_path)
                 return
 
-            status("Ready", "Opening BookVoice…", 100)
-            url = f"http://{bind_host}:{port}"
-            if use_webview:
-                webview.load_url(url)
+            open_host = bind_host if launch.is_loopback_host(bind_host) else "127.0.0.1"
+            url = f"http://{open_host}:{port}"
+            if not launch.is_loopback_host(bind_host):
+                for address in launch.lan_addresses():
+                    log.write(f"reachable on this network at http://{address}:{port}")
+            params = {"shell": "native"} if window is not None else {}
+            open_url = f"{url}/?{urllib.parse.urlencode(params)}" if params else url
+            if args.no_window:
+                status("Ready", f"Backend ready at {url}", 100)
+                log.write(f"backend ready (--no-window) at {url}")
+            elif window is not None:
+                status("Ready", "Opening BookVoice…", 100)
+                window.load_url(open_url)
             else:
-                webbrowser.open(url)
+                status("Ready", "Opening BookVoice…", 100)
+                log.write(f"opening browser at {open_url}")
+                webbrowser.open(open_url)
 
             # Keep the thread alive while the process runs.
             process.wait()
@@ -281,24 +372,31 @@ def main(argv: list[str] | None = None) -> int:
                     tray_controller.stop()
                 except Exception:
                     pass
+            active = tunnel_handle.get("tunnel")
+            if active is not None:
+                try:
+                    active.stop()
+                except Exception:
+                    pass
 
     import threading
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
-    if use_webview:
-        try:
-            webview.start()
-        except Exception as exc:
-            log.write(f"webview error: {exc}")
-        return 0 if state["error"] is None else 1
-
-    # Browser mode: wait for the backend thread, then exit.
     try:
-        while t.is_alive():
-            t.join(timeout=1)
+        if use_webview:
+            try:
+                webview.start()
+            except Exception as exc:
+                log.write(f"webview error: {exc}")
+        else:
+            # Browser / headless mode: hold the console until the backend ends.
+            while t.is_alive():
+                t.join(timeout=1)
     except KeyboardInterrupt:
         log.write("interrupted")
+    finally:
+        stop_backend_tree(backend.get("process"), log)
     return 0 if state["error"] is None else 1
 
 
