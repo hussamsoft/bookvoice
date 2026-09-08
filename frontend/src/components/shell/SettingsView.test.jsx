@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsView from './SettingsView';
 import { ToastProvider } from '../Toast';
-import { getServerAddresses, getTtsStatus } from '../../utils/api';
+import { getServerAddresses } from '../../utils/api';
 
 const updateConfig = vi.fn();
 
@@ -51,7 +51,7 @@ describe('SettingsView', () => {
     expect(active).toHaveLength(1);
     expect(active[0].getAttribute('title')).toBe('Violet Dusk (dark)');
 
-    fireEvent.click(within(group).getByRole('button', { title: 'Moss Glow (light)' }));
+    fireEvent.click(within(group).getByTitle('Moss Glow (light)'));
     expect(document.documentElement).toHaveAttribute('data-palette', 'sage');
     expect(document.documentElement).toHaveAttribute('data-mode', 'light');
   });
