@@ -201,6 +201,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             bind_host = launch.resolve_bind_host(args.host)
             allow_lan = bool(args.allow_lan) or launch.lan_opt_in_env()
+            if not launch.is_loopback_host(bind_host) and not allow_lan:
+                state["error"] = (
+                    "Refusing a network-wide bind without --allow-lan. "
+                    "Pass --allow-lan (or BOOKVOICE_ALLOW_LAN=1) to expose "
+                    "the app to the local network."
+                )
+                log.write("fatal: " + state["error"])
+                launch.show_error(window, state["error"], log.path)
+                return
             pinned = launch.resolve_pinned_port(args.port)
             try:
                 port = launch.pick_port(log, bind_host, pinned)
@@ -347,6 +356,12 @@ def main(argv: list[str] | None = None) -> int:
             if not launch.is_loopback_host(bind_host):
                 for address in launch.lan_addresses():
                     log.write(f"reachable on this network at http://{address}:{port}")
+                if not env.get("BOOKVOICE_ACCESS_PASSWORD"):
+                    log.write(
+                        "WARNING: bound beyond loopback with no "
+                        "BOOKVOICE_ACCESS_PASSWORD. Anyone who can reach this "
+                        "port has full access."
+                    )
             params = {"shell": "native"} if window is not None else {}
             open_url = f"{url}/?{urllib.parse.urlencode(params)}" if params else url
             if args.no_window:
