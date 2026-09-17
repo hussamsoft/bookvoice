@@ -234,10 +234,16 @@ export default function Reader() {
     // (streaming playlist exhausted, last chunk ended), notify the
     // end-of-chapter sleep mode. The minute-mode timer ignores this.
     useEffect(() => {
-        if (narration.transportState === 'stopped') {
+        if (narration.transportState === 'stopped'
+            && narration.naturalEndRef?.current) {
+            // Distinguish "page finished on its own" from "user clicked
+            // Stop" (audit finding L-4). The end-of-chapter sleep arm
+            // should only fire on natural ends; otherwise Stop mid-page
+            // would prematurely end the sleep timer.
+            narration.naturalEndRef.current = false;
             sleep.notifyPageEnded();
         }
-    }, [narration.transportState, sleep]);
+    }, [narration, sleep]);
 
     // Apply-once the saved voice/language from useUserConfig. A user
     // touch before config arrives wins (see configApply.test.js).

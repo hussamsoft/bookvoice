@@ -361,6 +361,16 @@ export function useReaderNarration({
         onNarratePage(getPage());
     }, [audioPage, audioRef, getPage, onNarratePage, pauseAudio, setTransport]);
 
+    // True only when the playlist reached its natural end. False after
+    // any manual stop / pause / navigation. The consumer (Reader)
+    // reads this to distinguish "page finished on its own" (notify
+    // the end-of-chapter sleep timer) from "user clicked Stop" (do
+    // not). Audit finding L-4: the previous implementation fired
+    // notifyPageEnded on every transportState === 'stopped' transition,
+    // which prematurely ended the sleep timer's end-of-chapter arm
+    // when the user pressed Stop mid-page.
+    const naturalEndRef = useRef(false);
+
     const stopPlayback = useCallback(() => {
         streamAbortRef.current?.abort();
         streamAbortRef.current = null;
@@ -372,6 +382,7 @@ export function useReaderNarration({
             if (!audio.paused) audio.pause();
             audio.currentTime = 0;
         }
+        naturalEndRef.current = false;
         setIsPlaying(false);
         setTransport('stopped');
     }, [audioRef, clearPlaylist, setTransport, transport]);
@@ -429,6 +440,7 @@ export function useReaderNarration({
                     return;
                 }
                 playlistShouldPlayRef.current = false;
+                naturalEndRef.current = true;
                 setIsPlaying(false);
                 setTransport('stopped');
             });
@@ -463,6 +475,7 @@ export function useReaderNarration({
         audioPage,
         muted,
         scrubberDuration,
+        naturalEndRef,  // exposed for the consumer to read; not callable
         handlePlay,
         stopPlayback,
         toggleMute,
