@@ -1,4 +1,6 @@
 import asyncio
+import atexit
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +10,11 @@ from services.ocr_service import extract_text_from_image
 
 router = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=1)
+# Audit finding C-7: atexit.register the executor so background
+# threads don't leak on process exit. Mirror the Studio pattern
+# (services/studio_service/manifest.py:_shutdown_executor).
+atexit.register(lambda: _executor.shutdown(wait=False))
+_log = logging.getLogger(__name__)
 
 # Base64 of a ~12MB image is larger; cap the JSON field reasonably.
 _MAX_IMAGE_DATA_CHARS = 20 * 1024 * 1024
@@ -31,4 +38,5 @@ async def process_ocr(req: OCRRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+        _log.exception("OCR failed")
+        raise HTTPException(status_code=500, detail="OCR failed.") from e

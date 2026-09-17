@@ -1,4 +1,6 @@
 import asyncio
+import atexit
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
@@ -9,6 +11,11 @@ from services.translation_service import translate_text
 
 router = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=1)
+# Audit finding C-7: atexit.register the executor so background
+# threads don't leak on process exit. Mirror the Studio pattern
+# (services/studio_service/manifest.py:_shutdown_executor).
+atexit.register(lambda: _executor.shutdown(wait=False))
+_log = logging.getLogger(__name__)
 
 
 class TranslationRequest(BaseModel):
@@ -35,5 +42,8 @@ async def translate(request: TranslationRequest):
             _executor, translate_text, request.text, target
         )
         return TranslationResponse(translated_text=translated)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _log.exception("Translation failed")
+        raise HTTPException(status_code=500, detail="Translation failed.") from e
