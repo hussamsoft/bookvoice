@@ -369,77 +369,79 @@ def convert_voice_audio(
         f"windows={total_windows} device={device}"
     )
 
-    with _synth._generate_lock:
-        _model._model_state["status"] = "generating"
-        started_token = _current_generation()
-        pieces: list[torch.Tensor] = []
-        try:
-            reference_start = _set_conversion_target(
-                converter,
-                target_voice_full,
-                device,
-                out_sr,
-            )
-            _model._log(
-                f"[vc] target reference start={reference_start:.2f}s "
-                f"duration={VC_REFERENCE_MAX_S:.1f}s guidance={VC_TARGET_GUIDANCE:.2f}"
-            )
-            cursor = 0
-            try:
-                with _InferenceCfgRateGuard(converter, VC_TARGET_GUIDANCE):
-                    for index, (start, end) in enumerate(windows):
-                        _raise_if_cancelled(cancel_event, started_token)
-                        _model._model_state["detail"] = (
-                            f"Converting voice {index + 1}/{total_windows} on {str(device).upper()}"
+    _model._model_state["status"] = "generating"
+    started_token = _current_generation()
+    pieces: list[torch.Tensor] = []
+    try:
+        reference_start = _set_conversion_target(
+            converter,
+            target_voice_full,
+            device,
+            out_sr,
+        )
+        _model._log(
+            f"[vc] target reference start={reference_start:.2f}s "
+            f"duration={VC_REFERENCE_MAX_S:.1f}s guidance={VC_TARGET_GUIDANCE:.2f}"
+        )
+        cursor = 0
+        # _InferenceCfgRateGuard spans the whole conversion because
+        # the rate is a vendored attribute that is set on entry and
+        # restored on exit; we cannot release it between windows.
+        # The actual lock acquisition moves INSIDE the per-window
+        # loop so conversion no longer starves synthesis, streaming,
+        # and pronounce-click work while a long voice clone runs.
+        with _InferenceCfgRateGuard(converter, VC_TARGET_GUIDANCE):
+            for index, (start, end) in enumerate(windows):
+                _raise_if_cancelled(cancel_event, started_token)
+                _model._model_state["detail"] = (
+                    f"Converting voice {index + 1}/{total_windows} on {str(device).upper()}"
+                )
+                gap = start - cursor
+                if gap > 0:
+                    silence = int(round(gap * out_sr / VC_INPUT_SR))
+                    if silence > 0:
+                        pieces.append(torch.zeros(1, silence))
+                window = audio[start:end]
+                with _synth._generate_lock, torch.inference_mode():
+                    tensor = torch.from_numpy(window).float().to(device).unsqueeze(0)
+                    tokens, _ = converter.s3gen.tokenizer(tensor)
+                    wav, _ = converter.s3gen.inference(
+                        speech_tokens=tokens,
+                        ref_dict=converter.ref_dict,
+                    )
+                    rendered = wav.squeeze(0).detach().cpu().float().numpy()
+                if _model._is_cuda_build() and getattr(converter, "watermarker", None) is not None:
+                    try:
+                        rendered = converter.watermarker.apply_watermark(
+                            rendered, sample_rate=out_sr
                         )
-                        gap = start - cursor
-                        if gap > 0:
-                            silence = int(round(gap * out_sr / VC_INPUT_SR))
-                            if silence > 0:
-                                pieces.append(torch.zeros(1, silence))
-                        window = audio[start:end]
-                        with torch.inference_mode():
-                            tensor = torch.from_numpy(window).float().to(device).unsqueeze(0)
-                            tokens, _ = converter.s3gen.tokenizer(tensor)
-                            wav, _ = converter.s3gen.inference(
-                                speech_tokens=tokens,
-                                ref_dict=converter.ref_dict,
-                            )
-                            rendered = wav.squeeze(0).detach().cpu().float().numpy()
-                        if _model._is_cuda_build() and getattr(converter, "watermarker", None) is not None:
-                            try:
-                                rendered = converter.watermarker.apply_watermark(
-                                    rendered, sample_rate=out_sr
-                                )
-                            except Exception as exc:  # noqa: BLE001 - watermark is optional
-                                _model._log(f"Watermark skipped: {exc}")
-                        pieces.append(torch.from_numpy(np.asarray(rendered)).float().unsqueeze(0))
-                        cursor = end
-                        if progress is not None:
-                            try:
-                                progress((index + 1) / max(1, total_windows))
-                            except Exception:  # noqa: BLE001 - progress is advisory
-                                pass
-            finally:
-                pass
-            trailing = int(audio.shape[-1]) - cursor
-            if trailing > 0:
-                silence = int(round(trailing * out_sr / VC_INPUT_SR))
-                if silence > 0:
-                    pieces.append(torch.zeros(1, silence))
-        except GenerationCancelled:
-            _model._model_state["status"] = "ready"
-            _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
-            raise
-        except Exception as exc:
-            _model._model_state["status"] = "ready"
-            _model._model_state["detail"] = (
-                f"Model ready on {str(device).upper()} (last conversion failed: {exc})"
-            )
-            raise
-        else:
-            _model._model_state["status"] = "ready"
-            _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
+                    except Exception as exc:  # noqa: BLE001 - watermark is optional
+                        _model._log(f"Watermark skipped: {exc}")
+                pieces.append(torch.from_numpy(np.asarray(rendered)).float().unsqueeze(0))
+                cursor = end
+                if progress is not None:
+                    try:
+                        progress((index + 1) / max(1, total_windows))
+                    except Exception:  # noqa: BLE001 - progress is advisory
+                        pass
+        trailing = int(audio.shape[-1]) - cursor
+        if trailing > 0:
+            silence = int(round(trailing * out_sr / VC_INPUT_SR))
+            if silence > 0:
+                pieces.append(torch.zeros(1, silence))
+    except GenerationCancelled:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
+        raise
+    except Exception as exc:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = (
+            f"Model ready on {str(device).upper()} (last conversion failed: {exc})"
+        )
+        raise
+    else:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
 
     if not pieces:
         raise ValueError("No speech was found in the recording to convert.")
