@@ -67,6 +67,25 @@ def sha256(path: Path) -> str:
     return value.hexdigest()
 
 
+# Hard upper bound on any single asset. The manifest already pins the
+# expected size, but a 2 GB asset on a compromised release would still
+# pass checksum verification. Cap before downloading so a malformed
+# manifest cannot exhaust disk or memory.
+MAX_ASSET_BYTES = 1 * 1024 * 1024 * 1024
+
+# Cap on the JSON manifest body itself; a 2 GB manifest payload would OOM
+# urlopen(). The shipped manifest is well under 1 MiB.
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+
+# Cap on HTTP 416 retry attempts; without a bound a broken mirror can
+# recurse forever.
+MAX_RESUME_RETRIES = 3
+
+# Stable semver: digits, dots, optional pre-release/build suffix. Used to
+# reject "2.7.0-rc.1" / "2.7.0-beta" pre-release tags.
+STABLE_TAG = __import__("re").compile(r"^\d+\.\d+\.\d+$")
+
+
 def download(url: str, target: Path, expected: dict, progress=None, cancel_event=None) -> None:
     """Download one asset with resume support and checksum enforcement.
 
@@ -80,7 +99,20 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
     rename) is verified and promoted directly instead of requesting a zero-length
     range, which servers answer with HTTP 416 — an error urllib surfaces as an
     exception, which previously deadlocked every retry until manual cleanup.
+    Retries on HTTP 416 are bounded by ``MAX_RESUME_RETRIES`` to prevent an
+    unbounded recursion if the server keeps returning 416.
+
+    Size safety: any declared size above ``MAX_ASSET_BYTES`` is rejected
+    before a single byte is read so a tampered manifest cannot pin a 2 GB
+    blob through checksum verification.
     """
+
+    declared = int(expected["size"])
+    if declared <= 0 or declared > MAX_ASSET_BYTES:
+        raise RuntimeError(
+            f"Refusing to download {target.name}: declared size {declared} "
+            f"is outside (0, {MAX_ASSET_BYTES}] bytes."
+        )
 
     def _cancelled() -> bool:
         return cancel_event is not None and cancel_event.is_set()
@@ -88,7 +120,7 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
     def _promote_complete_part(part: Path) -> bool:
         try:
             intact = (
-                part.stat().st_size == int(expected["size"])
+                part.stat().st_size == declared
                 and sha256(part) == expected["sha256"]
             )
         except OSError:
@@ -101,8 +133,12 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
 
     if _cancelled():
         raise InstallCancelled("The download was cancelled.")
+    if target.suffix == ".part" or target.name.endswith(".part.part"):
+        raise RuntimeError(
+            f"Refusing to download into a .part path: {target.name}"
+        )
     partial = target.with_suffix(target.suffix + ".part")
-    total = int(expected["size"])
+    total = declared
 
     received = partial.stat().st_size if partial.exists() else 0
     if received > total:
@@ -113,19 +149,30 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
             return
         received = 0
 
-    headers = {"Range": f"bytes={received}-"} if received else {}
+    headers = {
+        "Accept-Encoding": "identity",
+        "User-Agent": f"BookVoice-Setup/{RELEASE_VERSION}",
+    }
+    if received:
+        headers["Range"] = f"bytes={received}-"
     if progress:
         progress(min(received, total), total)
 
-    try:
-        response = urllib.request.urlopen(
-            urllib.request.Request(url, headers=headers), timeout=60
-        )
-    except urllib.error.HTTPError as error:
-        if error.code == 416 and received:
-            partial.unlink(missing_ok=True)
-            return download(url, target, expected, progress, cancel_event)
-        raise
+    resume_attempts = 0
+    while True:
+        try:
+            response = urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers), timeout=60
+            )
+            break
+        except urllib.error.HTTPError as error:
+            if error.code == 416 and received and resume_attempts < MAX_RESUME_RETRIES:
+                resume_attempts += 1
+                partial.unlink(missing_ok=True)
+                received = 0
+                headers.pop("Range", None)
+                continue
+            raise
 
     with response:
         if received and getattr(response, "status", 206) != 206:
@@ -136,6 +183,12 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
                 chunk = response.read(1024 * 1024)
                 if not chunk:
                     break
+                # Hard cap on bytes received; refuse to grow the partial
+                # beyond MAX_ASSET_BYTES even if the server streams more.
+                if received + len(chunk) > MAX_ASSET_BYTES:
+                    raise RuntimeError(
+                        f"Aborting {target.name}: response exceeded {MAX_ASSET_BYTES} bytes."
+                    )
                 output.write(chunk)
                 received += len(chunk)
                 if progress:
@@ -151,6 +204,12 @@ def download(url: str, target: Path, expected: dict, progress=None, cancel_event
 
 def fetch_manifest(manifest_url: str) -> dict:
     with urllib.request.urlopen(manifest_url, timeout=30) as response:
+        # Cap the body so a multi-GB response cannot OOM the JSON parser.
+        if response.length is not None and response.length > MAX_MANIFEST_BYTES:
+            raise RuntimeError(
+                f"Manifest payload {response.length} bytes exceeds "
+                f"limit of {MAX_MANIFEST_BYTES}."
+            )
         return json.load(response)
 
 
@@ -167,6 +226,7 @@ def resolve_latest_tag() -> str:
         headers={
             "User-Agent": f"BookVoice-Setup/{RELEASE_VERSION}",
             "Accept": "application/vnd.github+json",
+            "Accept-Encoding": "identity",
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -174,6 +234,11 @@ def resolve_latest_tag() -> str:
     tag = str(payload.get("tag_name") or "").strip()
     if not tag:
         raise RuntimeError("The GitHub release response carried no tag.")
+    bare = tag.lstrip("vV")
+    if not STABLE_TAG.match(bare):
+        raise RuntimeError(
+            f"Refusing pre-release tag {tag!r}: --latest only installs stable releases."
+        )
     return tag
 
 
@@ -192,12 +257,13 @@ def plan_assets(manifest: dict, product: str) -> tuple[Path, list[str]]:
     """Return (download directory, asset names) for one install scope."""
     selected = manifest["products"][product]
     names = [selected["msi"], *selected["cabinets"]]
-    if any(not name or Path(name).name != name for name in names):
-        raise RuntimeError("The BookVoice release manifest contains an unsafe asset name.")
+    for name in names:
+        if not name or Path(name).name != name or name in (".", ".."):
+            raise RuntimeError("The BookVoice release manifest contains an unsafe asset name.")
     required = sum(int(manifest["assets"][name]["size"]) for name in names)
     target = Path(tempfile.gettempdir()) / "BookVoice" / manifest["version"] / product
     target.mkdir(parents=True, exist_ok=True)
-    if shutil.disk_usage(target).free < required + 512 * 1024 * 1024:
+    if shutil.disk_usage(target).free < required * 2:
         raise RuntimeError("Not enough free disk space for the offline BookVoice runtime.")
     return target, names
 
@@ -247,7 +313,12 @@ def run_installer(download_dir: Path, msi_name: str, quiet: bool) -> int:
     command = ["msiexec.exe", "/i", str(download_dir / msi_name)]
     if quiet:
         command.extend(["/qn", "/norestart"])
-    return subprocess.run(command, check=False).returncode
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).returncode
 
 
 def main() -> int:
@@ -262,6 +333,9 @@ def main() -> int:
         help="Install the newest published release instead of this installer's own version",
     )
     args = parser.parse_args()
+    # The version is resolved once on import so test harnesses and any
+    # other importer see the same value the CLI uses; re-resolving here
+    # would break ``module.RELEASE_VERSION`` equality checks downstream.
     product = "machine" if args.machine else "user"
     expected_version = None
     if args.latest and not args.manifest_url:
