@@ -65,10 +65,10 @@ class StudioProjectTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = os.environ.get("DATA_DIR")
         os.environ["DATA_DIR"] = self.temp.name
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
 
     def tearDown(self):
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         if self.previous is None:
             os.environ.pop("DATA_DIR", None)
         else:
@@ -76,68 +76,68 @@ class StudioProjectTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_project_create_rename_and_reopen_are_persistent(self):
-        created = studio.create_project("First studio project")
-        updated = studio.update_project(
+        created = studio.projects.create_project("First studio project")
+        updated = studio.projects.update_project(
             created["id"],
             {"name": "Renamed project", "script": "A locally saved draft."},
         )
 
-        studio.reset_runtime_state_for_tests()
-        reopened = studio.get_project(created["id"])
+        studio.projects.reset_runtime_state_for_tests()
+        reopened = studio.projects.get_project(created["id"])
 
         self.assertEqual(updated["name"], "Renamed project")
         self.assertEqual(reopened["script"], "A locally saved draft.")
         self.assertEqual(reopened["schemaVersion"], 1)
-        self.assertTrue((studio.project_dir(created["id"]) / "manifest.json").is_file())
+        self.assertTrue((studio.manifest.project_dir(created["id"]) / "manifest.json").is_file())
 
     def test_duplicate_is_independent_and_does_not_share_manifest_state(self):
-        original = studio.create_project("Original")
-        studio.update_project(original["id"], {"script": "Original script"})
+        original = studio.projects.create_project("Original")
+        studio.projects.update_project(original["id"], {"script": "Original script"})
 
-        copied = studio.duplicate_project(original["id"])
-        studio.update_project(copied["id"], {"script": "Changed copy"})
+        copied = studio.projects.duplicate_project(original["id"])
+        studio.projects.update_project(copied["id"], {"script": "Changed copy"})
 
         self.assertNotEqual(copied["id"], original["id"])
-        self.assertEqual(studio.get_project(original["id"])["script"], "Original script")
-        self.assertEqual(studio.get_project(copied["id"])["script"], "Changed copy")
+        self.assertEqual(studio.projects.get_project(original["id"])["script"], "Original script")
+        self.assertEqual(studio.projects.get_project(copied["id"])["script"], "Changed copy")
         self.assertEqual(copied["name"], "Original copy")
 
     def test_delete_removes_only_the_named_project(self):
-        first = studio.create_project("First")
-        second = studio.create_project("Second")
+        first = studio.projects.create_project("First")
+        second = studio.projects.create_project("Second")
 
-        studio.delete_project(first["id"])
+        studio.projects.delete_project(first["id"])
 
         with self.assertRaises(FileNotFoundError):
-            studio.get_project(first["id"])
-        self.assertEqual(studio.get_project(second["id"])["name"], "Second")
+            studio.projects.get_project(first["id"])
+        self.assertEqual(studio.projects.get_project(second["id"])["name"], "Second")
 
     def test_invalid_project_ids_cannot_escape_the_studio_root(self):
         with self.assertRaises(ValueError):
-            studio.project_dir("..\\outside")
+            studio.manifest.project_dir("..\\outside")
         with self.assertRaises(ValueError):
-            studio.get_project("not-a-project")
+            studio.projects.get_project("not-a-project")
 
     def test_project_access_is_enforced_by_the_current_device_scope(self):
         device_a = "a" * 32
         device_b = "b" * 32
-        with studio.device_scope(device_a):
-            project = studio.create_project("Private to device A")
-            self.assertEqual(studio.list_projects()[0]["id"], project["id"])
+        with studio.devices.device_scope(device_a):
+            project = studio.projects.create_project("Private to device A")
+            self.assertEqual(studio.projects.list_projects()[0]["id"], project["id"])
             self.assertNotIn("deviceId", project)
 
-        with studio.device_scope(device_b):
-            self.assertEqual(studio.list_projects(), [])
+        with studio.devices.device_scope(device_b):
+            self.assertEqual(studio.projects.list_projects(), [])
             with self.assertRaises(FileNotFoundError):
-                studio.get_project(project["id"])
+                studio.projects.get_project(project["id"])
             with self.assertRaises(FileNotFoundError):
-                studio.delete_project(project["id"])
+                studio.projects.delete_project(project["id"])
             with self.assertRaises(FileNotFoundError):
-                studio.open_project_folder(project["id"])
+                studio.downloads.open_project_folder(project["id"])
 
-        with studio.device_scope(device_a):
+        with studio.devices.device_scope(device_a):
             self.assertEqual(
-                studio.get_project(project["id"])["name"],
+                studio.projects.get_project(project["id"])["name"],
                 "Private to device A",
             )
 
@@ -145,34 +145,34 @@ class StudioProjectTests(unittest.TestCase):
         device_a = "a" * 32
         device_b = "b" * 32
         observed_devices = []
-        with studio.device_scope(device_a):
-            project = studio.create_project("Device job")
+        with studio.devices.device_scope(device_a):
+            project = studio.projects.create_project("Device job")
 
             def work(*, job_id, cancel_event):
-                observed_devices.append(studio.current_device_id())
-                studio.update_job_progress(project["id"], job_id, 0.5, "Scoped")
-                return {"device": studio.current_device_id()}
+                observed_devices.append(studio.devices.current_device_id())
+                studio.jobs.update_job_progress(project["id"], job_id, 0.5, "Scoped")
+                return {"device": studio.devices.current_device_id()}
 
-            submitted = studio.submit_job(project["id"], "TEST", work)
+            submitted = studio.jobs.submit_job(project["id"], "TEST", work)
 
-        with studio.device_scope(device_b):
+        with studio.devices.device_scope(device_b):
             with self.assertRaises(FileNotFoundError):
-                studio.get_job(submitted["id"])
+                studio.jobs.get_job(submitted["id"])
 
         deadline = time.time() + 3
-        with studio.device_scope(device_a):
-            job = studio.get_job(submitted["id"])
+        with studio.devices.device_scope(device_a):
+            job = studio.jobs.get_job(submitted["id"])
             while job["status"] not in {"COMPLETED", "FAILED"} and time.time() < deadline:
                 time.sleep(0.01)
-                job = studio.get_job(submitted["id"])
+                job = studio.jobs.get_job(submitted["id"])
 
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["result"], {"device": device_a})
         self.assertEqual(observed_devices, [device_a])
 
     def test_manifest_read_retries_a_transient_windows_sharing_violation(self):
-        project = studio.create_project("Concurrent manifest")
-        manifest_path = studio.project_dir(project["id"]) / "manifest.json"
+        project = studio.projects.create_project("Concurrent manifest")
+        manifest_path = studio.manifest.project_dir(project["id"]) / "manifest.json"
         real_read = manifest_path.read_text
         attempts = 0
 
@@ -184,7 +184,7 @@ class StudioProjectTests(unittest.TestCase):
             return real_read(*args, **kwargs)
 
         with patch.object(type(manifest_path), "read_text", new=flaky_read):
-            reopened = studio.get_project(project["id"])
+            reopened = studio.projects.get_project(project["id"])
 
         self.assertEqual(reopened["id"], project["id"])
         self.assertEqual(attempts, 2)
@@ -204,14 +204,14 @@ class StudioProjectTests(unittest.TestCase):
         with patch.object(storage_utils.os, "replace", side_effect=flaky_replace), patch.object(
             storage_utils.time, "sleep"
         ):
-            studio._write_json_atomic(target, {"ok": True})
+            studio.manifest._write_json_atomic(target, {"ok": True})
 
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"ok": True})
         self.assertEqual(attempts, 3)
 
     def test_interrupted_running_jobs_become_retryable_after_restart(self):
-        project = studio.create_project("Interrupted work")
-        manifest_path = studio.project_dir(project["id"]) / "manifest.json"
+        project = studio.projects.create_project("Interrupted work")
+        manifest_path = studio.manifest.project_dir(project["id"]) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["jobs"] = [
             {
@@ -225,20 +225,18 @@ class StudioProjectTests(unittest.TestCase):
         ]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-        studio.reset_runtime_state_for_tests()
-        reopened = studio.get_project(project["id"])
+        studio.projects.reset_runtime_state_for_tests()
+        reopened = studio.projects.get_project(project["id"])
 
         self.assertEqual(reopened["jobs"][0]["status"], "INTERRUPTED")
         self.assertTrue(reopened["jobs"][0]["canRetry"])
 
     def test_imported_source_is_copied_and_exposed_only_through_asset_ids(self):
-        project = studio.create_project("Media")
+        project = studio.projects.create_project("Media")
         staged = Path(self.temp.name) / "outside.wav"
         staged.write_bytes(wav_bytes())
 
-        with patch.object(
-            studio,
-            "_probe_media",
+        with patch.object(studio.media, "_probe_media",
             return_value={
                 "durationSec": 1.0,
                 "hasVideo": False,
@@ -246,30 +244,30 @@ class StudioProjectTests(unittest.TestCase):
                 "channels": 1,
                 "formatName": "wav",
             },
-        ), patch.object(studio, "_extract_edit_audio") as extract:
+        ), patch.object(studio.media, "_extract_edit_audio") as extract:
             extract.side_effect = lambda source, target, **_: target.write_bytes(source.read_bytes())
-            source = studio.import_source_path(project["id"], staged, "Interview.wav")
+            source = studio.media.import_source_path(project["id"], staged, "Interview.wav")
 
-        reopened = studio.get_project(project["id"])
+        reopened = studio.projects.get_project(project["id"])
         self.assertEqual(reopened["sources"][0]["id"], source["id"])
         self.assertNotIn("path", reopened["sources"][0])
         self.assertNotIn(str(self.temp.name), json.dumps(reopened))
         self.assertEqual(staged.read_bytes(), wav_bytes())
-        self.assertTrue(studio.asset_path(project["id"], source["id"], "original").is_file())
-        self.assertTrue(studio.asset_path(project["id"], source["id"], "audio").is_file())
+        self.assertTrue(studio.downloads.asset_path(project["id"], source["id"], "original").is_file())
+        self.assertTrue(studio.downloads.asset_path(project["id"], source["id"], "audio").is_file())
         self.assertGreater(len(source["waveformPeaks"]), 10)
 
     def test_waveform_accepts_phone_pcm_in_wave_format_extensible(self):
         path = Path(self.temp.name) / "phone.wav"
         path.write_bytes(extensible_wav_bytes())
 
-        peaks = studio._waveform_peaks(path, buckets=20)
+        peaks = studio.media._waveform_peaks(path, buckets=20)
 
         self.assertEqual(len(peaks), 20)
         self.assertTrue(all(0.12 < peak < 0.13 for peak in peaks))
 
     def test_expired_microphone_recording_is_erased_without_touching_imports_or_voices(self):
-        project = studio.create_project("Recording retention")
+        project = studio.projects.create_project("Recording retention")
         staged = Path(self.temp.name) / "outside.wav"
         staged.write_bytes(wav_bytes())
         metadata = {
@@ -279,17 +277,16 @@ class StudioProjectTests(unittest.TestCase):
             "channels": 1,
             "formatName": "wav",
         }
-        with patch.object(studio, "_probe_media", return_value=metadata), patch.object(
-            studio, "_extract_edit_audio"
+        with patch.object(studio.media, "_probe_media", return_value=metadata), patch.object(studio.media, "_extract_edit_audio"
         ) as extract:
             extract.side_effect = lambda source, target, **_: target.write_bytes(source.read_bytes())
-            recorded = studio.import_source_path(
+            recorded = studio.media.import_source_path(
                 project["id"],
                 staged,
                 "recording-2026-07-28T18-10-51.wav",
                 capture_method="recording",
             )
-            uploaded = studio.import_source_path(
+            uploaded = studio.media.import_source_path(
                 project["id"],
                 staged,
                 "kept-forever.wav",
@@ -299,12 +296,12 @@ class StudioProjectTests(unittest.TestCase):
         self.assertEqual(recorded["captureMethod"], "recording")
         self.assertAlmostEqual(
             recorded["expiresAt"] - recorded["createdAt"],
-            studio.RECORDING_RETENTION_SEC,
+            studio.recordings.RECORDING_RETENTION_SEC,
             places=3,
         )
         self.assertEqual(uploaded["captureMethod"], "upload")
         self.assertNotIn("expiresAt", uploaded)
-        root = studio.project_dir(project["id"])
+        root = studio.manifest.project_dir(project["id"])
         manifest_path = root / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         recorded_paths = []
@@ -319,17 +316,17 @@ class StudioProjectTests(unittest.TestCase):
         shared_voice.parent.mkdir(parents=True, exist_ok=True)
         shared_voice.write_bytes(wav_bytes(6))
 
-        reopened = studio.get_project(project["id"])
+        reopened = studio.projects.get_project(project["id"])
 
         self.assertEqual([source["id"] for source in reopened["sources"]], [uploaded["id"]])
         self.assertTrue(all(not path.exists() for path in recorded_paths))
-        self.assertTrue(studio.asset_path(project["id"], uploaded["id"], "original").is_file())
+        self.assertTrue(studio.downloads.asset_path(project["id"], uploaded["id"], "original").is_file())
         self.assertTrue(shared_voice.is_file())
 
     def test_legacy_bookvoice_microphone_filename_receives_retention_policy(self):
-        project = studio.create_project("Legacy microphone recording")
+        project = studio.projects.create_project("Legacy microphone recording")
         source_id = "f" * 32
-        root = studio.project_dir(project["id"])
+        root = studio.manifest.project_dir(project["id"])
         source_path = root / "sources" / f"{source_id}.wav"
         audio_path = root / "derived" / f"{source_id}.wav"
         source_path.write_bytes(wav_bytes())
@@ -343,22 +340,20 @@ class StudioProjectTests(unittest.TestCase):
             "durationSec": 1,
             "path": f"sources/{source_id}.wav",
             "audioPath": f"derived/{source_id}.wav",
-            "createdAt": time.time() - studio.RECORDING_RETENTION_SEC - 1,
+            "createdAt": time.time() - studio.recordings.RECORDING_RETENTION_SEC - 1,
         }]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-        self.assertEqual(studio.get_project(project["id"])["sources"], [])
+        self.assertEqual(studio.projects.get_project(project["id"])["sources"], [])
         self.assertFalse(source_path.exists())
         self.assertFalse(audio_path.exists())
 
     def test_video_import_creates_a_browser_compatible_preview_asset(self):
-        project = studio.create_project("Video preview")
+        project = studio.projects.create_project("Video preview")
         staged = Path(self.temp.name) / "outside.mkv"
         staged.write_bytes(b"video-with-audio")
 
-        with patch.object(
-            studio,
-            "_probe_media",
+        with patch.object(studio.media, "_probe_media",
             return_value={
                 "durationSec": 12.0,
                 "hasVideo": True,
@@ -366,80 +361,77 @@ class StudioProjectTests(unittest.TestCase):
                 "channels": 1,
                 "formatName": "matroska",
             },
-        ), patch.object(studio, "_extract_edit_audio") as extract, patch.object(
-            studio, "_create_video_preview", create=True
+        ), patch.object(studio.media, "_extract_edit_audio") as extract, patch.object(studio.media, "_create_video_preview", create=True
         ) as create_preview:
             extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(12))
             create_preview.side_effect = lambda _source, target: target.write_bytes(b"h264-aac-preview")
-            source = studio.import_source_path(project["id"], staged, "Interview.mkv")
+            source = studio.media.import_source_path(project["id"], staged, "Interview.mkv")
 
         create_preview.assert_called_once()
         self.assertTrue(source["previewUrl"].endswith("/preview"))
-        preview = studio.asset_path(project["id"], source["id"], "preview")
+        preview = studio.downloads.asset_path(project["id"], source["id"], "preview")
         self.assertEqual(preview.suffix, ".mp4")
         self.assertEqual(preview.read_bytes(), b"h264-aac-preview")
 
     def test_media_probe_requires_an_audio_stream(self):
-        with patch.object(
-            studio,
-            "_run_media_tool",
+        with patch.object(studio.media, "_run_media_tool",
             return_value=json.dumps({"format": {"duration": "2"}, "streams": [{"codec_type": "video"}]}),
         ):
             with self.assertRaisesRegex(ValueError, "audio stream"):
-                studio._probe_media(Path("video.mp4"))
+                studio.media._probe_media(Path("video.mp4"))
 
     def test_media_probe_rejects_unbounded_duration(self):
         payload = {
             "streams": [{"codec_type": "audio", "sample_rate": "24000", "channels": 1}],
-            "format": {"duration": str(studio.MAX_SOURCE_DURATION_SEC + 1), "format_name": "wav"},
+            "format": {"duration": str(studio.manifest.MAX_SOURCE_DURATION_SEC + 1), "format_name": "wav"},
         }
-        with patch.object(studio, "_run_media_tool", return_value=json.dumps(payload)):
+        with patch.object(studio.media, "_run_media_tool", return_value=json.dumps(payload)):
             with self.assertRaisesRegex(ValueError, "six hours"):
-                studio._probe_media(Path("long.wav"))
+                studio.media._probe_media(Path("long.wav"))
 
     def test_generation_settings_are_bounded_and_canonical(self):
-        settings = studio.validate_generation_settings(
+        settings = studio.narration.validate_generation_settings(
             {"pace": 1.1, "expression": 0.7, "temperature": 0.9, "guidance": 0.3, "seed": 42}
         )
         self.assertEqual(settings["seed"], 42)
         self.assertEqual(settings["pace"], 1.1)
 
         with self.assertRaisesRegex(ValueError, "pace"):
-            studio.validate_generation_settings({"pace": 2})
+            studio.narration.validate_generation_settings({"pace": 2})
         with self.assertRaisesRegex(ValueError, "seed"):
-            studio.validate_generation_settings({"seed": -1})
+            studio.narration.validate_generation_settings({"seed": -1})
 
     def test_open_project_folder_uses_only_the_managed_project_root(self):
-        project = studio.create_project("Reveal")
-        with patch.object(studio, "_open_directory") as open_directory:
-            result = studio.open_project_folder(project["id"])
+        project = studio.projects.create_project("Reveal")
+        with patch.object(studio.downloads, "_open_directory") as open_directory:
+            result = studio.downloads.open_project_folder(project["id"])
 
-        open_directory.assert_called_once_with(studio.project_dir(project["id"]).resolve())
+        open_directory.assert_called_once_with(studio.manifest.project_dir(project["id"]).resolve())
         self.assertEqual(result, {"opened": True})
         with self.assertRaises(ValueError):
-            studio.open_project_folder("..\\outside")
+            studio.downloads.open_project_folder("..\\outside")
 
     def test_background_job_progress_and_result_are_persisted(self):
-        project = studio.create_project("Jobs")
+        project = studio.projects.create_project("Jobs")
 
         def work(*, job_id, cancel_event):
             self.assertFalse(cancel_event.is_set())
-            studio.update_job_progress(project["id"], job_id, 0.5, "Halfway")
+            studio.jobs.update_job_progress(project["id"], job_id, 0.5, "Halfway")
             return {"assetId": "result-1"}
 
-        submitted = studio.submit_job(project["id"], "TEST", work)
+        submitted = studio.jobs.submit_job(project["id"], "TEST", work)
         deadline = time.time() + 3
         job = submitted
         while job["status"] not in {"COMPLETED", "FAILED", "CANCELLED"} and time.time() < deadline:
             time.sleep(0.01)
-            job = studio.get_job(submitted["id"])
+            job = studio.jobs.get_job(submitted["id"])
 
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["progress"], 1.0)
         self.assertEqual(job["result"], {"assetId": "result-1"})
 
     def test_cancelled_background_job_is_not_reclassified_as_failed(self):
-        project = studio.create_project("Cancelled job")
+        project = studio.projects.create_project("Cancelled job")
         started = threading.Event()
 
         def work(*, job_id, cancel_event):
@@ -447,26 +439,24 @@ class StudioProjectTests(unittest.TestCase):
             self.assertTrue(cancel_event.wait(2))
             raise RuntimeError("Output download was cancelled.")
 
-        submitted = studio.submit_job(project["id"], "TEST", work)
+        submitted = studio.jobs.submit_job(project["id"], "TEST", work)
         self.assertTrue(started.wait(2))
-        studio.cancel_job(submitted["id"])
+        studio.jobs.cancel_job(submitted["id"])
         deadline = time.time() + 3
-        job = studio.get_job(submitted["id"])
+        job = studio.jobs.get_job(submitted["id"])
         while job["message"] == "Cancelling" and time.time() < deadline:
             time.sleep(0.01)
-            job = studio.get_job(submitted["id"])
+            job = studio.jobs.get_job(submitted["id"])
 
         self.assertEqual(job["status"], "CANCELLED")
         self.assertEqual(job["message"], "Cancelled")
         self.assertNotIn("error", job)
 
     def test_source_clip_creates_a_global_voice_profile_with_consent(self):
-        project = studio.create_project("Profile")
+        project = studio.projects.create_project("Profile")
         staged = Path(self.temp.name) / "voice.wav"
         staged.write_bytes(wav_bytes(10))
-        with patch.object(
-            studio,
-            "_probe_media",
+        with patch.object(studio.media, "_probe_media",
             return_value={
                 "durationSec": 10.0,
                 "hasVideo": False,
@@ -474,33 +464,33 @@ class StudioProjectTests(unittest.TestCase):
                 "channels": 1,
                 "formatName": "wav",
             },
-        ), patch.object(studio, "_extract_edit_audio") as extract:
+        ), patch.object(studio.media, "_extract_edit_audio") as extract:
             extract.side_effect = lambda source, target, **_: target.write_bytes(source.read_bytes())
-            source = studio.import_source_path(project["id"], staged, "voice.wav")
+            source = studio.media.import_source_path(project["id"], staged, "voice.wav")
 
         with self.assertRaisesRegex(ValueError, "permission"):
-            studio.create_voice_profile(
+            studio.voice_profiles.create_voice_profile(
                 project["id"], source["id"], "My Voice", 1, 7, consent_confirmed=False
             )
 
-        with patch.object(studio, "_extract_profile_clip") as extract_profile:
+        with patch.object(studio.media, "_extract_profile_clip") as extract_profile:
             extract_profile.side_effect = (
                 lambda _source, target, **_: target.write_bytes(wav_bytes(6))
             )
-            profile = studio.create_voice_profile(
+            profile = studio.voice_profiles.create_voice_profile(
                 project["id"], source["id"], "My Voice", 1, 7, consent_confirmed=True
             )
 
         self.assertEqual(profile["id"], "my_voice")
         self.assertTrue((Path(self.temp.name) / "voices" / "my_voice.wav").is_file())
-        with studio.device_scope("b" * 32):
+        with studio.devices.device_scope("b" * 32):
             self.assertIn("my_voice", {item["id"] for item in voice_profile_service.list_profiles()})
             with self.assertRaises(FileNotFoundError):
-                studio.get_project(project["id"])
+                studio.projects.get_project(project["id"])
 
     def test_profile_clip_must_be_between_five_and_thirty_seconds(self):
-        project = studio.create_project("Profile bounds")
-        project_path = studio.project_dir(project["id"])
+        project = studio.projects.create_project("Profile bounds")
+        project_path = studio.manifest.project_dir(project["id"])
         source_id = "b" * 32
         source_path = project_path / "sources" / f"{source_id}.wav"
         source_path.write_bytes(wav_bytes(40))
@@ -514,12 +504,12 @@ class StudioProjectTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "5 and 30"):
-            studio.create_voice_profile(
+            studio.voice_profiles.create_voice_profile(
                 project["id"], source_id, "Short", 0, 4, consent_confirmed=True
             )
 
     def test_narration_promotes_session_audio_into_immutable_project_output(self):
-        project = studio.create_project("Narration")
+        project = studio.projects.create_project("Narration")
         session_dir = Path(self.temp.name) / "sessions" / f'studio-{project["id"]}'
         session_dir.mkdir(parents=True)
         session_audio = session_dir / "generated.wav"
@@ -532,32 +522,32 @@ class StudioProjectTests(unittest.TestCase):
         }
         future = Future()
         future.set_result(generated)
-        settings = studio.validate_generation_settings({"seed": 9})
+        settings = studio.narration.validate_generation_settings({"seed": 9})
 
         with patch("services.tts_service.submit_tts", return_value=future) as submit:
-            output = studio.create_narration(
+            output = studio.narration.create_narration(
                 project["id"], "Hello.", "en", "imported_voice", settings
             )
 
         self.assertEqual(output["kind"], "NARRATION")
         self.assertEqual(output["wordTimings"][0]["word"], "Hello")
         self.assertNotIn("path", output)
-        self.assertTrue(studio.asset_path(project["id"], output["id"]).is_file())
-        self.assertEqual(studio.get_project(project["id"])["script"], "Hello.")
+        self.assertTrue(studio.downloads.asset_path(project["id"], output["id"]).is_file())
+        self.assertEqual(studio.projects.get_project(project["id"])["script"], "Hello.")
         self.assertEqual(submit.call_args.args[0].name, "CURRENT")
         self.assertEqual(submit.call_args.args[4], "imported_voice")
         self.assertEqual(output["voiceId"], "imported_voice")
 
-        second = studio.get_project(project["id"])["outputs"][0]
+        second = studio.projects.get_project(project["id"])["outputs"][0]
         self.assertEqual(second["id"], output["id"])
 
     def test_repair_replaces_only_selected_audio_and_preserves_total_duration(self):
-        project = studio.create_project("Repair")
-        project_path = studio.project_dir(project["id"])
+        project = studio.projects.create_project("Repair")
+        project_path = studio.manifest.project_dir(project["id"])
         source_id = "c" * 32
         source_audio = project_path / "derived" / f"{source_id}.wav"
         source_audio.write_bytes(wav_bytes(4))
-        original_digest = studio._sha256_file(source_audio)
+        original_digest = studio.media._sha256_file(source_audio)
         source_file = project_path / "sources" / f"{source_id}.wav"
         source_file.write_bytes(source_audio.read_bytes())
         manifest_path = project_path / "manifest.json"
@@ -578,15 +568,15 @@ class StudioProjectTests(unittest.TestCase):
         future.set_result({"audio_url": f"/sessions/{session_id}/replacement.wav"})
 
         with patch("services.tts_service.submit_tts", return_value=future) as submit:
-            result = studio.create_repair(
+            result = studio.repair.create_repair(
                 project["id"], source_id, 1.0, 2.0, "corrected phrase", "en", None,
-                studio.validate_generation_settings({"seed": 2}),
+                studio.narration.validate_generation_settings({"seed": 2}),
             )
 
-        repaired_path = studio.asset_path(project["id"], result["output"]["id"])
+        repaired_path = studio.downloads.asset_path(project["id"], result["output"]["id"])
         with wave.open(str(repaired_path), "rb") as repaired_wav:
             self.assertAlmostEqual(repaired_wav.getnframes() / repaired_wav.getframerate(), 4.0, places=2)
-        self.assertEqual(studio._sha256_file(source_audio), original_digest)
+        self.assertEqual(studio.media._sha256_file(source_audio), original_digest)
         self.assertEqual(result["repair"]["replacementText"], "corrected phrase")
         self.assertEqual(result["output"]["kind"], "REPAIR_AUDIO")
         from services import tts_service
@@ -598,11 +588,11 @@ class StudioProjectTests(unittest.TestCase):
 
         replacement = np.ones((2_400, 1), dtype=np.float32)
         with self.assertRaisesRegex(ValueError, "selection"):
-            studio._fit_replacement(replacement, 24_000, 24_000)
+            studio.repair._fit_replacement(replacement, 24_000, 24_000)
 
     def test_video_export_creates_a_new_asset_without_modifying_original(self):
-        project = studio.create_project("Video export")
-        root = studio.project_dir(project["id"])
+        project = studio.projects.create_project("Video export")
+        root = studio.manifest.project_dir(project["id"])
         source_id = "d" * 32
         output_id = "e" * 32
         repair_id = "f" * 32
@@ -610,7 +600,7 @@ class StudioProjectTests(unittest.TestCase):
         original.write_bytes(b"immutable-video")
         repaired_audio = root / "outputs" / f"{output_id}.wav"
         repaired_audio.write_bytes(wav_bytes(2))
-        original_hash = studio._sha256_file(original)
+        original_hash = studio.media._sha256_file(original)
         manifest_path = root / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["sources"] = [{
@@ -632,12 +622,12 @@ class StudioProjectTests(unittest.TestCase):
             Path(args[-1]).write_bytes(b"repaired-video")
             return ""
 
-        with patch.object(studio, "_run_media_tool", side_effect=fake_ffmpeg):
-            exported = studio.export_repair_video(project["id"], repair_id)
+        with patch.object(studio.media, "_run_media_tool", side_effect=fake_ffmpeg):
+            exported = studio.repair.export_repair_video(project["id"], repair_id)
 
         self.assertEqual(exported["kind"], "REPAIR_VIDEO")
-        self.assertEqual(studio._sha256_file(original), original_hash)
-        self.assertTrue(studio.asset_path(project["id"], exported["id"]).is_file())
+        self.assertEqual(studio.media._sha256_file(original), original_hash)
+        self.assertTrue(studio.downloads.asset_path(project["id"], exported["id"]).is_file())
 
 
 class StudioVoiceConversionTests(unittest.TestCase):
@@ -645,10 +635,10 @@ class StudioVoiceConversionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = os.environ.get("DATA_DIR")
         os.environ["DATA_DIR"] = self.temp.name
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
 
     def tearDown(self):
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         if self.previous is None:
             os.environ.pop("DATA_DIR", None)
         else:
@@ -656,8 +646,8 @@ class StudioVoiceConversionTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _project_with_source(self, name: str, *, source_id: str, duration: float = 12.0) -> dict:
-        project = studio.create_project(name)
-        root = studio.project_dir(project["id"])
+        project = studio.projects.create_project(name)
+        root = studio.manifest.project_dir(project["id"])
         (root / "sources" / f"{source_id}.wav").write_bytes(wav_bytes(duration))
         (root / "derived" / f"{source_id}.wav").write_bytes(wav_bytes(duration))
         manifest_path = root / "manifest.json"
@@ -696,9 +686,9 @@ class StudioVoiceConversionTests(unittest.TestCase):
         future = self._converted_future(project["id"])
 
         with patch("services.tts_service.submit_tts", return_value=future) as submit, \
-                patch.object(studio, "_extract_clip") as extract:
+                patch.object(studio.narration, "_extract_clip") as extract:
             extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(4))
-            output = studio.create_conversion(
+            output = studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 start_sec=2.0,
@@ -713,16 +703,16 @@ class StudioVoiceConversionTests(unittest.TestCase):
         self.assertEqual(output["endSec"], 6.0)
         self.assertNotIn("path", output)
         self.assertTrue(output["fileName"].endswith("-converted.wav"))
-        self.assertTrue(studio.asset_path(project["id"], output["id"]).is_file())
+        self.assertTrue(studio.downloads.asset_path(project["id"], output["id"]).is_file())
         # The reference is the stored profile, not a copy of the source speaker.
         self.assertTrue(str(submit.call_args.args[3]).endswith("narrator.wav"))
-        self.assertEqual(studio.get_project(project["id"])["voiceId"], "narrator")
+        self.assertEqual(studio.projects.get_project(project["id"])["voiceId"], "narrator")
 
     def test_conversion_can_take_its_target_voice_from_another_recording(self):
         source_id = "2" * 32
         target_id = "3" * 32
         project = self._project_with_source("Convert from file", source_id=source_id)
-        root = studio.project_dir(project["id"])
+        root = studio.manifest.project_dir(project["id"])
         (root / "derived" / f"{target_id}.wav").write_bytes(wav_bytes(20))
         manifest_path = root / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -739,9 +729,9 @@ class StudioVoiceConversionTests(unittest.TestCase):
         future = self._converted_future(project["id"])
 
         with patch("services.tts_service.submit_tts", return_value=future), \
-                patch.object(studio, "_extract_clip") as extract:
+                patch.object(studio.narration, "_extract_clip") as extract:
             extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(8))
-            output = studio.create_conversion(
+            output = studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 target_source_id=target_id,
@@ -756,18 +746,18 @@ class StudioVoiceConversionTests(unittest.TestCase):
         self.assertEqual(output["targetVoiceName"], "target-speaker.wav")
         # A file-sourced target must not leak into the global voice library.
         self.assertFalse((Path(self.temp.name) / "voices" / "target-speaker.wav").exists())
-        self.assertIsNone(studio.get_project(project["id"])["voiceId"])
+        self.assertIsNone(studio.projects.get_project(project["id"])["voiceId"])
 
     def test_conversion_requires_consent_one_target_and_a_valid_region(self):
         source_id = "4" * 32
         project = self._project_with_source("Guards", source_id=source_id)
 
         with self.assertRaisesRegex(ValueError, "permission"):
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"], source_id, target_voice_id="narrator", consent_confirmed=False
             )
         with self.assertRaisesRegex(ValueError, "exactly one target"):
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 target_voice_id="narrator",
@@ -775,9 +765,9 @@ class StudioVoiceConversionTests(unittest.TestCase):
                 consent_confirmed=True,
             )
         with self.assertRaisesRegex(ValueError, "exactly one target"):
-            studio.create_conversion(project["id"], source_id, consent_confirmed=True)
+            studio.conversion.create_conversion(project["id"], source_id, consent_confirmed=True)
         with self.assertRaisesRegex(ValueError, "half a second"):
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 start_sec=1.0,
@@ -786,7 +776,7 @@ class StudioVoiceConversionTests(unittest.TestCase):
                 consent_confirmed=True,
             )
         with self.assertRaisesRegex(ValueError, "beyond the recording"):
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 start_sec=0.0,
@@ -799,7 +789,7 @@ class StudioVoiceConversionTests(unittest.TestCase):
         source_id = "6" * 32
         project = self._project_with_source("Missing voice", source_id=source_id)
         with self.assertRaisesRegex(FileNotFoundError, "target voice profile"):
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"], source_id, target_voice_id="not_here", consent_confirmed=True
             )
 
@@ -812,9 +802,9 @@ class StudioVoiceConversionTests(unittest.TestCase):
         future = self._converted_future(project["id"])
 
         with patch("services.tts_service.submit_tts", return_value=future), \
-                patch.object(studio, "_extract_clip") as extract:
+                patch.object(studio.narration, "_extract_clip") as extract:
             extract.side_effect = lambda _source, target, **_: target.write_bytes(wav_bytes(4))
-            studio.create_conversion(
+            studio.conversion.create_conversion(
                 project["id"],
                 source_id,
                 start_sec=1.0,
@@ -823,14 +813,14 @@ class StudioVoiceConversionTests(unittest.TestCase):
                 consent_confirmed=True,
             )
 
-        self.assertEqual(list((studio.studio_root() / "staging").iterdir()), [])
+        self.assertEqual(list((studio.manifest.studio_root() / "staging").iterdir()), [])
 
     def test_conversion_workflow_is_selectable_on_a_project(self):
-        project = studio.create_project("Workflow")
-        updated = studio.update_project(project["id"], {"activeWorkflow": "CONVERSION"})
+        project = studio.projects.create_project("Workflow")
+        updated = studio.projects.update_project(project["id"], {"activeWorkflow": "CONVERSION"})
         self.assertEqual(updated["activeWorkflow"], "CONVERSION")
         with self.assertRaisesRegex(ValueError, "Invalid Studio workflow"):
-            studio.update_project(project["id"], {"activeWorkflow": "TRANSMOGRIFY"})
+            studio.projects.update_project(project["id"], {"activeWorkflow": "TRANSMOGRIFY"})
 
 
 if __name__ == "__main__":
