@@ -768,6 +768,39 @@ def log_tail(path: str, lines: int = 25, limit: int = 16000) -> str:
     return tail[-limit:]
 
 
+def _sticky_port_for(runtime_dir: str) -> int:
+    """The port this install last came up ready on, if plausible.
+
+    Thin wrapper over scripts/port_state.py so we don't have to
+    import the scripts module from the top-level launch.py namespace.
+    """
+    try:
+        # Add scripts/ to sys.path on first call so we can find
+        # port_state without making it a top-level import (which would
+        # require shipping port_state.py in the install).
+        scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import port_state  # noqa: WPS433  - lazy import on purpose
+
+        return port_state.load_preferred_port(runtime_dir)
+    except Exception:
+        return 0
+
+
+def _port_free_quietly(host: str, port: int) -> bool:
+    """Same as scripts/port_state.port_free but imported lazily."""
+    try:
+        scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import port_state  # noqa: WPS433  - lazy import on purpose
+
+        return port_state.port_free(host, port)
+    except Exception:
+        return False
+
+
 def pick_port(log: Logger, host: str = LOOPBACK_HOST, pinned: int = 0, exclude: tuple = ()) -> int:
     """Return a free port, or raise PortUnavailable with a user-ready message.
 
@@ -1288,6 +1321,17 @@ def main(argv: list[str] | None = None) -> int:
                 return
             pinned = resolve_pinned_port(args.port)
             try:
+                # Prefer the sticky port from a previous run if no
+                # explicit pin is given. This makes the bookmarked
+                # phone URL + tunnel routing survive alternation
+                # between BookVoice.exe and Start-BookVoice-Server.bat
+                # (audit finding C-30). We delegate to port_state via
+                # choose_port-equivalent logic in serve_bookvoice.
+                if pinned == 0:
+                    sticky = _sticky_port_for(runtime_dir)
+                    if sticky and _port_free_quietly(bind_host, sticky):
+                        pinned = sticky
+                        log.write(f"reusing sticky port {pinned}")
                 port = pick_port(log, bind_host, pinned)
             except PortUnavailable as exc:
                 state["error"] = str(exc)
@@ -1574,6 +1618,19 @@ def main(argv: list[str] | None = None) -> int:
                     if args.no_window:
                         log.write("backend ready (--no-window)")
                     else:
+                        # Persist the port so the next launch (including
+                        # a switch to Start-BookVoice-Server.bat) can
+                        # prefer it. Audit finding C-30: both launchers
+                        # read/write the same sticky-port file.
+                        try:
+                            scripts_dir = os.path.join(
+                                os.path.dirname(os.path.abspath(__file__)), "scripts")
+                            if scripts_dir not in sys.path:
+                                sys.path.insert(0, scripts_dir)
+                            import port_state  # noqa: WPS433
+                            port_state.save_preferred_port(runtime_dir, port)
+                        except Exception as exc:
+                            log.write(f"sticky-port save failed: {exc}")
                         if window is not None:
                             status("Ready", "Opening your BookVoice workspace…", 100)
                             window.load_url(open_url)

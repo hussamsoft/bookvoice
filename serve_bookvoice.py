@@ -34,12 +34,23 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 if str(os.path.dirname(os.path.abspath(__file__))) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
 
 import launch
 import tunnel
+# port_state is a sibling helper for the sticky-port file shared
+# between launch.py and serve_bookvoice.py.
+import port_state  # noqa: E402  - imported after path insertion above
+# port_state is a sibling helper for the sticky-port file shared
+# between launch.py and serve_bookvoice.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import port_state  # noqa: E402  - inserted path above
 
 STATE_SCHEMA = 1
 READY_TIMEOUT_S = 300
@@ -77,22 +88,12 @@ def write_state(runtime_dir: str, **payload) -> None:
 
 
 def sticky_port(runtime_dir: str) -> int:
-    """The port this install last came up ready on, if it is plausible."""
-    try:
-        with open(os.path.join(runtime_dir, "server-port.json"), encoding="utf-8") as handle:
-            port = int(json.load(handle).get("port") or 0)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return 0
-    return port if 1 <= port <= 65535 else 0
+    """Wrapper kept for backwards-compat; delegates to port_state."""
+    return port_state.load_preferred_port(runtime_dir)
 
 
 def port_free(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind((host, port))
-            return True
-        except OSError:
-            return False
+    return port_state.port_free(host, port)
 
 
 def choose_port(runtime_dir: str, bind_host: str, pinned: int, log: launch.Logger, exclude: tuple = ()) -> tuple[int, str]:
@@ -115,7 +116,7 @@ def choose_port(runtime_dir: str, bind_host: str, pinned: int, log: launch.Logge
 
 
 def remember_port(runtime_dir: str, port: int) -> None:
-    write_json_atomic(os.path.join(runtime_dir, "server-port.json"), {"port": port})
+    port_state.save_preferred_port(runtime_dir, port)
 
 
 def write_access_file(
