@@ -4,7 +4,7 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 
 ## Setup
 
-1. Start BookVoice from `dist/BookVoice-Dev.exe` (or the installed app).
+1. Start BookVoice from the packaged app. For dev work, run `python build.py` then launch `dist/BookVoice.exe` (Windows desktop) or `python launch.py --browser` (cross-platform browser mode). The legacy `dist/BookVoice-Dev.exe` was removed in 2.8.0; the dev-mode entry points are documented in README.md.
 2. Wait for the launcher to show "Model ready on CPU/CUDA" in the status area — the TTS model loads asynchronously on startup; narration is unavailable until it finishes.
 3. Open the app window. The default mode is **Read**.
 
@@ -103,7 +103,7 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 
 ### Palette Selection
 1. Click the palette selector button (left of the moon/sun icon, shows current palette name).
-2. A dropdown opens with 5 palettes: **Paper Slate**, **Ethereal Blue**, **Sage Green**, **Muted Plum**, **Sand Clay**.
+2. A dropdown opens with 5 palettes: **Aurora Ink**, **Cobalt Haze**, **Moss Glow**, **Violet Dusk**, **Ember Dusk**.
 3. Each palette offers a **Light** and **Dark** variant.
 4. Click any palette + mode combo — the entire app rethemes immediately.
 5. Selected palette persists across app restarts (stored as `bookvoice.palette`).
@@ -113,11 +113,11 @@ Step-by-step functional and UI checks for a release. Run these by hand against a
 
 | Palette | Light BG | Light Accent | Dark BG | Dark Accent |
 |---------|----------|--------------|---------|-------------|
-| Paper Slate | `#f7f5f1` (warm paper) | `#3a5a78` (slate) | `#161513` (charcoal) | `#9dbbd6` (soft blue) |
-| Ethereal Blue | `#f0f4f8` (denim) | `#3b82f6` (blue) | `#0f172a` (navy) | `#60a5fa` (sky) |
-| Sage Green | `#f0fdf4` (mint) | `#16a34a` (green) | `#052e16` (forest) | `#4ade80` (mint) |
-| Muted Plum | `#faf5ff` (lavender) | `#8b5cf6` (violet) | `#1e0a2e` (plum) | `#c084fc` (lilac) |
-| Sand Clay | `#fef7ed` (mocha) | `#ea580c` (orange) | `#1c0f08` (warm mocha) | `#fb923c` (peach) |
+| Aurora Ink | `#eef0fa` (paper) | `#5f4bd8` (violet) | `#0d0d17` (charcoal) | `#a08dfb` (soft violet) |
+| Cobalt Haze | `#edf1fb` (denim) | `#2f5fe0` (cobalt) | `#0a0f1e` (navy) | `#6f9bff` (sky) |
+| Moss Glow | `#eaf6ef` (mint) | `#0e8a5c` (moss) | `#0a1410` (forest) | `#5fd6a4` (mint) |
+| Violet Dusk | `#f3effb` (lavender) | `#7a3ff0` (violet) | `#120c1e` (plum) | `#c79bff` (lilac) |
+| Ember Dusk | `#f9f3ea` (mocha) | `#b05e10` (ember) | `#16100a` (warm mocha) | `#f0a860` (peach) |
 
 For each palette × mode combination:
 - Background is the palette's BG color.
@@ -127,8 +127,8 @@ For each palette × mode combination:
 - Focus rings are visible on tab navigation.
 
 ### Theme Persistence
-1. Select "Sage Green / Dark" palette.
-2. Close and reopen the app — palette is still "Sage Green / Dark".
+1. Select "Moss Glow / Dark" palette.
+2. Close and reopen the app — palette is still "Moss Glow / Dark".
 3. Open DevTools → Application → Local Storage:
    - `bookvoice.palette` = `"sage"`
    - `bookvoice.mode` = `"dark"`
@@ -188,17 +188,17 @@ This is hard to test on a desktop; verify via code review or by resizing to a ph
 
 ### Palette Selection
 1. Click the palette selector (shows current palette name).
-2. Dropdown opens with 5 palettes: Paper Slate, Ethereal Blue, Sage Green, Muted Plum, Sand Clay.
+2. Dropdown opens with 5 palettes: Aurora Ink, Cobalt Haze, Moss Glow, Violet Dusk, Ember Dusk.
 3. Each palette offers Light and Dark variants.
 4. Selection rethemes the app immediately.
 5. Palette persists across restarts (`bookvoice.palette`).
 
 ### All 10 Combinations (5 palettes × 2 modes)
-| Paper Slate Light | Paper Slate Dark |
-| Ethereal Blue Light | Ethereal Blue Dark |
-| Sage Green Light | Sage Green Dark |
-| Muted Plum Light | Muted Plum Dark |
-| Sand Clay Light | Sand Clay Dark |
+| Aurora Ink Light | Aurora Ink Dark |
+| Cobalt Haze Light | Cobalt Haze Dark |
+| Moss Glow Light | Moss Glow Dark |
+| Violet Dusk Light | Violet Dusk Dark |
+| Ember Dusk Light | Ember Dusk Dark |
 
 Verify each: background, accent, text contrast, borders, focus rings.
 

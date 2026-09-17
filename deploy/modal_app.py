@@ -205,6 +205,12 @@ def _remote_executor(kind, payload, *, cancel_check=None, progress=None):
         except TimeoutError:
             if cancel_check is not None and cancel_check():
                 # Stop paying for work whose result is already discarded.
+                # Audit finding D-31: Modal's call.cancel() is best-effort
+                # — a worker mid-inference cannot be aborted, so the
+                # call continues to consume GPU until natural completion.
+                # The web container will then time out waiting and
+                # discard the result, which is acceptable for the
+                # short-running Studio jobs the hosted deployment runs.
                 call.cancel()
                 raise RuntimeError(f"{kind} was cancelled.")
             continue

@@ -488,8 +488,18 @@ public sealed partial class MainWindow : Window
 
     private void OnRetryClick(object sender, RoutedEventArgs e)
     {
-        _host?.Dispose();
-        _host = null;
+        // Audit finding C-19: unsubscribe events before disposing so
+        // an in-flight RunAsync task can't dispatch to a stale _host.
+        // Dispose calls Stop which cancels the CTS, but the event
+        // handlers are still wired to this MainWindow.
+        if (_host is not null)
+        {
+            _host.StatusChanged -= OnStatus;
+            _host.BecameReady -= OnReady;
+            _host.Failed -= OnFailed;
+            _host.Dispose();
+            _host = null;
+        }
         StartBackend();
     }
 

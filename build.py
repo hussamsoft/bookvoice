@@ -494,8 +494,8 @@ def runtime_contract_errors(dist: Path) -> list[str]:
     media_tools = manifest.get("media_tools")
     if not isinstance(media_tools, dict):
         return ["runtime manifest media tools contract missing"]
-    if media_tools.get("version") != "8.1.1":
-        return ["runtime manifest media tools version is not pinned to 8.1.1"]
+    if media_tools.get("version") != scripts.stage_media_tools.PINNED_VERSION:
+        return [f"runtime manifest media tools version is not pinned to {scripts.stage_media_tools.PINNED_VERSION}"]
     worker = dist / "runtime" / "worker"
     required = [
         worker / "python.exe",
