@@ -47,6 +47,13 @@ LAUNCHER_ASSET = "BookVoice-Launcher.exe"
 # GitHub an install exists, so it stays cheap, cached, and switchable off.
 CHECK_TTL_SECONDS = 24 * 60 * 60
 NETWORK_TIMEOUT = 15
+# Hard upper bound on the in-app updater's BookVoice-Launcher.exe
+# download. The bootstrapper caps the fresh-install download at the
+# same value (scripts/setup_bootstrapper.py:74). Without this cap
+# the in-app updater would happily stream a 10 GB blob and only
+# reject it at the final checksum — an OOM / disk-fill hazard.
+# Q6 recommendation: 1 GiB.
+MAX_ASSET_BYTES = 1 * 1024 * 1024 * 1024
 
 # launch.py's watchdog restarts a backend that exits (uvicorn's proactor accept
 # loop can die silently, so a bare exit means "crashed"). This code means "I
@@ -256,6 +263,11 @@ def download_installer(version: str, *, tag: str | None = None) -> Path:
     Only ``BookVoice-Launcher.exe`` is fetched here. It is a listed asset in
     ``release-assets.json`` -- never one of ``products.*.cabinets``, so it is
     checksummed without the launcher being asked to download itself.
+
+    Audit finding C-22 / Q6: enforce a 1 GiB hard cap on bytes received
+    during streaming, so a 2 GiB blob cannot OOM the process even if
+    the checksum would have caught it at the end. Mirrors the cap in
+    scripts/setup_bootstrapper.py:74.
     """
     tag = tag or f"v{version}"
     existing = staged_installer(version)
@@ -264,14 +276,20 @@ def download_installer(version: str, *, tag: str | None = None) -> Path:
     if not isinstance(expected, dict) or "sha256" not in expected or "size" not in expected:
         raise RuntimeError(f"Release {tag} does not publish {LAUNCHER_ASSET}.")
 
+    total = int(expected["size"])
+    if total <= 0 or total > MAX_ASSET_BYTES:
+        raise RuntimeError(
+            f"Refusing to download {LAUNCHER_ASSET}: declared size {total} "
+            f"is outside (0, {MAX_ASSET_BYTES}] bytes."
+        )
+
     target = _updates_dir() / version / LAUNCHER_ASSET
-    if existing and existing.stat().st_size == int(expected["size"]) and _sha256(existing) == expected["sha256"]:
-        _set_status(state="ready", version=version, received=int(expected["size"]), total=int(expected["size"]), error=None)
+    if existing and existing.stat().st_size == total and _sha256(existing) == expected["sha256"]:
+        _set_status(state="ready", version=version, received=total, total=total, error=None)
         return existing
 
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(target.suffix + ".part")
-    total = int(expected["size"])
     _set_status(state="downloading", version=version, received=0, total=total, error=None)
 
     url = f"{RELEASES_URL}/download/{tag}/{LAUNCHER_ASSET}"
@@ -281,6 +299,13 @@ def download_installer(version: str, *, tag: str | None = None) -> Path:
             chunk = response.read(1024 * 1024)
             if not chunk:
                 break
+            # Per-chunk cap: refuse to grow the partial beyond
+            # MAX_ASSET_BYTES even if the server streams more.
+            if received + len(chunk) > MAX_ASSET_BYTES:
+                raise RuntimeError(
+                    f"Aborting {LAUNCHER_ASSET}: response exceeded "
+                    f"{MAX_ASSET_BYTES} bytes."
+                )
             output.write(chunk)
             received += len(chunk)
             _set_status(received=received)
