@@ -46,9 +46,9 @@ import TextStage from './TextStage';
 const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
 /**
- * Reader — composition root for the migrated reader.
+ * Reader — composition root for the reader.
  *
- * Stage A.8.1 opens real books: files land in the prepared library
+ * Opens real books: files land in the prepared library
  * (`importPreparedBook`), PDFs render through `PdfStage` (react-pdf),
  * text books (.epub/.txt/.md) stream their pages from the server, and
  * reading progress is keyed by the document fingerprint so it survives
@@ -57,9 +57,17 @@ const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  * `usePdfDocument` core; freshly extracted pages are written back to
  * the library so it stays authoritative.
  *
- * The TTS/audio port is the remaining A.8 work: the transport wraps an
- * empty ref, so play/pause, mute, seek, and true audio resume are
- * intentional no-ops until the narration pipeline lands.
+ * Narration pipeline: pages narrate through `useReaderNarration`
+ * using a chunked streaming endpoint (see `narrateTextStream`).
+ * Playback is gapless: the audio element loads chunk N+1 within the
+ * 50 ms seam budget when chunk N ends. Sleep timer (5/10/15/30/45/60
+ * minutes or "End of chapter") is wired through the shared
+ * `useSleepTimer` and only fires on natural page ends (not user
+ * stops) so Stop mid-page does not prematurely end the sleep arm.
+ *
+ * Use `?reader=old` to fall back to the legacy PdfViewer.jsx during
+ * the deprecation window (slice 0.5 deletes it once the contract gaps
+ * in `CONTRACT.md` and `PARITY.md` are closed).
  */
 export default function Reader() {
     const toast = useToast();
