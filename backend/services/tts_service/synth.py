@@ -99,10 +99,12 @@ def _generation_kwargs(settings: dict | None, *, chunk_index: int = 0) -> dict:
         except (TypeError, ValueError):
             cfg_weight = _auto_guidance(expression)
         else:
-            if not cfg_weight > 0.0:
-                # 0.0, negatives, and NaN cannot disable CFG: the batch-2
-                # contract inside t3.py requires doubled tokens, and a 0.0
-                # weight saves no compute. Fall back to the automatic value.
+            # 0.0, negatives, and NaN cannot disable CFG: the batch-2
+            # contract inside t3.py requires doubled tokens, and a 0.0
+            # weight saves no compute. Fall back to the automatic value.
+            # NaN must be checked first because NaN > 0 is False but
+            # NaN <= 0 is also False; we want the fallback for NaN.
+            if cfg_weight != cfg_weight or cfg_weight <= 0.0:
                 cfg_weight = _auto_guidance(expression)
             elif cfg_weight > 1.0:
                 cfg_weight = 1.0
