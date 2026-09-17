@@ -173,11 +173,31 @@ def trust_proxy_headers() -> bool:
 
 
 def throttle_key(client_host: str, forwarded_for: str = "", *, trust_proxy_headers: bool = False) -> str:
-    """Throttle key for a login attempt: direct address, or the proxied one."""
+    """Throttle key for a login attempt: direct address, or the proxied one.
+
+    When ``trust_proxy_headers=True`` is set and the proxied address is
+    missing, the operator must explicitly opt back into per-peer bucketing
+    by setting ``BOOKVOICE_LOGIN_TRUST_REMOTE_DIRECT=true``. Without that
+    opt-in we fall back to a global key rather than the silent "unknown"
+    bucket that every client behind a proxy that didn't forward
+    ``X-Forwarded-For`` would otherwise share. Sharing one throttle bucket
+    across every remote peer makes the gate a one-guesser DoS for everyone
+    behind the proxy (audit finding C-25).
+    """
     if trust_proxy_headers:
         first = str(forwarded_for or "").split(",", 1)[0].strip()
         if first:
             return f"proxy:{first}"
+        # Trust is on but no X-Forwarded-For arrived. Without an explicit
+        # opt-in to bucketing by direct peer, fall back to a global key
+        # rather than merging every client into one "unknown" bucket.
+        # Operators can set BOOKVOICE_LOGIN_TRUST_REMOTE_DIRECT=1 to
+        # restore the previous per-peer behaviour when their proxy
+        # legitimately drops X-Forwarded-For on the trusted network.
+        if not str(os.environ.get("BOOKVOICE_LOGIN_TRUST_REMOTE_DIRECT", "")).strip().lower() in {
+            "1", "true", "yes", "on",
+        }:
+            return "proxy:missing-x-forwarded-for"
     return f"direct:{client_host or 'unknown'}"
 
 
