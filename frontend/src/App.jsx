@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/shell/Sidebar';
 import TopBar from './components/shell/TopBar';
 import HomeView from './components/shell/HomeView';
@@ -13,15 +13,14 @@ import { useTtsStatus } from './hooks/useTtsStatus';
 import { useTheme } from './hooks/useTheme';
 
 const BookSession = lazy(() => import('./components/BookSession'));
-const PdfViewer = lazy(() => import('./components/PdfViewer'));
 const VoiceStudio = lazy(() => import('./components/VoiceStudio'));
 const Reader = lazy(() => import('./components/reader/Reader'));
 
 const VIEW_TITLES = {
     home: 'Home',
     library: 'Library',
-    reader: 'Reading',
-    scan: 'Scan pages',
+    reader: 'Reader',
+    scan: 'Scanner',
     studio: 'Voice Studio',
 };
 
@@ -42,16 +41,6 @@ export default function App() {
     const [transitioning, setTransitioning] = useState(false);
     const [displayView, setDisplayView] = useState(view);
     const prevViewRef = useRef(view);
-
-    // Stage A feature flag. The new reader composition is being extracted
-    // from PdfViewer.jsx: `?reader=new` previews it while the production
-    // PdfViewer stays the default (including for `?reader=old` or any
-    // other value). Making the new reader the default — and deleting the
-    // flag — is a separate, later decision.
-    const useNewReader = useMemo(() => {
-        if (typeof window === 'undefined') return false;
-        return new URLSearchParams(window.location.search).get('reader') === 'new';
-    }, []);
 
     const theme = useTheme();
     const tts = useTtsStatus();
@@ -120,22 +109,7 @@ export default function App() {
 
     const markScanDirty = useCallback(() => setScanDirty(true), []);
 
-    const reader = useNewReader ? (
-        <Reader key={`reader-${readerEpoch}`} />
-    ) : (
-        <PdfViewer
-            key={`reader-${readerEpoch}`}
-            onDirty={() => { /* progress persists; leaving the reader is always safe */ }}
-            onExit={() => {
-                try {
-                    window.history.replaceState(null, '', '/');
-                } catch {
-                    /* Deep-link cleanup is best-effort. */
-                }
-                navigate('library');
-            }}
-        />
-    );
+    const reader = <Reader key={`reader-${readerEpoch}`} />;
 
     const contextTitle = view === 'reader' ? VIEW_TITLES.reader : VIEW_TITLES[view] || '';
 

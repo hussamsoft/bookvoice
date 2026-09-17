@@ -65,9 +65,8 @@ const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  * `useSleepTimer` and only fires on natural page ends (not user
  * stops) so Stop mid-page does not prematurely end the sleep arm.
  *
- * Use `?reader=old` to fall back to the legacy PdfViewer.jsx during
- * the deprecation window (slice 0.5 deletes it once the contract gaps
- * in `CONTRACT.md` and `PARITY.md` are closed).
+ * The legacy `?reader=old` fallback to PdfViewer.jsx was removed in
+ * 2.8.0. This reader is the only option.
  */
 export default function Reader() {
     const toast = useToast();

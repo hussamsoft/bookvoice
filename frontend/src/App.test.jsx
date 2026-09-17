@@ -15,10 +15,6 @@ vi.mock('./components/BookSession', () => ({
     ),
 }));
 
-vi.mock('./components/PdfViewer', () => ({
-    default: () => <div data-testid="pdf-viewer-mock">Pdf Viewer Component</div>,
-}));
-
 vi.mock('./components/VoiceStudio', () => ({
     default: () => <div data-testid="voice-studio-mock">Voice Studio Component</div>,
 }));
@@ -102,8 +98,8 @@ describe('App shell navigation', () => {
 
         fireEvent.click(screen.getByRole('button', { name: /Alice in Wonderland/ }));
 
-        expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
-        expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
+        expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
+        expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
         expect(localStorage.getItem('bookvoice.lastBook')).toBe('b1');
         expect(window.location.search).toBe('?book=b1');
     });
@@ -111,19 +107,22 @@ describe('App shell navigation', () => {
     it('opens a `?book=` deep link straight into the reader', async () => {
         window.history.replaceState(null, '', '/?book=b9');
         renderApp();
-        expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
+        expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
     });
 
-    it('keeps the production PdfViewer for the legacy reader flag', async () => {
+    it('mounts the new Reader behind ?reader=new (legacy flag is ignored)', async () => {
+        // The legacy ?reader=old flag used to switch to PdfViewer; after
+        // deleting PdfViewer.jsx, the flag is no longer recognized and
+        // the new Reader mounts unconditionally.
         window.history.replaceState(null, '', '/?reader=old&book=b1');
         renderApp();
-        expect(await screen.findByTestId('pdf-viewer-mock')).toBeInTheDocument();
-        expect(screen.queryByTestId('reader-mock')).not.toBeInTheDocument();
+        expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
+        expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
     });
 
-    it('mounts the new Reader behind ?reader=new', async () => {
-        window.history.replaceState(null, '', '/?reader=new&book=b1');
+    it('mounts the new Reader by default (no flag set)', async () => {
         renderApp();
+        fireEvent.click(screen.getByRole('button', { name: /Alice in Wonderland/ }));
         expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
         expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
     });
@@ -169,7 +168,7 @@ describe('App shell navigation', () => {
     it('toggles light and dark mode from the top bar', () => {
         localStorage.setItem('bookvoice.mode', 'dark');
         renderApp();
-        const toggle = screen.getByRole('button', { name: 'Use light mode' });
+        const toggle = screen.getByRole('button', { name: 'Switch to light mode' });
         fireEvent.click(toggle);
         expect(document.documentElement).toHaveAttribute('data-mode', 'light');
         expect(localStorage.getItem('bookvoice.mode')).toBe('light');
