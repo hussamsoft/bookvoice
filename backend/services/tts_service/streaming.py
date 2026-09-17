@@ -264,7 +264,26 @@ def export_cached_pages(session_id, start_page, end_page):
 
 
 def pronounce_text(text, session_id, voice_id=None, language_id="en"):
-    """Return a persistent deterministic pronunciation clip."""
+    """Return a persistent deterministic pronunciation clip.
+
+    The pronunciation cache is mounted at
+    ``/sessions/pronunciation-cache/<filename>.wav`` and is publicly
+    readable by anyone who can reach the server. The earlier filename
+    scheme was a 20-char SHA over the prompt content — guessable for
+    anyone who knows what another user typed. Audit finding C-26:
+    scope the filename so it cannot be guessed cross-user.
+
+    Fix: include a deployment-scoped HMAC in the filename. The HMAC
+    uses ``BOOKVOICE_PRONUNCIATION_CACHE_SALT`` (default: derived from
+    ``BOOKVOICE_SECRET_KEY`` if set, otherwise from the deployment's
+    data dir + version). Operators are expected to set
+    ``BOOKVOICE_PRONUNCIATION_CACHE_SALT`` to a random value before
+    deploying a hosted instance; without it, the cache falls back to
+    the same SHA-only filename so existing single-user desktops
+    keep working without ceremony.
+    """
+    import hmac as _hmac
+
     validate_session_id(session_id)
     text = validate_text_length(text)
     language_id = validate_language_id(language_id)
@@ -278,7 +297,27 @@ def pronounce_text(text, session_id, voice_id=None, language_id="en"):
             voice_signature = f"{safe_voice}:{stat.st_size}:{stat.st_mtime_ns}"
     model_dir = os.environ.get("MODEL_DIR", "")
     identity = "\0".join((text, language_id, voice_signature, model_dir))
-    filename = f"clip_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}.wav"
+    identity_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    salt_env = os.environ.get("BOOKVOICE_PRONUNCIATION_CACHE_SALT", "").strip()
+    if salt_env:
+        salt = salt_env.encode("utf-8")
+    else:
+        # Best-effort fallback: hash the deployment's secret-key
+        # env if set, else the data dir + version. Single-user
+        # desktops see the same fallback across runs and the cache
+        # keeps working; a hosted deployment that fails to set the
+        # salt still gets SOME unguessability, just not against an
+        # attacker who controls the deployment files.
+        from services.config_service import app_version
+
+        salt_material = os.environ.get("BOOKVOICE_SECRET_KEY", "")
+        if not salt_material:
+            salt_material = f"{sessions_dir}|{app_version()}"
+        salt = hashlib.sha256(salt_material.encode("utf-8")).digest()
+
+    mac = _hmac.new(salt, identity_digest.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
+    filename = f"clip_{identity_digest[:16]}_{mac}.wav"
     cache_session = "pronunciation-cache"
     cache_dir = safe_join(sessions_dir, cache_session)
     cache_path = safe_join(cache_dir, filename)
