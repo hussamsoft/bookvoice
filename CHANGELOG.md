@@ -1,3 +1,38 @@
+## 2.8.0
+
+### Added
+
+- **Audit-driven fix batch for the v2.7.0 release.** Lands every actionable finding from the BookVoice audit (`REPO-AUDIT.md`) — two P0 bugs that were fixed in the working tree but never committed (sync ffmpeg on the voice upload path; wrong `chapterCount` written for EPUB/TXT imports), seven backend correctness fixes, eight infrastructure / polish items, and the removal of the legacy `PdfViewer.jsx` reader subtree. 60+ commits since v2.7.0.
+- **Accessibility audit gate is now runnable.** Vendored `axe-core` 4.10.0 (SHA256-pinned at `scripts/vendor/axe.min.js`); `scripts/audit_a11y.py` serves the stub backend and the SPA on a single port (previously the two servers ran on different ports and the SPA's `/api/*` calls landed on the static server). The CI workflow now has `audit_a11y` and `gapless_browser` jobs in `continue-on-error: true` mode.
+- **Smoke that actually tests gapless.** `scripts/smoke_gapless_browser.py` rewritten to drive the reader and measure the seam between chunk-end and chunk-N+1-src-set. The previous version replaced the page body with a synthetic `<audio>` and asserted monotonic currentTime on a single concatenated WAV — trivially true. The new version asserts a ≤ 50 ms seam under real Chromium.
+- **Sticky port shared between launchers.** Both `launch.py` (desktop launcher) and `serve_bookvoice.py` (headless server console) now read and write the same `server-port.json` via `scripts/port_state.py`. Alternating between the two entry points no longer changes the port when the previous port is free.
+- **A11Y-1 / A11Y-2 fixes committed.** Reader file input now has `aria-label="Choose a book file"`; the toast region has `role="region"`. `tasks/todo.md` A11Y-1 / A11Y-2 marked done.
+
+### Changed
+
+- **New Reader is the only option.** `?reader=old` is no longer recognized; the legacy `PdfViewer.jsx` and its six sub-components (`ReaderBanners`, `ReaderToolbar`, `ReadingOptionsPanel`, `ResumeDialog`, `TextPageColumn`, `TranscriptColumn`) plus `usePageResume` and `useReaderToolbar` are deleted. Per `PARITY.md` rows 6 and 8, the per-page ZIP export and click-to-pronounce no longer have a fallback reader; both are tracked as follow-ups.
+- **Backend correctness.** TTS `_generate_lock` released per chunk (streaming) and per window (voice conversion) — the previous scope blocked all synthesis, streaming, and pronounce-click work while a long page was narrating. Pronunciation cache filenames include a deployment-scoped HMAC (default-salted from `BOOKVOICE_SECRET_KEY` or `data_dir + version`); the previous SHA-only filename was guessable for any user who knew the prompt content. In-app updater download capped at 1 GiB with per-chunk overflow check. Login throttle no longer falls back to a global "unknown" bucket when a trusted proxy doesn't forward `X-Forwarded-For`; instead it returns `proxy:missing-x-forwarded-for` (operators can opt back into per-peer bucketing with `BOOKVOICE_LOGIN_TRUST_REMOTE_DIRECT=1`).
+- **Linux install.** `--no-install-recommends` for both the initial apt install and the t64 retry. `--host lan` and `--host all` translate to `0.0.0.0` so the systemd unit doesn't fail with "error while attempting to bind on address 'lan'". The t64 retry now also renames `libgl1` to `libgl1t64` (Ubuntu 24.04 compatibility).
+- **Reader sleep timer.** Distinguishes natural page-end from user-initiated stop via a new `naturalEndRef` exposed by `useReaderNarration`. The end-of-chapter sleep arm only fires on natural ends; Stop mid-page no longer ends the sleep timer prematurely.
+- **Debounced progress save fixed.** `Reader.jsx:248-269` was a trailing-edge debounce with `transport.currentTime` in its deps; the timer reset on every tick and the save never fired during continuous playback. Replaced with a leading-edge throttle (same pattern as `useReaderProgress.js`).
+- **`useServerPageText.findText` short-circuits on first match.** The previous implementation warmed the entire book before scanning, taking 30+ s for a 500-page cold-cache query even when the match was on page 3. The new implementation scans in wrap-around order and returns the first hit.
+- **Dormant code removed.** `backend/services/remote_execution.py` was entirely dormant (no caller registered an executor, `run_remote_job` had no caller); deleted, with `generation_gateway.dispatch` collapsed to always run locally and the test file rewritten to cover only the local path.
+- **FFmpeg pin shared.** `build.py` reads the version from `scripts/stage_media_tools.PINNED_VERSION` instead of a hard-coded literal.
+
+### Removed
+
+- `frontend/src/components/PdfViewer.jsx` (2522 lines) and its six sub-components (`ReaderBanners`, `ReaderToolbar`, `ReadingOptionsPanel`, `ResumeDialog`, `TextPageColumn`, `TranscriptColumn`).
+- `frontend/src/hooks/reader/usePageResume.js` and `frontend/src/hooks/useReaderToolbar.js` (used only by the deleted legacy reader).
+- `backend/services/remote_execution.py` and `services/generation_gateway.py:run_remote_job` (dormant; never invoked).
+
+### Known limitations
+
+- **No fallback reader.** The legacy `?reader=old` hatch has been removed; the new Reader is the only option. Users who depended on PdfViewer-specific behaviour (per-page ZIP export, click-to-pronounce, follow-narration auto-scroll, pan/drag when zoomed past viewport) have no fallback reader and those rows are tracked as follow-ups in `PARITY.md`.
+- **A11Y audit gate is non-gating in CI.** The `audit_a11y` and `gapless_browser` jobs run with `continue-on-error: true`. Promote to required after two consecutive nightly greens.
+- **`book_library_service.py` not split.** The audit deferred this split because the per-page state machine has tighter coupling than the function map captured. The 1,249-line monolith is unchanged in 2.8.0; tracked as `Phase 1C` in `tasks/todo.md` for 2.9.0.
+- **MSI unsigned.** Both executables ship without code-signing. SmartScreen warning on first install; user-trafficked UAC prompt on machine-scope installs. Real risk, not a formality; tracked since the 2.7.0 release.
+- **Code-signed installers still missing.** Same as 2.7.0 known limitation. Signing the MSI removes the unsigned UAC prompt and changes nothing else in this flow.
+
 ## Unreleased
 
 ### Added
