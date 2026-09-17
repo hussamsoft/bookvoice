@@ -97,8 +97,10 @@ class Api:
                 return exc.code, json.loads(body)
             except Exception:
                 return exc.code, body
-        except (urllib.error.URLError, OSError):
-            return 0, {}
+        except urllib.error.URLError as exc:
+            return -1, {"urlError": str(exc.reason)}
+        except OSError as exc:
+            return -2, {"osError": str(exc)}
 
     def upload(self, path: str, source: Path, field: str = "file"):
         boundary = f"bv-sim-{uuid.uuid4().hex}"
@@ -207,10 +209,22 @@ def media_source_id(api: Api, project_id: str, job_id: str) -> str | None:
 
 
 def _profile_id_from_book(api: Api, book_id: str) -> str | None:
-    _, body = api.get(f"/api/books/{book_id}")
-    if not isinstance(body, dict):
-        return None
-    return (body.get("preparation") or {}).get("profileId")
+    def _ready() -> str | None:
+        _, body = api.get(f"/api/books/{book_id}")
+        if not isinstance(body, dict):
+            return None
+        prep = body.get("preparation") or {}
+        if prep.get("status") != "COMPLETED":
+            return None
+        profile_id = prep.get("profileId")
+        return profile_id if isinstance(profile_id, str) else None
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        profile_id = _ready()
+        if profile_id:
+            return profile_id
+        time.sleep(2)
+    return _ready()
 
 
 def journey_reader(api: Api, fixture: Path) -> None:
@@ -612,6 +626,7 @@ def main() -> int:
         live_port = free_port(args.port)
         if live_port != args.port:
             print(f"[warn] port {args.port} busy; simulating on {live_port}")
+        access_port = free_port(live_port + 1)
         proc = start_server(runtime_dir, live_port)
         try:
             base = f"http://127.0.0.1:{live_port}"
@@ -649,7 +664,7 @@ def main() -> int:
 
         finally:
             kill_tree(proc)
-        journey_access(runtime_dir, free_port(live_port + 1))
+        journey_access(runtime_dir, access_port)
 
     print(f"\n=== simulation: {PASS} passed, {FAIL} failed ===")
     return 0 if FAIL == 0 else 1

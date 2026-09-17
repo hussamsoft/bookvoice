@@ -4,69 +4,73 @@ import requests
 import sys
 import os
 
-print("Starting standalone API server in dist/...")
-import socket as _socket
 
-with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
-    _probe.bind(("127.0.0.1", 0))
-    _port = _probe.getsockname()[1]
-_base = f"http://127.0.0.1:{_port}"
-server_process = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
-    cwd="dist",
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
-)
+def main() -> int:
+    print("Starting standalone API server in dist/...")
+    import socket as _socket
 
-print("Waiting for server to start...")
-time.sleep(5)
-for _ in range(30):
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
+        _probe.bind(("127.0.0.1", 0))
+        _port = _probe.getsockname()[1]
+    _base = f"http://127.0.0.1:{_port}"
+    server_process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
+        cwd="dist",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    print("Waiting for server to start...")
+    time.sleep(5)
+    for _ in range(30):
+        try:
+            resp = requests.get(_base + "/api/translate/", timeout=2)
+            if resp.status_code in [404, 405, 422]:
+                break
+        except (requests.RequestException, ConnectionError):
+            time.sleep(1)
+
+    success = True
     try:
-        resp = requests.get(_base + "/api/translate/", timeout=2)
-        if resp.status_code in [404, 405, 422]:
-            break
-    except:
-        time.sleep(1)
+        print("\n--- Testing Voice Cloning API ---")
 
-success = True
-try:
-    print("\n--- Testing Voice Cloning API ---")
-    
-    # We will just upload verification_test.wav as the voice profile
-    wav_path = "verification_test.wav"
-    if not os.path.exists(wav_path):
-        print("FAIL: verification_test.wav not found. Run TTS test first.")
-        success = False
-    else:
-        with open(wav_path, "rb") as f:
-            files = {"file": ("clone_test.wav", f, "audio/wav")}
-            data = {"name": "Test Profile"}
-            resp = requests.post(_base + "/api/voices/", files=files, data=data)
-        
-        print(f"POST /api/voices/ Status: {resp.status_code}")
-        print(f"Response: {resp.json()}")
-        if resp.status_code != 200:
-            print("FAIL: Voice cloning API failed.")
+        # We will just upload verification_test.wav as the voice profile
+        wav_path = "verification_test.wav"
+        if not os.path.exists(wav_path):
+            print("FAIL: verification_test.wav not found. Run TTS test first.")
             success = False
         else:
-            voice_id = resp.json().get("id", "")
-            profile_path = os.path.join("dist", "data", "voices", f"{voice_id}.wav")
-            if voice_id and os.path.exists(profile_path) and os.path.getsize(profile_path) > 0:
-                print(f"PASS: Voice profile audio created at {profile_path} (Size: {os.path.getsize(profile_path)} bytes)")
-            else:
-                print(f"FAIL: Voice profile audio not found at {profile_path}")
-                success = False
-                
-except Exception as e:
-    print(f"Exception during testing: {e}")
-    success = False
-finally:
-    print("\nShutting down server...")
-    server_process.terminate()
-    try:
-        server_process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        server_process.kill()
+            with open(wav_path, "rb") as f:
+                files = {"file": ("clone_test.wav", f, "audio/wav")}
+                data = {"name": "Test Profile"}
+                resp = requests.post(_base + "/api/voices/", files=files, data=data)
 
-if not success:
-    sys.exit(1)
+            print(f"POST /api/voices/ Status: {resp.status_code}")
+            print(f"Response: {resp.json()}")
+            if resp.status_code != 200:
+                print("FAIL: Voice cloning API failed.")
+                success = False
+            else:
+                voice_id = resp.json().get("id", "")
+                profile_path = os.path.join("dist", "data", "voices", f"{voice_id}.wav")
+                if voice_id and os.path.exists(profile_path) and os.path.getsize(profile_path) > 0:
+                    print(f"PASS: Voice profile audio created at {profile_path} (Size: {os.path.getsize(profile_path)} bytes)")
+                else:
+                    print(f"FAIL: Voice profile audio not found at {profile_path}")
+                    success = False
+    except (requests.RequestException, OSError, ValueError) as e:
+        print(f"Exception during testing: {e}")
+        success = False
+    finally:
+        print("\nShutting down server...")
+        server_process.terminate()
+        try:
+            server_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server_process.kill()
+
+    return 0 if success else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

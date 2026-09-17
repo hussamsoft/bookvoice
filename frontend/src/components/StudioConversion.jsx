@@ -118,7 +118,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
         targetEndSec: targetMode === 'PROFILE' ? null : Number(targetRange.end.toFixed(3)),
         consentConfirmed: consent,
     }), {
-        successMessage: () => 'Converted recording added to the output history',
+        successMessage: () => 'Conversion added to the output history',
     });
 
     return (
@@ -134,7 +134,7 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                 <p className="studio-clone-intro">
                     The performance in the file is kept exactly as recorded — timing, rhythm and emphasis —
                     and only the voice is replaced. Nothing has to be re-typed and no generation controls
-                    are involved.
+                    are involved. Stay on this device.
                 </p>
 
                 <MediaWorkbench
@@ -266,6 +266,19 @@ export default function StudioConversion({ project, voices, onPatch, onRunJob, d
                         type="button"
                         onClick={convert}
                         disabled={disabled || !consent || !validSource || !validTarget}
+                        title={
+                            disabled
+                                ? 'A Studio job is already running'
+                                : !consent
+                                    ? 'Confirm you own or have permission for both recordings'
+                                    : !validSource
+                                        ? 'Select at least 0.5 seconds of the recording to convert'
+                                        : !validTarget
+                                            ? targetMode === 'PROFILE'
+                                                ? 'Pick a saved voice to convert into'
+                                                : 'Choose a target recording of 5–30 seconds'
+                                            : ''
+                        }
                     >
                         <ShieldCheck size={16} aria-hidden="true" />
                         {targetMode === 'PROFILE' && selectedVoice

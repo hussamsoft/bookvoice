@@ -28,7 +28,7 @@ describe('Shortcuts', () => {
     it('calls onClose when the Close action is clicked', () => {
         const onClose = vi.fn();
         render(<Shortcuts open onClose={onClose} />);
-        fireEvent.click(screen.getByRole('button', { name: /close/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 });

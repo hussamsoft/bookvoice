@@ -30,8 +30,19 @@ def _safe_name(name: str) -> tuple[str, str]:
     ).strip()
     if not display:
         raise ValueError("Voice profile name is required.")
-    voice_id = validate_voice_id(display.replace(" ", "_").lower())
-    return voice_id, display
+    # Normalising spaces to underscores and lowercasing collapses distinct
+    # user-visible names ("My Voice" vs "My_Voice") into a single id. The
+    # hash suffix is only added when such a normalised id would otherwise
+    # clash with an existing voice profile on disk, so users with unique
+    # names keep the readable id the test suite (and prior versions)
+    # expected.
+    base = display.replace(" ", "_").lower()
+    candidate = validate_voice_id(base)
+    target = voices_dir() / f"{candidate}.wav"
+    if target.is_file():
+        digest = hashlib.sha1(display.encode("utf-8")).hexdigest()[:8]
+        candidate = validate_voice_id(f"{base}-{digest}")
+    return candidate, display
 
 
 def _sha256_file(path: Path) -> str:
@@ -260,26 +271,44 @@ def create_profile(
 
 def list_profiles() -> list[dict]:
     result = []
-    for wav_path in sorted(voices_dir().glob("*.wav"), key=lambda path: path.stem.lower()):
+    root = voices_dir()
+    for wav_path in sorted(root.glob("*.wav"), key=lambda path: path.stem.lower()):
         metadata_path = wav_path.with_suffix(".json")
-        metadata = None
+        cached = _profile_list_cache.get(wav_path.stem)
+        metadata: dict | None = None
         try:
-            loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict) and loaded.get("id") == wav_path.stem:
-                metadata = loaded
-        except (OSError, json.JSONDecodeError):
-            pass
+            stat = metadata_path.stat()
+        except OSError:
+            stat = None
+        if cached is not None and stat is not None and cached[0] == stat.st_mtime_ns:
+            metadata = cached[1]
         if metadata is None:
-            metadata = {
-                "schemaVersion": 1,
-                "id": wav_path.stem,
-                "name": wav_path.stem.replace("_", " ").title(),
-                "sourceType": "LEGACY",
-                "quality": None,
-                "isLegacy": True,
-            }
+            try:
+                loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict) and loaded.get("id") == wav_path.stem:
+                    metadata = loaded
+            except (OSError, json.JSONDecodeError):
+                pass
+            if metadata is None:
+                metadata = {
+                    "schemaVersion": 1,
+                    "id": wav_path.stem,
+                    "name": wav_path.stem.replace("_", " ").title(),
+                    "sourceType": "LEGACY",
+                    "quality": None,
+                    "isLegacy": True,
+                }
+            if stat is not None:
+                _profile_list_cache[wav_path.stem] = (stat.st_mtime_ns, metadata)
         result.append(metadata)
     return result
+
+
+# ``(mtime_ns, metadata)`` cache for ``list_profiles``. The profiles list is
+# polled alongside the library list, and reading every metadata JSON every
+# poll is wasteful; mtime invalidation keeps the cache correct without
+# having to invalidate from writers explicitly.
+_profile_list_cache: dict[str, tuple[int, dict]] = {}
 
 
 def delete_profile(voice_id: str) -> None:

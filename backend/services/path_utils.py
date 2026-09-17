@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import re
 
+RUNTIME_RECORD_TTL_SECONDS = 24 * 3600
+
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 VOICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 SUPPORTED_LANGUAGES = {"en", "ar"}

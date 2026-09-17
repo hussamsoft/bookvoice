@@ -18,7 +18,11 @@ for arg in "$@"; do
     --port=*) PORT="${arg#--port=}" ;;
     --port)
       shift
-      PORT="${1:?--port needs a value}"
+      if [ "$#" -lt 1 ]; then
+        echo "error: --port needs a value" >&2
+        exit 2
+      fi
+      PORT="$1"
       ;;
     -h|--help)
       echo "usage: scripts/setup_linux.sh [--gpu] [--port N]"
@@ -29,6 +33,7 @@ for arg in "$@"; do
       ;;
     *)
       echo "error: unknown option '$arg'" >&2
+      echo "       try --help for the supported flags" >&2
       exit 2
       ;;
   esac
@@ -49,6 +54,9 @@ echo "[setup] python3 $PYVER ok"
 command -v ffmpeg >/dev/null 2>&1 || echo "warning: ffmpeg not on PATH. Install it: sudo apt install ffmpeg" >&2
 
 command -v node >/dev/null 2>&1 && NODE_VER="$(node --version)" || NODE_VER=""
+if [ -n "$NODE_VER" ] && ! command -v npm >/dev/null 2>&1; then
+  fail "node $NODE_VER is on PATH but npm is missing; reinstall Node.js to include npm."
+fi
 
 # --- venv + python deps ----------------------------------------------------
 if [ ! -x "$VENV/bin/python" ]; then

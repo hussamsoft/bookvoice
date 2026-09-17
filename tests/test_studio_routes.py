@@ -28,18 +28,18 @@ class StudioRouteContractTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = os.environ.get("DATA_DIR")
         os.environ["DATA_DIR"] = self.temp.name
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         self.app = FastAPI()
         self.app.include_router(studio_routes.router, prefix="/api/studio")
         self.client = TestClient(self.app)
         self.client.cookies.set(
             studio_routes.DEVICE_COOKIE_NAME,
-            studio.DEFAULT_DEVICE_ID,
+            studio.devices.DEFAULT_DEVICE_ID,
         )
 
     def tearDown(self):
         self.client.close()
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         if self.previous is None:
             os.environ.pop("DATA_DIR", None)
         else:
@@ -71,10 +71,15 @@ class StudioRouteContractTests(unittest.TestCase):
             response = fresh.get("/api/studio/projects")
 
             self.assertEqual(response.status_code, 200)
+            self.assertIn("set-cookie", {key.lower() for key in response.headers})
             device_id = fresh.cookies.get(studio_routes.DEVICE_COOKIE_NAME)
             self.assertRegex(device_id or "", r"^[0-9a-f]{32}$")
             self.assertIn("httponly", response.headers["set-cookie"].lower())
             self.assertIn("samesite=strict", response.headers["set-cookie"].lower())
+            self.assertIn(
+                studio_routes.DEVICE_COOKIE_NAME,
+                response.headers["set-cookie"].lower(),
+            )
 
     def test_devices_cannot_list_open_modify_or_delete_each_others_projects(self):
         device_a = "a" * 32
@@ -115,9 +120,9 @@ class StudioRouteContractTests(unittest.TestCase):
         device_a = "a" * 32
         device_b = "b" * 32
         output_id = "c" * 32
-        with studio.device_scope(device_a):
-            project = studio.create_project("Private media")
-            root = studio.project_dir(project["id"])
+        with studio.devices.device_scope(device_a):
+            project = studio.projects.create_project("Private media")
+            root = studio.manifest.project_dir(project["id"])
             output = root / "outputs" / f"{output_id}.wav"
             output.write_bytes(b"device-audio")
             manifest_path = root / "manifest.json"
@@ -142,9 +147,9 @@ class StudioRouteContractTests(unittest.TestCase):
             self.assertEqual(owned.content, b"device-audio")
 
     def test_output_download_is_an_attachment_for_the_requesting_device(self):
-        project = studio.create_project("Phone download")
+        project = studio.projects.create_project("Phone download")
         output_id = "d" * 32
-        root = studio.project_dir(project["id"])
+        root = studio.manifest.project_dir(project["id"])
         output = root / "outputs" / f"{output_id}.wav"
         output.write_bytes(b"phone-output")
         manifest_path = root / "manifest.json"
@@ -168,8 +173,8 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertIn("phone narration.wav", disposition)
 
     def test_legacy_projects_are_hidden_until_one_device_claims_them(self):
-        project = studio.create_project("Before device isolation")
-        manifest_path = studio.project_dir(project["id"]) / "manifest.json"
+        project = studio.projects.create_project("Before device isolation")
+        manifest_path = studio.manifest.project_dir(project["id"]) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest.pop("deviceId")
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -210,6 +215,9 @@ class StudioRouteContractTests(unittest.TestCase):
     def test_device_header_repairs_a_stale_asset_cookie(self):
         device_a = "a" * 32
         device_b = "b" * 32
+        # Header precedence: X-BookVoice-Device-ID (per-request) wins over the
+        # stored device cookie, so a stale cookie left over from a shared
+        # browser session cannot route new requests to the wrong device.
         with TestClient(self.app) as browser:
             browser.cookies.set(
                 studio_routes.DEVICE_COOKIE_NAME,
@@ -231,7 +239,7 @@ class StudioRouteContractTests(unittest.TestCase):
             )
 
     def test_consent_error_uses_studio_detail_contract(self):
-        project = studio.create_project("Consent")
+        project = studio.projects.create_project("Consent")
         response = self.client.post(
             f"/api/studio/projects/{project['id']}/profiles",
             json={
@@ -247,7 +255,7 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"]["code"], "VOICE_CONSENT_REQUIRED")
 
     def test_microphone_upload_marks_the_source_for_retention(self):
-        project = studio.create_project("Recorded on phone")
+        project = studio.projects.create_project("Recorded on phone")
         queued = {
             "id": "7" * 32,
             "projectId": project["id"],
@@ -276,7 +284,7 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(import_source.call_args.kwargs["capture_method"], "recording")
 
     def test_long_narration_request_returns_a_202_job_resource(self):
-        project = studio.create_project("Narration route")
+        project = studio.projects.create_project("Narration route")
         queued = {
             "id": "b" * 32,
             "projectId": project["id"],
@@ -324,7 +332,7 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(response.content, b"browser-video")
 
     def test_open_project_folder_returns_a_path_free_confirmation(self):
-        project = studio.create_project("Folder route")
+        project = studio.projects.create_project("Folder route")
         with patch.object(
             studio_routes.studio, "open_project_folder", return_value={"opened": True}
         ) as open_folder:
@@ -337,7 +345,7 @@ class StudioRouteContractTests(unittest.TestCase):
         open_folder.assert_called_once_with(project["id"])
 
     def test_conversion_route_queues_a_job_and_forwards_the_selected_region(self):
-        project = studio.create_project("Conversion route")
+        project = studio.projects.create_project("Conversion route")
         queued = {
             "id": "9" * 32,
             "projectId": project["id"],
@@ -375,7 +383,7 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertTrue(convert.call_args.kwargs["consent_confirmed"])
 
     def test_conversion_route_rejects_missing_consent_and_ambiguous_targets(self):
-        project = studio.create_project("Conversion guards")
+        project = studio.projects.create_project("Conversion guards")
         without_consent = self.client.post(
             f"/api/studio/projects/{project['id']}/conversions",
             json={"sourceId": "1" * 32, "targetVoiceId": "narrator", "consentConfirmed": False},
@@ -398,7 +406,7 @@ class StudioRouteContractTests(unittest.TestCase):
         self.assertEqual(both_targets.json()["detail"]["code"], "INVALID_CONVERSION")
 
     def test_voice_profile_route_returns_settings_matched_to_the_recording(self):
-        project = studio.create_project("Profile settings")
+        project = studio.projects.create_project("Profile settings")
         queued = {
             "id": "8" * 32,
             "projectId": project["id"],
@@ -444,18 +452,18 @@ class StudioProjectIdStatusContractTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = os.environ.get("DATA_DIR")
         os.environ["DATA_DIR"] = self.temp.name
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         self.app = FastAPI()
         self.app.include_router(studio_routes.router, prefix="/api/studio")
         self.client = TestClient(self.app)
         self.client.cookies.set(
             studio_routes.DEVICE_COOKIE_NAME,
-            studio.DEFAULT_DEVICE_ID,
+            studio.devices.DEFAULT_DEVICE_ID,
         )
 
     def tearDown(self):
         self.client.close()
-        studio.reset_runtime_state_for_tests()
+        studio.projects.reset_runtime_state_for_tests()
         if self.previous is None:
             os.environ.pop("DATA_DIR", None)
         else:

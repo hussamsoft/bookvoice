@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import Button from './Button';
 
 const FOCUSABLE = [
@@ -89,7 +90,7 @@ export default function Modal({ open, onClose, title, children, actions }) {
     return (
         <div
             className={`modal-overlay${shown ? ' is-shown' : ''}`}
-            onMouseDown={(event) => {
+            onPointerDown={(event) => {
                 if (event.target === event.currentTarget) {
                     event.preventDefault();
                     onCloseRef.current?.();
@@ -104,7 +105,19 @@ export default function Modal({ open, onClose, title, children, actions }) {
                 aria-labelledby={title ? titleId : undefined}
                 tabIndex={-1}
             >
-                {title ? <h2 className="modal-title" id={titleId}>{title}</h2> : null}
+                {title ? (
+                    <div className="modal-header">
+                        <h2 className="modal-title" id={titleId}>{title}</h2>
+                        <button
+                            type="button"
+                            className="modal-close icon-btn"
+                            onClick={onCloseRef.current}
+                            aria-label="Close dialog"
+                        >
+                            <X size={16} aria-hidden="true" />
+                        </button>
+                    </div>
+                ) : null}
                 {children}
                 {actions ? (
                     <div className="modal-actions">

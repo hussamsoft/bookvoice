@@ -35,6 +35,9 @@ SETTINGS = {
 }
 DEVICE_HEADERS = {"X-BookVoice-Device-ID": "5" * 32}
 
+PASS = 0
+FAIL = 0
+
 
 def request(base: str, method: str, path: str, payload: dict | None = None) -> dict:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -169,6 +172,16 @@ def wait_health(base: str, timeout_s: int = 90) -> None:
     raise TimeoutError("Packaged server did not become healthy.")
 
 
+def _check(name: str, ok: bool, detail: str = "") -> None:
+    global PASS, FAIL
+    if ok:
+        PASS += 1
+        print(f"[pass] {name}")
+    else:
+        FAIL += 1
+        print(f"[FAIL] {name}" + (f" - {detail}" if detail else ""))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run packaged Voice Studio end-to-end smoke")
     parser.add_argument("--app-dir", type=Path, default=ROOT / "dist")
@@ -209,6 +222,14 @@ def main() -> int:
             port = launch.pick_port(log)
         except launch.PortUnavailable:
             raise SystemExit("Every port 8000-8020 is busy; close the holder and retry.")
+        # pick_port() has no built-in timeout; cap its loop so a wedged socket
+        # cannot block the smoke indefinitely.
+        port_deadline = time.time() + 10
+        while time.time() < port_deadline:
+            with __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM) as probe:
+                if probe.connect_ex(("127.0.0.1", port)) != 0:
+                    break
+            time.sleep(0.1)
         base = f"http://127.0.0.1:{port}"
         server_log_path = runtime / "server.log"
         with server_log_path.open("wb") as server_log:
@@ -249,6 +270,12 @@ def main() -> int:
                     (stream.get("codec_type"), stream.get("codec_name"))
                     for stream in preview_streams
                 }
+                preview_path = Path(video_source["previewUrl"]).lstrip("/")
+                preview_ext = preview_path.rsplit(".", 1)[-1].lower() if "." in preview_path else ""
+                if preview_ext not in {"mp4", "webm", "m4v"}:
+                    raise RuntimeError(
+                        f"Packaged video preview has unrecognised extension: {preview_ext!r}"
+                    )
                 if ("video", "h264") not in preview_codecs or ("audio", "aac") not in preview_codecs:
                     raise RuntimeError(
                         f"Packaged browser preview codecs are incompatible: {sorted(preview_codecs)}"
@@ -304,6 +331,12 @@ def main() -> int:
                         (audio_source, video_source), narration_outputs, strict=True
                     )
                 ]
+                for index, value in enumerate(repair_durations):
+                    if value <= 0:
+                        raise RuntimeError(
+                            f"Packaged repair duration must be positive; got {value} "
+                            f"for source #{index} (durationSec may be unset)."
+                        )
 
                 audio_repair = wait_job(base, request(base, "POST", project_path + "/repairs", {
                     "assetId": audio_source["id"], "startSec": 0, "endSec": repair_durations[0],
@@ -360,6 +393,8 @@ def main() -> int:
                     "videoPreviewCodecs": sorted(f"{kind}:{codec}" for kind, codec in preview_codecs),
                     "mediaTools": str(ffmpeg),
                 }))
+                PASS += 1
+                print(f"[smoke_studio] PASS ({PASS} passed, {FAIL} failed)")
                 return 0
             except Exception:
                 server_log.flush()
@@ -371,8 +406,14 @@ def main() -> int:
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=10)
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                        try:
+                            process.wait(timeout=10)
+                        except Exception:
+                            pass
 
 
 if __name__ == "__main__":

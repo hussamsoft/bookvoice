@@ -1,5 +1,5 @@
 import React, { useImperativeHandle } from 'react';
-import { ChevronDown, RotateCcw, RotateCw, Square } from 'lucide-react';
+import { ChevronDown, Pause, Play, RotateCcw, RotateCw, Square } from 'lucide-react';
 
 import { formatClock as formatTime } from '../utils/format';
 import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../hooks/useSleepTimer';
@@ -146,14 +146,9 @@ function PlaybackControls({
                     title={transport.isPlaying ? 'Pause narration' : 'Play narration'}
                 >
                     {transport.isPlaying ? (
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-                            <rect x="6" y="5" width="4" height="14" rx="1" />
-                            <rect x="14" y="5" width="4" height="14" rx="1" />
-                        </svg>
+                        <Pause size={18} aria-hidden="true" />
                     ) : (
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-                            <path d="M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86a1 1 0 00-1.5.86z" />
-                        </svg>
+                        <Play size={18} aria-hidden="true" />
                     )}
                 </button>
                 {showScrubber ? (

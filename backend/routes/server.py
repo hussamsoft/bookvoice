@@ -15,11 +15,11 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-ACCESS_FILE = "server-access.json"
+_ACCESS_FILE_NAME = "server-access.json"
 
 
 def access_file_path() -> str:
-    return os.path.join(os.environ.get("DATA_DIR", "data"), ACCESS_FILE)
+    return os.path.join(os.environ.get("DATA_DIR", "data"), _ACCESS_FILE_NAME)
 
 
 @router.get("/addresses")

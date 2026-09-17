@@ -5,6 +5,7 @@ import sys
 
 def monitor_vram(interval=0.5, stop_event=None):
     max_vram = 0
+    success_count = 0
     print("Starting VRAM monitor...")
     while not stop_event.is_set():
         try:
@@ -17,19 +18,22 @@ def monitor_vram(interval=0.5, stop_event=None):
             vram = int(result.stdout.strip())
             if vram > max_vram:
                 max_vram = vram
+            success_count += 1
         except Exception:
             pass
         time.sleep(interval)
-    print(f"Max VRAM usage during run: {max_vram} MiB")
+    print(f"Max VRAM usage during run: {max_vram} MiB ({success_count} successful nvidia-smi samples)")
     return max_vram
 
-stop_event = threading.Event()
-monitor_thread = threading.Thread(target=monitor_vram, args=(0.5, stop_event))
-monitor_thread.start()
 
-print("Running verify_chatterbox.py...")
-try:
-    subprocess.run([sys.executable, "verify_chatterbox.py"], check=True)
-finally:
-    stop_event.set()
-    monitor_thread.join()
+if __name__ == "__main__":
+    stop_event = threading.Event()
+    monitor_thread = threading.Thread(target=monitor_vram, args=(0.5, stop_event))
+    monitor_thread.start()
+
+    print("Running verify_chatterbox.py...")
+    try:
+        subprocess.run([sys.executable, "verify_chatterbox.py"], check=True)
+    finally:
+        stop_event.set()
+        monitor_thread.join()

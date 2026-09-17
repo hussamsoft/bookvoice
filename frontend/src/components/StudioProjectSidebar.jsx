@@ -53,12 +53,13 @@ export default function StudioProjectSidebar({
                 className="studio-sidebar-toggle"
                 type="button"
                 aria-expanded={expanded}
-                aria-label={expanded ? `Hide projects (${activeName})` : `Show projects (${activeName})`}
+                aria-label={expanded ? 'Hide project list' : 'Show project list'}
+                aria-describedby="studio-sidebar-active-name"
                 onClick={() => setExpanded((open) => !open)}
             >
                 <span>
                     <small>{expanded ? 'Hide' : 'Project'}</small>
-                    <strong>{activeName}</strong>
+                    <strong id="studio-sidebar-active-name">{activeName}</strong>
                 </span>
                 <ChevronDown size={18} aria-hidden="true" />
             </button>

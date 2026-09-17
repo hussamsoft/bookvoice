@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyRound, RotateCw } from 'lucide-react';
 import { signIn } from '../utils/api';
 import { loadAccessState, resetCapabilities } from '../utils/capabilities';
@@ -14,6 +14,7 @@ export default function AccessGate({ children }) {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const errorRef = useRef(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -24,6 +25,10 @@ export default function AccessGate({ children }) {
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        if (error) errorRef.current?.focus();
+    }, [error]);
 
     const submit = async (event) => {
         event.preventDefault();
@@ -69,7 +74,7 @@ export default function AccessGate({ children }) {
                     disabled={submitting}
                     autoFocus
                 />
-                {error && <p className="access-error" id="access-error" role="alert">{error}</p>}
+                {error && <p className="access-error" id="access-error" role="alert" ref={errorRef} tabIndex={-1}>{error}</p>}
                 <button className="btn primary" type="submit" disabled={submitting || !password}>
                     {submitting ? 'Signing in…' : 'Sign in'}
                 </button>

@@ -135,6 +135,26 @@ class AccessServiceTests(unittest.TestCase):
             "proxy:203.0.113.7",
         )
 
+    def test_throttle_key_handles_ipv6_loopback(self):
+        self.assertEqual(
+            access_service.throttle_key("::1", "::1"),
+            "direct:::1",
+        )
+        self.assertEqual(
+            access_service.throttle_key(
+                "::1", "203.0.113.7, ::1", trust_proxy_headers=True
+            ),
+            "proxy:203.0.113.7",
+        )
+
+    def test_throttle_key_handles_ipv6_global(self):
+        self.assertEqual(
+            access_service.throttle_key(
+                "2001:db8::1", "2001:db8::1, 10.0.0.9", trust_proxy_headers=True
+            ),
+            "proxy:2001:db8::1",
+        )
+
     def test_no_path_is_gated_without_a_configured_password(self):
         with patch.dict(os.environ, _clear_env()):
             self.assertFalse(access_service.requires_session("/api/studio/projects"))

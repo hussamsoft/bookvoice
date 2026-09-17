@@ -29,7 +29,7 @@ internal sealed class BackendHost : IDisposable
     private readonly string _runtimeDir;
     private readonly IReadOnlyList<string> _passthroughArgs;
     private readonly HttpClient _http = new() { Timeout = Timeout.InfiniteTimeSpan };
-    private readonly object _logLock = new();
+    private readonly SemaphoreSlim _logWriteGate = new(1, 1);
     private FileStream? _logStream;
     private Process? _process;
     private CancellationTokenSource? _cts;
@@ -68,7 +68,10 @@ internal sealed class BackendHost : IDisposable
             }
 
             var statePath = AppPaths.ServerStatePath(_runtimeDir);
-            try { File.Delete(statePath); } catch (IOException) { }
+            try { File.Delete(statePath); } catch (IOException ex)
+            {
+                ShellLog.Write($"delete state file failed: {ex.Message}");
+            }
 
             while (!ct.IsCancellationRequested)
             {
@@ -203,12 +206,14 @@ internal sealed class BackendHost : IDisposable
     /// <summary>Stop and respawn the backend; false when the restart budget is spent.</summary>
     private bool Restart(string reason)
     {
-        _restarts++;
-        if (_restarts > MaxRestarts)
+        // Cap-check before increment so the reported count matches what the
+        // user actually saw and the final message is consistent with the log.
+        if (_restarts >= MaxRestarts)
         {
-            Fail("Reading service kept failing; gave up after 5 restarts.");
+            Fail($"Reading service kept failing; gave up after {MaxRestarts} restarts.");
             return false;
         }
+        _restarts++;
         LogLine($"watchdog: {reason}; restart {_restarts}/{MaxRestarts}");
         StatusChanged?.Invoke(
             "Restarting reading service", "The reading engine stopped responding; restarting…", 65, false);
@@ -219,12 +224,22 @@ internal sealed class BackendHost : IDisposable
     private void Spawn(string python, CancellationToken ct, bool rotateLog)
     {
         var logPath = AppPaths.ServerLogPath(_runtimeDir);
-        if (rotateLog)
+        // Wait for any in-flight pump writes to finish before swapping the
+        // underlying stream; the async pumps continue using the new handle.
+        _logWriteGate.Wait();
+        try
         {
-            RotateLog(logPath);
+            if (rotateLog)
+            {
+                RotateLog(logPath);
+            }
+            _logStream?.Dispose();
+            _logStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
         }
-        _logStream?.Dispose();
-        _logStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+        finally
+        {
+            _logWriteGate.Release();
+        }
 
         var psi = new ProcessStartInfo
         {
@@ -269,8 +284,9 @@ internal sealed class BackendHost : IDisposable
                 LogLine(line);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            ShellLog.Write($"log pump ended: {ex.Message}");
             // Stream torn down with the process; the watchdog owns recovery.
         }
     }
@@ -296,18 +312,20 @@ internal sealed class BackendHost : IDisposable
 
     private void LogLine(string line)
     {
-        lock (_logLock)
+        _logWriteGate.Wait();
+        try
         {
-            try
-            {
-                var bytes = Encoding.UTF8.GetBytes(
-                    $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss} {line}{Environment.NewLine}");
-                _logStream!.Write(bytes, 0, bytes.Length);
-                _logStream!.Flush();
-            }
-            catch (IOException)
-            {
-            }
+            var bytes = Encoding.UTF8.GetBytes(
+                $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss} {line}{Environment.NewLine}");
+            _logStream!.Write(bytes, 0, bytes.Length);
+            _logStream!.Flush();
+        }
+        catch (IOException)
+        {
+        }
+        finally
+        {
+            _logWriteGate.Release();
         }
     }
 
@@ -323,9 +341,24 @@ internal sealed class BackendHost : IDisposable
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                // serve_bookvoice.py installs SIGINT/SIGBREAK handlers so
+                // it can flush state on a normal console close. Attach
+                // to its console and send a CTRL_BREAK_EVENT first; only
+                // fall back to Kill if it ignores the signal or the
+                // graceful shutdown times out.
+                if (TrySendCtrlBreak(process))
+                {
+                    if (process.WaitForExit(3000))
+                    {
+                        return;
+                    }
+                }
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                process.WaitForExit(3000);
             }
-            process.WaitForExit(3000);
         }
         catch (Exception)
         {
@@ -338,6 +371,38 @@ internal sealed class BackendHost : IDisposable
         catch (Exception)
         {
         }
+    }
+
+    private static bool TrySendCtrlBreak(Process process)
+    {
+        if (process.HasExited)
+        {
+            return true;
+        }
+        try
+        {
+            if (NativeMethods.FreeConsole())
+            {
+                if (NativeMethods.AttachConsole((uint)process.Id))
+                {
+                    try
+                    {
+                        return NativeMethods.GenerateConsoleCtrlEvent(
+                            NativeMethods.CTRL_BREAK_EVENT, 0);
+                    }
+                    finally
+                    {
+                        NativeMethods.FreeConsole();
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // AttachConsole requires the same desktop session and may fail
+            // for processes started without a console; fall back to Kill.
+        }
+        return false;
     }
 
     private void Fail(string message)
@@ -387,5 +452,23 @@ internal sealed class BackendHost : IDisposable
         Stop();
         _http.Dispose();
         _logStream?.Dispose();
+        _logWriteGate.Dispose();
     }
+}
+
+internal static partial class NativeMethods
+{
+    internal const uint CTRL_BREAK_EVENT = 1;
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AttachConsole(uint dwProcessId);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool FreeConsole();
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
 }

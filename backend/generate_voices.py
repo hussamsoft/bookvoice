@@ -29,8 +29,10 @@ async def generate_voice(voice_id, name, text, *, voices_dir: Path, packaged_dir
     except Exception as e:
         print(f"Failed to convert {name} using ffmpeg: {e}")
     finally:
-        if os.path.exists(mp3_path):
+        try:
             os.remove(mp3_path)
+        except FileNotFoundError:
+            pass
 
 
 async def main():

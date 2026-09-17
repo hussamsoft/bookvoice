@@ -38,7 +38,13 @@ def _resolved_executable(value: str | None) -> Path | None:
 
 
 def media_tools_source(extra_dir: Path | None = None) -> dict[str, Path]:
-    """Resolve build-machine tools; packaged runtime never calls this function."""
+    """Resolve build-machine tools; packaged runtime never calls this function.
+
+    When ``BOOKVOICE_MEDIA_TOOLS_SOURCE`` points at a path whose final segment
+    is a dangling symlink, ``Path(value).resolve(strict=True)`` raises
+    ``OSError`` and the entry is silently dropped — fall back to the PATH
+    search or the previous build's payload.
+    """
     configured = os.environ.get(MEDIA_SOURCE_ENV, "").strip()
     if configured:
         directory = Path(configured).resolve()
@@ -74,7 +80,7 @@ def _tool_version(path: Path, expected_name: str) -> str:
         creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
     )
     first_line = (completed.stdout or completed.stderr).splitlines()[0] if (completed.stdout or completed.stderr) else ""
-    match = re.match(rf"^{re.escape(expected_name)} version ([0-9]+\.[0-9]+\.[0-9]+)(?:[-\s]|$)", first_line)
+    match = re.match(rf"^{re.escape(expected_name)} version ([0-9]+(?:\.[0-9]+){{2,4}})(?:[-\s]|$)", first_line)
     if completed.returncode != 0 or not match:
         raise SystemExit(f"Could not verify {expected_name} release version.")
     version = match.group(1)

@@ -1,3 +1,4 @@
+"""OCR text extraction from base64-encoded images."""
 import base64
 import os
 import warnings

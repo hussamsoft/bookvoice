@@ -2,6 +2,8 @@
  * File helpers for opening books in the reader.
  */
 
+const PREPARED_BOOK_EPOCH_FALLBACK = 0;
+
 /**
  * Guess the book kind from a file name. Text books (.epub/.txt/.md) have
  * their pages served from the server manifest; only PDFs render locally.
@@ -23,7 +25,8 @@ export function sourceKindFromName(name = '') {
  */
 export function libraryBookFile(book, source = null) {
     const kind = book?.sourceKind || 'pdf';
-    const lastModified = Number(book?.updatedAt || Date.now()) * 1000;
+    const stampSeconds = Number(book?.updatedAt) || PREPARED_BOOK_EPOCH_FALLBACK;
+    const lastModified = stampSeconds * 1000;
     if (kind === 'pdf') {
         return new File([source || ''], `${book?.title || 'Prepared book'}.pdf`, {
             type: 'application/pdf',

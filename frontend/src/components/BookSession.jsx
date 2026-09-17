@@ -27,7 +27,7 @@ export default function BookSession({ epoch, onDirty, onOpenBook }) {
     const [isNarratingUi, setIsNarratingUi] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } =
-        useTtsStatus({ pollWhileGenerating: isNarratingUi });
+        useTtsStatus({ pollWhileGenerating: isNarratingUi, toast });
     const { config, updateConfig } = useUserConfig();
     const [sessionId] = useState(() => createSessionId('session'));
     const [pages, setPages] = useState([]);
@@ -302,7 +302,7 @@ export default function BookSession({ epoch, onDirty, onOpenBook }) {
                 {step === 'processing' && (
                     <div className="loading-state">
                         <div className="skeleton skeleton--block" aria-hidden="true" />
-                        <p>Extracting text from page...</p>
+                        <p>Extracting text from page…</p>
                     </div>
                 )}
 

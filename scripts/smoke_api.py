@@ -5,122 +5,127 @@ import sys
 import os
 import threading
 
-# Start uvicorn server in dist/ on a free loopback port (never assume 8000).
-print("Starting standalone API server in dist/...")
-import socket as _socket
 
-with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
-    _probe.bind(("127.0.0.1", 0))
-    _port = _probe.getsockname()[1]
-server_process = subprocess.Popen(
-    [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
-    cwd="dist",
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True
-)
+def main() -> int:
+    # Start uvicorn server in dist/ on a free loopback port (never assume 8000).
+    print("Starting standalone API server in dist/...")
+    import socket as _socket
 
-def stream_logs(proc):
-    for line in iter(proc.stdout.readline, ''):
-        print(f"[SERVER] {line.rstrip()}")
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
+        _probe.bind(("127.0.0.1", 0))
+        _port = _probe.getsockname()[1]
+    server_process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(_port)],
+        cwd="dist",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-threading.Thread(target=stream_logs, args=(server_process,), daemon=True).start()
+    def stream_logs(proc):
+        for line in iter(proc.stdout.readline, ''):
+            print(f"[SERVER] {line.rstrip()}")
 
-# Wait for server to be ready
-print("Waiting for server to start...")
-_base = f"http://127.0.0.1:{_port}"
-time.sleep(5)
-for _ in range(30):
+    threading.Thread(target=stream_logs, args=(server_process,), daemon=True).start()
+
+    # Wait for server to be ready
+    print("Waiting for server to start...")
+    _base = f"http://127.0.0.1:{_port}"
+    time.sleep(5)
+    for _ in range(30):
+        try:
+            resp = requests.get(_base + "/api/translate/", timeout=2)
+            if resp.status_code in [404, 405, 422]:  # API is up
+                break
+        except (requests.RequestException, ConnectionError):
+            time.sleep(1)
+
+    success = True
     try:
-        resp = requests.get(_base + "/api/translate/", timeout=2)
-        if resp.status_code in [404, 405, 422]: # API is up
-            break
-    except:
-        time.sleep(1)
+        # 1. Test frontend static serving
+        print("\n--- Testing Frontend Static Serving ---")
+        resp = requests.get(_base + "/")
+        print(f"GET / Status: {resp.status_code}")
+        if resp.status_code != 200 or "<html" not in resp.text:
+            print("FAIL: Frontend not served correctly.")
+            success = False
+        else:
+            print("PASS")
 
-success = True
-try:
-    # 1. Test frontend static serving
-    print("\n--- Testing Frontend Static Serving ---")
-    resp = requests.get(_base + "/")
-    print(f"GET / Status: {resp.status_code}")
-    if resp.status_code != 200 or "<html" not in resp.text:
-        print("FAIL: Frontend not served correctly.")
+        # 2. Test Translation API (Arabic — supported language)
+        print("\n--- Testing Translation API ---")
+        resp = requests.post(_base + "/api/translate/", json={"text": "Hello world", "target_lang": "ar"})
+        print(f"POST /api/translate Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print("FAIL: Translation API failed.")
+            success = False
+        else:
+            print("PASS")
+
+        # 3. Test TTS Narration API (English)
+        print("\n--- Testing TTS Narration API (English) ---")
+        resp = requests.post(_base + "/api/tts/narrate", json={
+            "text": "This is a backend test.",
+            "session_id": "test_session_123",
+            "page_index": 0,
+            "language_id": "en"
+        })
+        print(f"POST /api/tts/narrate Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print("FAIL: TTS API failed.")
+            success = False
+        else:
+            audio_url = resp.json().get("audio_url")
+            if audio_url:
+                local_path = os.path.join("dist", audio_url.lstrip("/"))
+                if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+                    print(f"PASS: Audio file created at {local_path} (Size: {os.path.getsize(local_path)} bytes)")
+                else:
+                    print(f"FAIL: Audio file not found at {local_path}")
+                    success = False
+
+        # 4. Test TTS Pronounce API
+        print("\n--- Testing TTS Pronounce API ---")
+        resp = requests.post(_base + "/api/tts/pronounce", json={
+            "text": "hello",
+            "session_id": "test_session_123",
+            "language_id": "en"
+        })
+        print(f"POST /api/tts/pronounce Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print("FAIL: Pronounce API failed.")
+            success = False
+        else:
+            print("PASS")
+
+        # 5. Test partial narration clip_suffix (page_index stays within limit)
+        print("\n--- Testing partial narrate clip_suffix ---")
+        resp = requests.post(_base + "/api/tts/narrate", json={
+            "text": "partial clip test.",
+            "session_id": "test_session_123",
+            "page_index": 2,
+            "clip_suffix": "42",
+            "language_id": "en"
+        })
+        print(f"POST /api/tts/narrate (partial) Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print("FAIL: Partial narrate API failed.")
+            success = False
+        else:
+            print("PASS")
+    except (requests.RequestException, OSError, ValueError) as e:
+        print(f"Exception during testing: {e}")
         success = False
-    else:
-        print("PASS")
+    finally:
+        print("\nShutting down server...")
+        server_process.terminate()
+        try:
+            server_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server_process.kill()
 
-    # 2. Test Translation API (Arabic — supported language)
-    print("\n--- Testing Translation API ---")
-    resp = requests.post(_base + "/api/translate/", json={"text": "Hello world", "target_lang": "ar"})
-    print(f"POST /api/translate Status: {resp.status_code}")
-    if resp.status_code != 200:
-        print("FAIL: Translation API failed.")
-        success = False
-    else:
-        print("PASS")
+    return 0 if success else 1
 
-    # 3. Test TTS Narration API (English)
-    print("\n--- Testing TTS Narration API (English) ---")
-    resp = requests.post(_base + "/api/tts/narrate", json={
-        "text": "This is a backend test.",
-        "session_id": "test_session_123",
-        "page_index": 0,
-        "language_id": "en"
-    })
-    print(f"POST /api/tts/narrate Status: {resp.status_code}")
-    if resp.status_code != 200:
-        print("FAIL: TTS API failed.")
-        success = False
-    else:
-        audio_url = resp.json().get("audio_url")
-        if audio_url:
-            local_path = os.path.join("dist", audio_url.lstrip("/"))
-            if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-                print(f"PASS: Audio file created at {local_path} (Size: {os.path.getsize(local_path)} bytes)")
-            else:
-                print(f"FAIL: Audio file not found at {local_path}")
-                success = False
 
-    # 4. Test TTS Pronounce API
-    print("\n--- Testing TTS Pronounce API ---")
-    resp = requests.post(_base + "/api/tts/pronounce", json={
-        "text": "hello",
-        "session_id": "test_session_123",
-        "language_id": "en"
-    })
-    print(f"POST /api/tts/pronounce Status: {resp.status_code}")
-    if resp.status_code != 200:
-        print("FAIL: Pronounce API failed.")
-        success = False
-    else:
-        print("PASS")
-
-    # 5. Test partial narration clip_suffix (page_index stays within limit)
-    print("\n--- Testing partial narrate clip_suffix ---")
-    resp = requests.post(_base + "/api/tts/narrate", json={
-        "text": "partial clip test.",
-        "session_id": "test_session_123",
-        "page_index": 2,
-        "clip_suffix": "42",
-        "language_id": "en"
-    })
-    print(f"POST /api/tts/narrate (partial) Status: {resp.status_code}")
-    if resp.status_code != 200:
-        print("FAIL: Partial narrate API failed.")
-        success = False
-    else:
-        print("PASS")
-except Exception as e:
-    print(f"Exception during testing: {e}")
-    success = False
-finally:
-    print("\nShutting down server...")
-    server_process.terminate()
-    try:
-        server_process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        server_process.kill()
-
-if not success:
-    sys.exit(1)
+if __name__ == "__main__":
+    raise SystemExit(main())

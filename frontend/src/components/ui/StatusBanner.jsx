@@ -18,7 +18,7 @@ export default function StatusBanner({ tone = 'info', children, action }) {
     const className =
         tone === 'error'
             ? 'status-banner error'
-            : tone === 'loading' || tone === 'info'
+            : tone === 'loading'
                 ? 'status-banner loading'
                 : `status-banner ${tone}`;
     return (

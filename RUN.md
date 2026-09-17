@@ -38,7 +38,8 @@ Anyone who can reach the port gets full access unless
   working across restarts. Pass `--port N` (or set `BOOKVOICE_PORT`) to pin
   one — a taken pinned port fails fast naming the holder fix rather than
   starting elsewhere, an exhausted scan reports every port busy, and a port
-  stolen between scan and bind is retried automatically.
+  stolen between scan and bind is retried automatically. Note that a
+  pinned port never falls back to the scan range.
 - The Settings panel in the app shows the current addresses to open on
   another device, with copy buttons (via `GET /api/server/addresses`).
 - Cloudflare Tunnel is built in:

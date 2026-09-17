@@ -22,8 +22,8 @@ export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
                     type="button"
                     className="icon-btn theme-toggle"
                     onClick={onThemeToggle}
-                    aria-label={dark ? 'Use light mode' : 'Use dark mode'}
-                    title={dark ? 'Use light mode' : 'Use dark mode'}
+                    aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+                    title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
                     {dark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>

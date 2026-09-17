@@ -70,7 +70,7 @@ export async function recordStreamToWav(stream, { maxSeconds = 30, onLevel, onAu
         }
     };
 
-    // Keep the graph alive without routing mic audio to speakers (avoids echo).
+    // Keep the graph alive without routing mic audio to speakers (avoids echo). The muted gain is set to 0 BEFORE any connection, so even if the browser schedules a render cycle before mute.gain.value applies, nothing audible reaches destination.
     const mute = audioContext.createGain();
     mute.gain.value = 0;
     source.connect(processor);

@@ -33,6 +33,7 @@ export default function TextEditor({
             baseTextRef.current = text;
             setText(result.translatedText);
             setHasTranslated(true);
+            toast.info('Translation applied. Re-narrate to hear the change.');
         } catch (error) {
             toast.error(error.message);
         } finally {
@@ -90,7 +91,7 @@ export default function TextEditor({
                             <span className="loading-waveform" aria-hidden="true">
                                 <span /><span /><span /><span /><span />
                             </span>
-                            Translating...
+                            Translating…
                         </>
                     ) : (
                         `Translate to ${targetLanguage === 'ar' ? 'Arabic' : 'English'}`

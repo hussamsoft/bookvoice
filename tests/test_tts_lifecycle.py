@@ -40,10 +40,10 @@ class TtsLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.tts = _import_tts()
         # Reset module globals between tests.
-        self.tts._model = None
-        self.tts._model_type = None
-        self.tts._model_state.clear()
-        self.tts._model_state.update(
+        self.tts.model._model = None
+        self.tts.model._model_type = None
+        self.tts.model._model_state.clear()
+        self.tts.model._model_state.update(
             {
                 "status": "idle",
                 "detail": "",
@@ -54,55 +54,55 @@ class TtsLifecycleTests(unittest.TestCase):
         )
 
     def test_state_snapshot_hides_loading_started_and_reports_elapsed(self):
-        self.tts._model_state["status"] = "loading"
-        self.tts._model_state["detail"] = "Loading…"
-        self.tts._model_state["loading_started"] = time.time() - 12
-        snap = self.tts.state_snapshot()
+        self.tts.model._model_state["status"] = "loading"
+        self.tts.model._model_state["detail"] = "Loading…"
+        self.tts.model._model_state["loading_started"] = time.time() - 12
+        snap = self.tts.model.state_snapshot()
         self.assertNotIn("loading_started", snap)
         self.assertEqual(snap["status"], "loading")
         self.assertIn("elapsed_s", snap)
         self.assertGreaterEqual(snap["elapsed_s"], 11)
 
     def test_state_snapshot_no_elapsed_when_ready(self):
-        self.tts._model_state["status"] = "ready"
-        self.tts._model_state["loading_started"] = None
-        snap = self.tts.state_snapshot()
+        self.tts.model._model_state["status"] = "ready"
+        self.tts.model._model_state["loading_started"] = None
+        snap = self.tts.model.state_snapshot()
         self.assertNotIn("elapsed_s", snap)
         self.assertNotIn("loading_started", snap)
 
     def test_request_reload_from_error_to_loading(self):
-        self.tts._model_state["status"] = "error"
-        self.tts._model_state["detail"] = "boom"
-        with patch.object(self.tts, "submit_tts") as submit:
-            snap = self.tts.request_reload("en")
+        self.tts.model._model_state["status"] = "error"
+        self.tts.model._model_state["detail"] = "boom"
+        with patch.object(self.tts.queue, "submit_tts") as submit:
+            snap = self.tts.model.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         self.assertIn("eload", snap["detail"].lower())
         submit.assert_called_once()
         args, _kwargs = submit.call_args
-        self.assertEqual(args[0], self.tts.TtsPriority.INTERACTIVE)
-        self.assertEqual(args[1], self.tts.preload_model)
+        self.assertEqual(args[0], self.tts.queue.TtsPriority.INTERACTIVE)
+        self.assertEqual(args[1], self.tts.model.preload_model)
         self.assertEqual(args[2], "en")
 
     def test_request_reload_from_idle(self):
-        self.tts._model_state["status"] = "idle"
-        with patch.object(self.tts, "submit_tts") as submit:
-            snap = self.tts.request_reload("en")
+        self.tts.model._model_state["status"] = "idle"
+        with patch.object(self.tts.queue, "submit_tts") as submit:
+            snap = self.tts.model.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         submit.assert_called_once()
 
     def test_repeated_reload_while_loading_does_not_queue_duplicate(self):
-        self.tts._model_state["status"] = "loading"
-        self.tts._model_state["detail"] = "already"
-        self.tts._model_state["loading_started"] = time.time()
-        with patch.object(self.tts, "submit_tts") as submit:
-            snap = self.tts.request_reload("en")
+        self.tts.model._model_state["status"] = "loading"
+        self.tts.model._model_state["detail"] = "already"
+        self.tts.model._model_state["loading_started"] = time.time()
+        with patch.object(self.tts.queue, "submit_tts") as submit:
+            snap = self.tts.model.request_reload("en")
         self.assertEqual(snap["status"], "loading")
         submit.assert_not_called()
 
     def test_reload_while_ready_does_not_queue(self):
-        self.tts._model_state["status"] = "ready"
-        with patch.object(self.tts, "submit_tts") as submit:
-            snap = self.tts.request_reload("en")
+        self.tts.model._model_state["status"] = "ready"
+        with patch.object(self.tts.queue, "submit_tts") as submit:
+            snap = self.tts.model.request_reload("en")
         self.assertEqual(snap["status"], "ready")
         submit.assert_not_called()
 
@@ -110,10 +110,10 @@ class TtsLifecycleTests(unittest.TestCase):
         def boom(_lang):
             raise RuntimeError("CUDA OOM")
 
-        with patch.object(self.tts, "get_model", side_effect=boom):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                self.tts.preload_model("en")
-        snap = self.tts.state_snapshot()
+        with patch.object(self.tts.model, "get_model", side_effect=boom):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                self.tts.model.preload_model("en")
+        snap = self.tts.model.state_snapshot()
         self.assertEqual(snap["status"], "error")
         self.assertIn("CUDA OOM", snap["detail"])
         self.assertNotIn("loading_started", snap)
@@ -123,12 +123,10 @@ class TtsLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             sessions_dir = Path(temp_dir) / "sessions"
             sessions_dir.mkdir()
-            with patch.object(
-                self.tts,
-                "_data_dirs",
+            with patch.object(self.tts.model, "_data_dirs",
                 return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(sessions_dir)),
             ):
-                result = self.tts.maybe_cleanup_sessions(force=True)
+                result = self.tts.synth.maybe_cleanup_sessions(force=True)
 
         self.assertIsNone(result)
 
@@ -136,19 +134,18 @@ class TtsLifecycleTests(unittest.TestCase):
         model = MagicMock()
         model.device = "cpu"
         model.sr = 24000
-        self.tts._model_state["status"] = "ready"
-        self.tts._model_state["detail"] = "Model ready on CPU."
+        self.tts.model._model_state["status"] = "ready"
+        self.tts.model._model_state["detail"] = "Model ready on CPU."
 
-        with patch.object(self.tts, "get_model", return_value=model):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                with patch.object(self.tts, "_split_into_chunks", return_value=["hi"]):
-                    with patch.object(
-                        self.tts, "_generate_chunk", side_effect=RuntimeError("boom")
+        with patch.object(self.tts.model, "get_model", return_value=model):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                with patch.object(self.tts.synth, "_split_into_chunks", return_value=["hi"]):
+                    with patch.object(self.tts.synth, "_generate_chunk", side_effect=RuntimeError("boom")
                     ):
                         with self.assertRaises(RuntimeError):
-                            self.tts.narrate_text("hi", "session1", 0)
+                            self.tts.synth.narrate_text("hi", "session1", 0)
 
-        snap = self.tts.state_snapshot()
+        snap = self.tts.model.state_snapshot()
         self.assertEqual(snap["status"], "ready")
         self.assertNotEqual(snap["status"], "generating")
         self.assertIn("failed", snap["detail"].lower())
@@ -162,18 +159,23 @@ class TtsLifecycleTests(unittest.TestCase):
         # 0.5s of silence per chunk at 24kHz
         fake = torch.zeros(1, 12000)
 
-        with patch.object(self.tts, "get_model", return_value=model):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                with patch.object(
-                    self.tts, "_split_into_chunks", return_value=["Hello.", "World."]
+        # Use a real temp dir for ``_data_dirs`` so the atomic-write helper
+        # can create the temp file alongside the target without relying on
+        # the caller having called ``os.makedirs`` first.
+        tmp = tempfile.mkdtemp(prefix="tts-lifecycle-")
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        with patch.object(self.tts.model, "get_model", return_value=model):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                with patch.object(self.tts.synth, "_split_into_chunks", return_value=["Hello.", "World."]
                 ):
-                    with patch.object(self.tts, "_generate_chunk", return_value=fake):
-                        with patch.object(self.tts.ta, "save"):
-                            with patch.object(self.tts, "_data_dirs", return_value=("d", "v", "s")):
-                                with patch("os.makedirs"):
-                                    result = self.tts.narrate_text(
-                                        "Hello. World.", "session1", 0
-                                    )
+                    with patch.object(self.tts.synth, "_generate_chunk", return_value=fake):
+                        with patch.object(self.tts.synth.ta, "save"):
+                            with patch.object(
+                                self.tts.model, "_data_dirs", return_value=(tmp, tmp, tmp)
+                            ):
+                                result = self.tts.synth.narrate_text(
+                                    "Hello. World.", "session1", 0
+                                )
 
         self.assertIsInstance(result, dict)
         self.assertIn("audio_url", result)
@@ -184,22 +186,22 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(result["duration_s"], 1.0)
 
     def test_audio_filename_changes_with_voice_language_and_text(self):
-        base = self.tts._audio_filename(2, "hello", "voice-a", "en", None)
-        other_voice = self.tts._audio_filename(2, "hello", "voice-b", "en", None)
-        other_language = self.tts._audio_filename(2, "hello", "voice-a", "ar", None)
-        other_text = self.tts._audio_filename(2, "goodbye", "voice-a", "en", None)
+        base = self.tts.synth._audio_filename(2, "hello", "voice-a", "en", None)
+        other_voice = self.tts.synth._audio_filename(2, "hello", "voice-b", "en", None)
+        other_language = self.tts.synth._audio_filename(2, "hello", "voice-a", "ar", None)
+        other_text = self.tts.synth._audio_filename(2, "goodbye", "voice-a", "en", None)
 
-        self.assertEqual(base, self.tts._audio_filename(2, "hello", "voice-a", "en", None))
+        self.assertEqual(base, self.tts.synth._audio_filename(2, "hello", "voice-a", "en", None))
         self.assertEqual(len({base, other_voice, other_language, other_text}), 4)
         self.assertTrue(base.startswith("page_2_"))
         self.assertTrue(base.endswith(".wav"))
 
     def test_audio_filename_changes_with_studio_generation_settings(self):
-        normal = self.tts._audio_filename(
+        normal = self.tts.synth._audio_filename(
             0, "Studio text", "voice-a", "en", None,
             {"pace": 1.0, "expression": 0.5, "temperature": 0.8, "guidance": None, "seed": 7},
         )
-        expressive = self.tts._audio_filename(
+        expressive = self.tts.synth._audio_filename(
             0, "Studio text", "voice-a", "en", None,
             {"pace": 1.0, "expression": 0.9, "temperature": 0.8, "guidance": None, "seed": 7},
         )
@@ -207,9 +209,9 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertNotEqual(normal, expressive)
 
     def test_book_audio_filename_tracks_engine_versions(self):
-        plain = self.tts._audio_filename(1, "Hello", None, "en", None)
-        with patch.object(self.tts, "app_version", return_value="9.9.9-test"):
-            bumped = self.tts._audio_filename(1, "Hello", None, "en", None)
+        plain = self.tts.synth._audio_filename(1, "Hello", None, "en", None)
+        with patch("services.config_service.app_version", return_value="9.9.9-test"):
+            bumped = self.tts.synth._audio_filename(1, "Hello", None, "en", None)
 
         self.assertNotEqual(plain, bumped)
 
@@ -221,9 +223,9 @@ class TtsLifecycleTests(unittest.TestCase):
             voices.mkdir()
             reference = voices / "voice-a.wav"
             reference.write_bytes(b"first reference")
-            first = self.tts._audio_filename(1, "Hello", "voice-a", "en", None)
+            first = self.tts.synth._audio_filename(1, "Hello", "voice-a", "en", None)
             reference.write_bytes(b"replacement reference")
-            second = self.tts._audio_filename(1, "Hello", "voice-a", "en", None)
+            second = self.tts.synth._audio_filename(1, "Hello", "voice-a", "en", None)
 
         self.assertNotEqual(first, second)
 
@@ -236,9 +238,9 @@ class TtsLifecycleTests(unittest.TestCase):
             voices.mkdir()
             reference = voices / "voice-a.wav"
             reference.write_bytes(b"first reference")
-            first = self.tts._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
+            first = self.tts.synth._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
             reference.write_bytes(b"replacement reference")
-            second = self.tts._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
+            second = self.tts.synth._audio_filename(0, "Studio text", "voice-a", "en", None, settings)
 
         self.assertNotEqual(first, second)
 
@@ -247,10 +249,10 @@ class TtsLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             reference = Path(temp_dir) / "voice.wav"
             reference.write_bytes(b"reference")
-            with patch.object(self.tts, "_chatterbox_model_version", return_value="1.0"):
-                first = self.tts._voice_condition_cache_path(str(reference), model)
-            with patch.object(self.tts, "_chatterbox_model_version", return_value="2.0"):
-                second = self.tts._voice_condition_cache_path(str(reference), model)
+            with patch.object(self.tts.model, "_chatterbox_model_version", return_value="1.0"):
+                first = self.tts.model._voice_condition_cache_path(str(reference), model)
+            with patch.object(self.tts.model, "_chatterbox_model_version", return_value="2.0"):
+                second = self.tts.model._voice_condition_cache_path(str(reference), model)
 
         self.assertNotEqual(first.name, second.name)
 
@@ -263,7 +265,7 @@ class TtsLifecycleTests(unittest.TestCase):
             "seed": 42,
         }
 
-        kwargs = self.tts._generation_kwargs(settings, chunk_index=2)
+        kwargs = self.tts.synth._generation_kwargs(settings, chunk_index=2)
 
         self.assertAlmostEqual(kwargs["exaggeration"], 0.58)
         self.assertEqual(kwargs["temperature"], 0.9)
@@ -271,9 +273,9 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertEqual(kwargs["seed"], 44)
 
     def test_auto_guidance_tracks_the_safe_expression_curve_on_every_device(self):
-        calm = self.tts._generation_kwargs({"expression": 0.0})
-        neutral = self.tts._generation_kwargs({"expression": 0.5})
-        animated = self.tts._generation_kwargs({"expression": 1.0})
+        calm = self.tts.synth._generation_kwargs({"expression": 0.0})
+        neutral = self.tts.synth._generation_kwargs({"expression": 0.5})
+        animated = self.tts.synth._generation_kwargs({"expression": 1.0})
 
         self.assertAlmostEqual(calm["exaggeration"], 0.4)
         self.assertAlmostEqual(calm["cfg_weight"], 0.5)
@@ -283,8 +285,8 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(animated["cfg_weight"], 0.3)
 
     def test_manual_guidance_remains_an_exact_override(self):
-        with patch.object(self.tts, "_is_cuda_build", return_value=True):
-            result = self.tts._generation_kwargs(
+        with patch.object(self.tts.model, "_is_cuda_build", return_value=True):
+            result = self.tts.synth._generation_kwargs(
                 {"expression": 1.0, "guidance": 0.65}
             )
 
@@ -295,22 +297,22 @@ class TtsLifecycleTests(unittest.TestCase):
         # so it maps onto the automatic expression curve instead of crashing.
         for bad in (0.0, -0.25):
             with self.subTest(guidance=bad):
-                result = self.tts._generation_kwargs({"expression": 0.5, "guidance": bad})
+                result = self.tts.synth._generation_kwargs({"expression": 0.5, "guidance": bad})
                 self.assertGreater(result["cfg_weight"], 0.0)
                 self.assertAlmostEqual(
-                    result["cfg_weight"], self.tts._auto_guidance(0.5)
+                    result["cfg_weight"], self.tts.synth._auto_guidance(0.5)
                 )
 
     def test_unparseable_guidance_falls_back_to_automatic_curve(self):
         for bad in ("loud", float("nan")):
             with self.subTest(guidance=bad):
-                result = self.tts._generation_kwargs({"expression": 0.5, "guidance": bad})
+                result = self.tts.synth._generation_kwargs({"expression": 0.5, "guidance": bad})
                 self.assertAlmostEqual(
-                    result["cfg_weight"], self.tts._auto_guidance(0.5)
+                    result["cfg_weight"], self.tts.synth._auto_guidance(0.5)
                 )
 
     def test_guidance_above_one_is_clamped(self):
-        result = self.tts._generation_kwargs({"expression": 0.5, "guidance": 2.0})
+        result = self.tts.synth._generation_kwargs({"expression": 0.5, "guidance": 2.0})
         self.assertEqual(result["cfg_weight"], 1.0)
 
     def test_studio_cache_identity_includes_the_generation_pipeline_version(self):
@@ -321,12 +323,12 @@ class TtsLifecycleTests(unittest.TestCase):
             "guidance": None,
             "seed": 7,
         }
-        with patch.object(self.tts, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v1"):
-            first = self.tts._audio_filename(
+        with patch.object(self.tts.synth, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v1"):
+            first = self.tts.synth._audio_filename(
                 0, "Studio text", None, "en", None, settings
             )
-        with patch.object(self.tts, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v2"):
-            second = self.tts._audio_filename(
+        with patch.object(self.tts.synth, "STUDIO_GENERATION_PIPELINE_VERSION", "studio-v2"):
+            second = self.tts.synth._audio_filename(
                 0, "Studio text", None, "en", None, settings
             )
 
@@ -348,26 +350,19 @@ class TtsLifecycleTests(unittest.TestCase):
             "seed": 7,
         }
 
-        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            self.tts, "get_model", return_value=model
-        ), patch.object(
-            self.tts, "maybe_cleanup_sessions"
-        ), patch.object(
-            self.tts, "_split_into_chunks", return_value=["First.", "Second."]
-        ), patch.object(
-            self.tts, "_generate_chunk", return_value=chunk
-        ), patch.object(
-            self.tts, "_apply_pace", return_value=paced
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(self.tts.model, "get_model", return_value=model
+        ), patch.object(self.tts.synth, "maybe_cleanup_sessions"
+        ), patch.object(self.tts.synth, "_split_into_chunks", return_value=["First.", "Second."]
+        ), patch.object(self.tts.synth, "_generate_chunk", return_value=chunk
+        ), patch.object(self.tts.synth, "_apply_pace", return_value=paced
         ) as apply_pace, patch.object(
-            self.tts.ta, "save"
-        ), patch.object(
-            self.tts,
-            "_data_dirs",
+            self.tts.synth.ta, "save"
+        ), patch.object(self.tts.model, "_data_dirs",
             return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(Path(temp_dir) / "sessions")),
         ), patch(
             "services.alignment_service.align_words", return_value=None
         ):
-            result = self.tts.narrate_studio_text(
+            result = self.tts.studio.narrate_studio_text(
                 "First. Second.", "studio-session", None, "en", settings
             )
 
@@ -400,7 +395,7 @@ class TtsLifecycleTests(unittest.TestCase):
 
         for pace in (0.75, 1.25):
             with self.subTest(pace=pace):
-                adjusted = self.tts._apply_pace(
+                adjusted = self.tts.synth._apply_pace(
                     source.unsqueeze(0), pace, sample_rate
                 )[0]
                 self.assertAlmostEqual(
@@ -447,20 +442,16 @@ class TtsLifecycleTests(unittest.TestCase):
             voices.mkdir()
             reference = voices / "imported_voice.wav"
             reference.write_bytes(b"media-derived voice reference")
-            with patch.object(self.tts, "get_model", return_value=model), patch.object(
-                self.tts, "maybe_cleanup_sessions"
-            ), patch.object(
-                self.tts, "_split_into_chunks", return_value=["New words in the imported voice."]
-            ), patch.object(
-                self.tts, "_generate_chunk", return_value=fake
+            with patch.object(self.tts.model, "get_model", return_value=model), patch.object(self.tts.synth, "maybe_cleanup_sessions"
+            ), patch.object(self.tts.synth, "_split_into_chunks", return_value=["New words in the imported voice."]
+            ), patch.object(self.tts.synth, "_generate_chunk", return_value=fake
             ) as generate, patch.object(
-                self.tts.ta, "save"
-            ), patch.object(
-                self.tts, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
+                self.tts.synth.ta, "save"
+            ), patch.object(self.tts.model, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
             ), patch(
                 "services.alignment_service.align_words", return_value=None
             ):
-                self.tts.narrate_studio_text(
+                self.tts.studio.narrate_studio_text(
                     "New words in the imported voice.",
                     "studio-session",
                     "imported_voice",
@@ -485,38 +476,32 @@ class TtsLifecycleTests(unittest.TestCase):
             "seed": 7,
         }
 
-        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            self.tts, "get_model", return_value=model
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(self.tts.model, "get_model", return_value=model
+        ), patch.object(self.tts.synth, "maybe_cleanup_sessions"
+        ), patch.object(self.tts.synth, "_split_into_chunks", return_value=["Clear beginning and ending."]
+        ), patch.object(self.tts.synth, "_generate_chunk", return_value=speech
         ), patch.object(
-            self.tts, "maybe_cleanup_sessions"
-        ), patch.object(
-            self.tts, "_split_into_chunks", return_value=["Clear beginning and ending."]
-        ), patch.object(
-            self.tts, "_generate_chunk", return_value=speech
-        ), patch.object(
-            self.tts.ta, "save"
-        ) as save, patch.object(
-            self.tts,
-            "_data_dirs",
+            self.tts.synth.ta, "save"
+        ) as save, patch.object(self.tts.model, "_data_dirs",
             return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(Path(temp_dir) / "sessions")),
         ), patch(
             "services.alignment_service.align_words", return_value=None
         ):
-            result = self.tts.narrate_studio_text(
+            result = self.tts.studio.narrate_studio_text(
                 "Clear beginning and ending.", "studio-session", None, "en", settings
             )
 
         saved = save.call_args.args[1]
-        leading = int(round(self.tts.STUDIO_LEADING_SILENCE_S * model.sr))
-        trailing = int(round(self.tts.STUDIO_TRAILING_SILENCE_S * model.sr))
+        leading = int(round(self.tts.synth.STUDIO_LEADING_SILENCE_S * model.sr))
+        trailing = int(round(self.tts.synth.STUDIO_TRAILING_SILENCE_S * model.sr))
         self.assertTrue(torch.count_nonzero(saved[..., :leading]) == 0)
         self.assertTrue(torch.count_nonzero(saved[..., -trailing:]) == 0)
         self.assertTrue(torch.all(saved[..., leading:leading + speech.shape[-1]] == 1))
         self.assertEqual(saved.shape[-1], speech.shape[-1] + leading + trailing)
-        self.assertAlmostEqual(result["segments"][0]["start_s"], self.tts.STUDIO_LEADING_SILENCE_S)
+        self.assertAlmostEqual(result["segments"][0]["start_s"], self.tts.synth.STUDIO_LEADING_SILENCE_S)
         self.assertAlmostEqual(
             result["duration_s"],
-            1.0 + self.tts.STUDIO_LEADING_SILENCE_S + self.tts.STUDIO_TRAILING_SILENCE_S,
+            1.0 + self.tts.synth.STUDIO_LEADING_SILENCE_S + self.tts.synth.STUDIO_TRAILING_SILENCE_S,
         )
 
     def test_bump_generation_aborts_in_flight_chunks(self):
@@ -535,23 +520,21 @@ class TtsLifecycleTests(unittest.TestCase):
             # After the first chunk, bump the generation token to simulate a
             # page change / voice switch superseding this synthesis.
             if call_count["n"] == 1:
-                self.tts.bump_generation()
+                self.tts.queue.bump_generation()
             return fake
 
-        self.tts._model_state["status"] = "ready"
-        with patch.object(self.tts, "get_model", return_value=model):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                with patch.object(
-                    self.tts,
-                    "_split_into_chunks",
+        self.tts.model._model_state["status"] = "ready"
+        with patch.object(self.tts.model, "get_model", return_value=model):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                with patch.object(self.tts.synth, "_split_into_chunks",
                     return_value=["one.", "two.", "three.", "four."],
                 ):
-                    with patch.object(self.tts, "_generate_chunk", side_effect=slow_generate):
-                        with patch.object(self.tts.ta, "save"):
-                            with patch.object(self.tts, "_data_dirs", return_value=("d", "v", "s")):
+                    with patch.object(self.tts.synth, "_generate_chunk", side_effect=slow_generate):
+                        with patch.object(self.tts.synth.ta, "save"):
+                            with patch.object(self.tts.model, "_data_dirs", return_value=("d", "v", "s")):
                                 with patch("os.makedirs"):
-                                    with self.assertRaises(self.tts.GenerationCancelled):
-                                        self.tts.narrate_text(
+                                    with self.assertRaises(self.tts.queue.GenerationCancelled):
+                                        self.tts.synth.narrate_text(
                                             "one. two. three. four.", "session1", 0
                                         )
 
@@ -559,13 +542,13 @@ class TtsLifecycleTests(unittest.TestCase):
         # at the start of chunk 1's iteration, before _generate_chunk is called.
         self.assertEqual(call_count["n"], 1)
         # The model should be back to ready (cancellation is not a failure).
-        snap = self.tts.state_snapshot()
+        snap = self.tts.model.state_snapshot()
         self.assertEqual(snap["status"], "ready")
         self.assertNotIn("failed", snap["detail"].lower())
 
     def test_bump_generation_returns_monotonic_tokens(self):
-        first = self.tts.bump_generation()
-        second = self.tts.bump_generation()
+        first = self.tts.queue.bump_generation()
+        second = self.tts.queue.bump_generation()
         self.assertGreater(second, first)
 
     def test_streaming_yields_chunks_then_done(self):
@@ -577,21 +560,18 @@ class TtsLifecycleTests(unittest.TestCase):
         model.sr = 24000
         fake = torch.zeros(1, 12000)  # 0.5s per chunk
 
-        with patch.object(self.tts, "get_model", return_value=model):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                with patch.object(
-                    self.tts,
-                    "_split_into_chunks",
+        with patch.object(self.tts.model, "get_model", return_value=model):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                with patch.object(self.tts.synth, "_split_into_chunks",
                     return_value=["one.", "two.", "three."],
                 ):
-                    with patch.object(self.tts, "_generate_chunk", return_value=fake):
-                        with patch.object(self.tts.ta, "save"):
-                            with patch.object(
-                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                    with patch.object(self.tts.synth, "_generate_chunk", return_value=fake):
+                        with patch.object(self.tts.synth.ta, "save"):
+                            with patch.object(self.tts.model, "_data_dirs", return_value=("d", "v", "s")
                             ):
                                 with patch("os.makedirs"):
                                     events = list(
-                                        self.tts.narrate_text_streaming(
+                                        self.tts.streaming.narrate_text_streaming(
                                             "one. two. three.", "session1", 0
                                         )
                                     )
@@ -614,7 +594,7 @@ class TtsLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(done_events[0]["duration_s"], 1.5)
         self.assertEqual(len(done_events[0]["segments"]), 3)
         # Streaming and one-shot narration share one canonical cache identity.
-        expected_full = self.tts._audio_filename(0, "one. two. three.", None, "en", None)
+        expected_full = self.tts.synth._audio_filename(0, "one. two. three.", None, "en", None)
         self.assertTrue(done_events[0]["audio_url"].endswith(f"/{expected_full}"))
         chunk_stem = expected_full.removesuffix(".wav")
         for index, event in enumerate(chunk_events):
@@ -633,23 +613,21 @@ class TtsLifecycleTests(unittest.TestCase):
         def slow(_m, _c, _l, **_k):
             count["n"] += 1
             if count["n"] == 1:
-                self.tts.bump_generation()
+                self.tts.queue.bump_generation()
             return fake
 
-        with patch.object(self.tts, "get_model", return_value=model):
-            with patch.object(self.tts, "maybe_cleanup_sessions"):
-                with patch.object(
-                    self.tts, "_split_into_chunks", return_value=["a.", "b.", "c."]
+        with patch.object(self.tts.model, "get_model", return_value=model):
+            with patch.object(self.tts.synth, "maybe_cleanup_sessions"):
+                with patch.object(self.tts.synth, "_split_into_chunks", return_value=["a.", "b.", "c."]
                 ):
-                    with patch.object(self.tts, "_generate_chunk", side_effect=slow):
-                        with patch.object(self.tts.ta, "save"):
-                            with patch.object(
-                                self.tts, "_data_dirs", return_value=("d", "v", "s")
+                    with patch.object(self.tts.synth, "_generate_chunk", side_effect=slow):
+                        with patch.object(self.tts.synth.ta, "save"):
+                            with patch.object(self.tts.model, "_data_dirs", return_value=("d", "v", "s")
                             ):
                                 with patch("os.makedirs"):
-                                    with self.assertRaises(self.tts.GenerationCancelled):
+                                    with self.assertRaises(self.tts.queue.GenerationCancelled):
                                         list(
-                                            self.tts.narrate_text_streaming(
+                                            self.tts.streaming.narrate_text_streaming(
                                                 "a. b. c.", "session1", 0
                                             )
                                         )
@@ -668,12 +646,11 @@ class TtsLifecycleTests(unittest.TestCase):
                 target.write_bytes(b"wav")
                 return {"audio_url": f"/sessions/{session_id}/{filename}"}
 
-            with patch.object(
-                self.tts, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
+            with patch.object(self.tts.model, "_data_dirs", return_value=(temp_dir, str(voices), str(sessions))
             ):
-                with patch.object(self.tts, "_synthesize_audio", side_effect=synthesize) as generate:
-                    first = self.tts.pronounce_text("hello", "session1", None, "en")
-                    second = self.tts.pronounce_text("hello", "session2", None, "en")
+                with patch.object(self.tts.synth, "_synthesize_audio", side_effect=synthesize) as generate:
+                    first = self.tts.streaming.pronounce_text("hello", "session1", None, "en")
+                    second = self.tts.streaming.pronounce_text("hello", "session2", None, "en")
 
         self.assertEqual(first["audio_url"], second["audio_url"])
         generate.assert_called_once()
@@ -698,14 +675,12 @@ class TtsLifecycleTests(unittest.TestCase):
             os.utime(latest, (2, 2))
 
             fake_wav = torch.zeros(1, 120)
-            with patch.object(
-                self.tts,
-                "_data_dirs",
+            with patch.object(self.tts.model, "_data_dirs",
                 return_value=(temp_dir, str(Path(temp_dir) / "voices"), str(sessions_dir)),
             ):
-                with patch.object(self.tts.ta, "load", return_value=(fake_wav, 24000)) as load:
-                    with patch.object(self.tts.ta, "save") as save:
-                        result = self.tts.export_cached_pages("session1", 1, 2)
+                with patch.object(self.tts.synth.ta, "load", return_value=(fake_wav, 24000)) as load:
+                    with patch.object(self.tts.synth.ta, "save") as save:
+                        result = self.tts.streaming.export_cached_pages("session1", 1, 2)
 
         self.assertEqual(load.call_count, 2)
         self.assertEqual(load.call_args_list[0].args[0], str(latest))

@@ -34,6 +34,11 @@ def build_manifest(*, root: Path = ROOT, installer: Path = INSTALLER) -> dict:
     launcher = installer / "BookVoice-Launcher.exe"
     if launcher.is_file():
         required.append(launcher)
+    # Reject zero-byte files explicitly: a stray empty .cab or placeholder
+    # launcher must never pass validation just because the file exists.
+    empty = [path.name for path in required if path.is_file() and path.stat().st_size == 0]
+    if empty:
+        raise SystemExit("Release assets are zero bytes: " + ", ".join(empty))
     missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
     if missing or not cabinets:
         raise SystemExit("Release assets are incomplete: " + ", ".join(missing or ["no cabinets"]))
@@ -62,15 +67,16 @@ def build_manifest(*, root: Path = ROOT, installer: Path = INSTALLER) -> dict:
 def build_launcher(installer: Path) -> Path:
     """Build the standalone launcher/setup executable into the release folder."""
     out = ROOT / "build" / "bookvoice-launcher"
+    spec_path = (ROOT / "BookVoiceLauncher.spec").resolve()
     try:
         subprocess.run(
             [
                 sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
                 f"--distpath={out / 'dist'}",
                 f"--workpath={out / 'work'}",
-                str(ROOT / "BookVoiceLauncher.spec"),
+                str(spec_path),
             ],
-            cwd=ROOT,
+            cwd=str(ROOT),
             check=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -79,7 +85,12 @@ def build_launcher(installer: Path) -> Path:
     if not produced.is_file():
         raise SystemExit("Launcher build did not produce BookVoice-Launcher.exe")
     target = installer / "BookVoice-Launcher.exe"
-    shutil.copy2(produced, target)
+    try:
+        shutil.copy2(produced, target)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Could not copy launcher to {target}: locked by another process?"
+        ) from exc
     return target
 
 

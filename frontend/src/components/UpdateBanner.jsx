@@ -82,7 +82,7 @@ export default function UpdateBanner() {
                 title={`Install BookVoice ${status.latest}?`}
                 message={
                     'BookVoice will close, install the update, and reopen. '
-                    + 'Anything you have not saved will be lost. '
+                    + 'Any unsaved narration or in-progress Studio take will be lost. '
                     + 'Windows will ask you to confirm the installer.'
                 }
                 confirmLabel="Close and install"

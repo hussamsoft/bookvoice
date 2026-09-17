@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getVoices, deleteVoice } from '../utils/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ui/ConfirmDialog';
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react';
 
 const MAX_FETCH_RETRIES = 10;
 
@@ -19,6 +19,7 @@ export default function VoiceSettings({
     const [fetchFailed, setFetchFailed] = useState(false);
 
     const backendReadyRef = useRef(backendReady);
+    const activeVoiceIdRef = useRef(activeVoiceId);
     // Avoid re-clearing the same missing id (prevents update loops).
     const clearedMissingRef = useRef(null);
 
@@ -26,6 +27,10 @@ export default function VoiceSettings({
     useEffect(() => {
         backendReadyRef.current = backendReady;
     }, [backendReady]);
+
+    useEffect(() => {
+        activeVoiceIdRef.current = activeVoiceId;
+    }, [activeVoiceId]);
 
     const validateActiveVoice = useCallback(
         (list, voiceId) => {
@@ -52,7 +57,7 @@ export default function VoiceSettings({
             try {
                 const data = await getVoices();
                 setVoices(data);
-                validateActiveVoice(data, activeVoiceId);
+                validateActiveVoice(data, activeVoiceIdRef.current);
                 setFetchFailed(false);
                 return data;
             } catch {
@@ -68,7 +73,7 @@ export default function VoiceSettings({
             }
 
         },
-        [activeVoiceId, toast, validateActiveVoice]
+        [toast, validateActiveVoice]
     );
 
     useEffect(() => {
@@ -185,7 +190,7 @@ export default function VoiceSettings({
                 >
                     <span className="voice-pill-label" aria-hidden="true">Voice:</span>
                     <span className="voice-pill-name" aria-hidden="true">{activeVoiceName}</span>
-                    <span className={`voice-pill-chevron ${expanded ? 'open' : ''}`} aria-hidden="true">▾</span>
+                    <ChevronDown size={14} className={`voice-pill-chevron ${expanded ? 'open' : ''}`} aria-hidden="true" />
                 </button>
 
                 {expanded && (
@@ -215,7 +220,7 @@ export default function VoiceSettings({
                             </button>
                             {fetchFailed && !voices.length && (
                                 <span className="voice-fetch-error" role="status">
-                                    Couldn't load voices
+                                    Couldn’t load voices
                                 </span>
                             )}
                             {activeVoiceId && (
@@ -274,7 +279,7 @@ export default function VoiceSettings({
                 </button>
                 {fetchFailed && !voices.length && (
                     <span className="voice-fetch-error" role="status">
-                        Couldn't load voices
+                        Couldn’t load voices
                     </span>
                 )}
                 {activeVoiceId && (

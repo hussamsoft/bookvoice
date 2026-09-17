@@ -85,11 +85,17 @@ def write_runtime_manifest(dist: Path, version: str) -> dict[str, object]:
 def _copy_runtime(source: Path, base_runtime: Path, destination: Path) -> None:
     if destination.exists():
         shutil.rmtree(destination)
+        if destination.exists():
+            raise SystemExit(f"Failed to clean stale runtime destination: {destination}")
+    if not destination.exists():
+        destination.mkdir(parents=True)
     shutil.copytree(base_runtime, destination)
     shutil.copytree(
         source / "Lib" / "site-packages",
         destination / "Lib" / "site-packages",
         dirs_exist_ok=True,
+        # pip is intentionally excluded: the worker runtime never bootstraps
+        # another Python environment, so shipping pip.exe only burns bytes.
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "pip", "pip.exe"),
     )
 

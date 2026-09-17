@@ -264,6 +264,12 @@
   gap: var(--space-3);
 }
 
+@media (max-width: 1024px) {
+  .home-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .home-action-card {
   display: flex;
   flex-direction: column;

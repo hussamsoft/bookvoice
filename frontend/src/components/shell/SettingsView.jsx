@@ -4,6 +4,7 @@ import Button from '../ui/Button';
 import { useToast } from '../Toast';
 import { useUserConfig } from '../../hooks/useUserConfig';
 import { useTheme, PALETTES, getSwatchColor } from '../../hooks/useTheme';
+import { useCapabilities } from '../../hooks/useCapabilities';
 import { getServerAddresses } from '../../utils/api';
 import VoiceSettings from '../VoiceSettings';
 
@@ -14,8 +15,9 @@ import VoiceSettings from '../VoiceSettings';
  */
 export default function SettingsView() {
     const toast = useToast();
-    const { config, updateConfig } = useUserConfig();
+    const { config, updateConfig, saveError } = useUserConfig();
     const theme = useTheme();
+    const { serverMode } = useCapabilities();
     const [saving, setSaving] = useState(false);
     const [access, setAccess] = useState(null);
 
@@ -57,6 +59,17 @@ export default function SettingsView() {
                 <h1>Settings</h1>
                 <p className="hint">Appearance follows this browser; everything else follows this computer.</p>
             </header>
+
+            {saveError && (
+                <div className="status-banner error" role="alert">
+                    <span>Could not save settings: {saveError}</span>
+                </div>
+            )}
+            {serverMode && (
+                <div className="status-banner loading" role="status">
+                    <span>Hosted server mode: local file actions and LAN tunnel options are disabled.</span>
+                </div>
+            )}
 
             <section className="settings-card" aria-labelledby="settings-appearance">
                 <h2 className="settings-section-title" id="settings-appearance">Appearance</h2>
@@ -148,7 +161,7 @@ export default function SettingsView() {
 
             <section className="settings-card" aria-labelledby="settings-connections">
                 <h2 className="settings-section-title" id="settings-connections">Device &amp; connections</h2>
-                {config ? (
+                {config && !serverMode ? (
                     <label className="settings-row">
                         <span>Check for updates</span>
                         <input
@@ -159,10 +172,16 @@ export default function SettingsView() {
                         />
                     </label>
                 ) : null}
-                {config && (
+                {config && !serverMode && (
                     <p className="settings-hint">
                         Update checks ask GitHub once a day whether a newer release exists. Turn
                         this off to stop BookVoice contacting the network on its own.
+                    </p>
+                )}
+                {serverMode && (
+                    <p className="settings-hint">
+                        Update checks run only on the desktop app — the person looking at this
+                        hosted UI is not on the machine that would need to restart.
                     </p>
                 )}
                 {access?.available && ((access.addresses?.length ?? 0) > 0 || access.tunnelUrl) && (

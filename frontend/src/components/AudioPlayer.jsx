@@ -25,6 +25,8 @@ const AudioPlayer = forwardRef(function AudioPlayer(
     useImperativeHandle(ref, () => audioRef.current, []);
 
     useEffect(() => {
+        const prior = audioRef.current;
+        if (prior && !prior.paused) prior.pause();
         setPlaying(false);
         setCurrent(0);
         setDuration(0);

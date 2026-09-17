@@ -295,7 +295,7 @@ def main() -> int:
                 base = f"http://127.0.0.1:{port}"
                 if not wait_for_health(base):
                     print("[fail] /api/health never became ready")
-                    print(server_log_path.read_text(encoding="utf-8", errors="replace")[-2500:])
+                    print(server_log_path.read_text(encoding="utf-8", errors="replace")[-500:])
                     failures += 1
                 else:
                     print("[ok]   packaged backend healthy")

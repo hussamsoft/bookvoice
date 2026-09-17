@@ -64,8 +64,15 @@ async def download_audiobook(book_id: str, job_id: str):
         job, path = exports.resolve_output_path(book_id, job_id)
     except FileNotFoundError as exc:
         _error("AUDIOBOOK_NOT_FOUND", str(exc), 404)
-    safe_title = str(job.get("title") or "audiobook").replace("/", "-").replace("\\", "-")
-    filename = f"{safe_title}-{job['profileId'][:8]}.m4b"
+    # Reuse the Studio download-name sanitizer so Windows-forbidden
+    # characters (:, *, ?, ", <, >, |) and control bytes do not reach
+    # the Content-Disposition header.
+    from services.studio_service.downloads import _download_file_name
+    base = _download_file_name(str(job.get("title") or "audiobook"), job_id)
+    if base.lower().endswith(".m4b"):
+        filename = base
+    else:
+        filename = f"{base}.m4b"
     return FileResponse(
         path,
         media_type="audio/mp4",

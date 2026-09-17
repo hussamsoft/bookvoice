@@ -113,7 +113,7 @@ describe('Toast', () => {
         expect(toastEl).not.toHaveClass('toast-leaving');
 
         await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
         });
 
         expect(screen.getByRole('status')).toHaveClass('toast-leaving');

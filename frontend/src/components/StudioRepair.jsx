@@ -1,6 +1,6 @@
 import AudioPlayer from './AudioPlayer';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileAudio, Scissors, ShieldCheck, Upload } from 'lucide-react';
+import { FileAudio, Download, Scissors, ShieldCheck, Upload } from 'lucide-react';
 import {
     createStudioProfile,
     createStudioRepair,
@@ -34,6 +34,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
     );
     const latestRepair = [...(project.repairs || [])].reverse().find((item) => item.assetId === sourceId);
     const latestRepairOutput = (project.outputs || []).find((item) => item.id === latestRepair?.outputId);
+    const rangeSpan = range.end - range.start;
 
     useEffect(() => {
         if (!sourceId && project.sources?.length) setSourceId(project.sources.at(-1).id);
@@ -148,11 +149,11 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                         <div><span className="studio-kicker">Reusable everywhere</span><h3 id="studio-profile-heading">Create voice profile</h3></div>
                         <ShieldCheck size={20} />
                     </div>
-                    <p>Select 5–30 seconds of clean, single-speaker audio. BookVoice saves a private voice profile on this device.</p>
+                    <p>Select 5–30 seconds of clean, single-speaker audio. BookVoice saves a private voice profile. Stay on this device.</p>
                     <div className="studio-profile-fields">
                         <label><span>Profile name</span><input value={profileName} onChange={(e) => setProfileName(e.target.value)} maxLength={64} /></label>
                         <label className="studio-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>I own or have permission to clone this voice.</span></label>
-                        <button className="btn secondary" onClick={createProfile} disabled={disabled || !profileName.trim() || !consent || range.end - range.start < 5 || range.end - range.start > 30}>Save voice profile</button>
+                        <button className="btn secondary" onClick={createProfile} disabled={disabled || !profileName.trim() || !consent || rangeSpan < 5 || rangeSpan > 30}>Save voice profile</button>
                     </div>
                 </section>
 
@@ -172,7 +173,7 @@ export default function StudioRepair({ project, voices, onPatch, onRunJob, disab
                                 <span>Repaired</span>
                                 <AudioPlayer src={latestRepairOutput.contentUrl} label="the repaired recording" compact />
                             </div>
-                            {source.mediaType === 'VIDEO' && <button className="btn secondary" onClick={exportVideo} disabled={disabled}>Export repaired MP4</button>}
+                            {source.mediaType === 'VIDEO' && <button className="btn secondary" onClick={exportVideo} disabled={disabled}><Download size={16} /> Export repaired MP4</button>}
                         </div>
                     )}
                 </section>

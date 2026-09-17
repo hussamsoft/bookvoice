@@ -12,7 +12,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseRidGraph>true</UseRidGraph>
     <UseWinUI>true</UseWinUI>
-    <EnableMsixTooling>true</EnableMsixTooling>
+    <EnableMsixTooling>false</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -39,5 +39,9 @@
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Two copies of bookvoice.ico are intentional: the top-level file is the
+       EXE icon (referenced by ApplicationIcon) and Assets/bookvoice.ico is the
+       runtime copy used by the WinUI window and the .bookvoice file association. -->
 
 </Project>

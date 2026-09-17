@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, memo } from 'react';
+import { SUPPORTED_LANGUAGES } from '../utils/languages';
 
 
 const NumberControl = memo(function NumberControl({
@@ -146,10 +147,9 @@ export default function StudioSettings({
                             disabled={disabled}
                             className="studio-select"
                         >
-                            <option value="en">English</option>
-                            <option value="es">Spanish</option>
-                            <option value="fr">French</option>
-                            <option value="de">German</option>
+                            {SUPPORTED_LANGUAGES.map((lang) => (
+                                <option key={lang.code} value={lang.code}>{lang.name}</option>
+                            ))}
                         </select>
                     </div>
                 </div>

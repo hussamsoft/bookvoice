@@ -61,7 +61,7 @@ function BookRowMenu({ book, job, actions }) {
                             }}
                         >
                             {job.pagesDone
-                                ? `Cancel ${job.label} (${job.pagesDone}/${job.pageCount ?? '—'})`
+                                ? `Cancel ${job.label} (${job.pagesDone}/${job.pageCount ?? '…'})`
                                 : `Cancel ${job.label.toLowerCase()}`}
                         </button>
                     ) : (
@@ -174,6 +174,7 @@ export default function LibraryView({ onOpenBook, onError }) {
 
             {!isLoading && books.length === 0 && (
                 <div className="empty-state">
+                    <BookOpen size={28} className="empty-state-icon" aria-hidden="true" />
                     <p className="empty-state-title">No books yet</p>
                     <p className="empty-state-hint">
                         Add a PDF, EPUB, or text file — or scan pages from a physical book.

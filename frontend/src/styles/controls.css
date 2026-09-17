@@ -102,6 +102,13 @@ button:disabled {
   background: color-mix(in srgb, var(--live) 12%, transparent);
 }
 
+.btn.danger:focus-visible,
+.btn.text.danger:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--live) 14%, transparent);
+}
+
 .btn.primary.danger {
   background: var(--live);
   color: var(--accent-on);
@@ -462,6 +469,23 @@ input[type="checkbox"] {
   font-size: var(--text-lg);
 }
 
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.modal-header .modal-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-close {
+  flex: none;
+  margin-top: -4px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -471,6 +495,16 @@ input[type="checkbox"] {
 @media (max-width: 720px) {
   .modal-panel {
     width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .modal-panel .shortcuts-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal-panel .shortcut-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
   }
 }
 /* --- Narration transport --------------------------------------------------- */

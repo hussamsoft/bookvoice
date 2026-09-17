@@ -124,7 +124,16 @@ def ensure_embed_cache(root: Path) -> Path:
     if cache.exists():
         shutil.rmtree(cache)
     cache.mkdir(parents=True, exist_ok=True)
+    cache_resolved = cache.resolve()
     with zipfile.ZipFile(zip_path) as archive:
+        for info in archive.infolist():
+            target = (cache / info.filename).resolve()
+            try:
+                target.relative_to(cache_resolved)
+            except ValueError:
+                raise RuntimeError(
+                    f"Refusing zip-slip entry outside cache: {info.filename}"
+                ) from None
         archive.extractall(cache)
 
     _patch_pth(cache)

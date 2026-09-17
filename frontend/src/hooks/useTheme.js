@@ -21,15 +21,29 @@ function prefersColorSchemeDark() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
+function readCssVar(name, fallback) {
+    if (typeof window === 'undefined') return fallback;
+    const value = window.getComputedStyle(document.documentElement)
+        .getPropertyValue(name).trim();
+    return value || fallback;
+}
+
+function readCssVarFor(palette, mode, name, fallback) {
+    if (typeof window === 'undefined') return fallback;
+    const probe = document.createElement('div');
+    probe.dataset.palette = palette;
+    probe.dataset.mode = mode;
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    document.body.appendChild(probe);
+    const value = window.getComputedStyle(probe).getPropertyValue(name).trim();
+    probe.remove();
+    return value || fallback;
+}
+
 export function getSwatchColor(palette, mode) {
-    const colors = {
-        paper: mode === 'dark' ? '#a08dfb' : '#5f4bd8',
-        blue: mode === 'dark' ? '#6f9bff' : '#2f5fe0',
-        sage: mode === 'dark' ? '#5fd6a4' : '#0e8a5c',
-        plum: mode === 'dark' ? '#c79bff' : '#7a3ff0',
-        sand: mode === 'dark' ? '#f0a860' : '#b05e10',
-    };
-    return colors[palette] || colors.paper;
+    return readCssVarFor(palette, mode, '--accent', '#5f4bd8');
 }
 
 export function useTheme() {
@@ -53,15 +67,7 @@ export function useTheme() {
         writeStoredString('bookvoice.mode', mode);
         const meta = document.querySelector('meta[name="theme-color"]');
         if (meta) {
-            const dark = mode === 'dark';
-            const bgColors = {
-                paper: dark ? '#0d0d17' : '#eef0fa',
-                blue: dark ? '#0a0f1e' : '#edf1fb',
-                sage: dark ? '#0a1410' : '#eaf6ef',
-                plum: dark ? '#120c1e' : '#f3effb',
-                sand: dark ? '#16100a' : '#f9f3ea',
-            };
-            meta.setAttribute('content', bgColors[palette] || '#0d0d17');
+            meta.setAttribute('content', readCssVar('--bg', '#0d0d17'));
         }
     }, [palette, mode]);
 

@@ -10,6 +10,9 @@ BACKEND = Path(__file__).resolve().parents[1] / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from services.security import is_allowed_browser_origin, public_origins  # noqa: E402
 
 
@@ -153,6 +156,63 @@ class BrowserOriginTests(unittest.TestCase):
             {"BOOKVOICE_PUBLIC_ORIGIN": "not-a-url ftp://x.example.com https://u:p@x.example.com"},
         ):
             self.assertEqual(public_origins(), set())
+
+
+class ProtectLocalApiMiddlewareTests(unittest.TestCase):
+    """End-to-end middleware integration for the protect_local_api gate."""
+
+    def _build_app(self):
+        from main import protect_local_api  # noqa: WPS433 - imported here for isolation
+
+        app = FastAPI()
+        app.middleware("http")(protect_local_api)
+
+        @app.get("/api/ping")
+        async def ping():
+            return {"ok": True}
+
+        @app.get("/")
+        async def root():
+            return {"ok": True}
+
+        return app
+
+    def setUp(self):
+        try:
+            self.app = self._build_app()
+        except SyntaxError as exc:
+            self.skipTest(f"backend/main.py not importable in this environment: {exc}")
+
+    def test_loopback_origin_is_allowed(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BOOKVOICE_PUBLIC_ORIGIN", None)
+            client = TestClient(self._build_app())
+            response = client.get(
+                "/api/ping",
+                headers={"Origin": "http://127.0.0.1:8000", "Host": "127.0.0.1:8000"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("X-Content-Type-Options", response.headers)
+
+    def test_external_origin_is_rejected_with_403(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BOOKVOICE_PUBLIC_ORIGIN", None)
+            client = TestClient(self._build_app())
+            response = client.get(
+                "/api/ping",
+                headers={"Origin": "https://evil.example.com", "Host": "127.0.0.1:8000"},
+            )
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["detail"], "Browser origin is not allowed.")
+
+    def test_listed_public_origin_is_allowed(self):
+        with patch.dict(os.environ, {"BOOKVOICE_PUBLIC_ORIGIN": "https://voice.example.com"}):
+            client = TestClient(self._build_app())
+            response = client.get(
+                "/api/ping",
+                headers={"Origin": "https://voice.example.com", "Host": "voice.example.com"},
+            )
+            self.assertEqual(response.status_code, 200)
 
 
 if __name__ == "__main__":

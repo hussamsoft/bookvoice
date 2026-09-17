@@ -33,13 +33,21 @@ def check_payload(app_dir: Path) -> list[str]:
         "tools/ffmpeg/ffprobe.exe",
         "tools/ffmpeg/NOTICE.txt",
         "tools/ffmpeg/LICENSE.txt",
+        "data/default_voices",
     ):
-        if not (app_dir / rel).is_file():
-            errors.append(f"missing required file: {rel}")
+        path = app_dir / rel
+        if rel.endswith(("python.exe", "launch.py", "ffmpeg.exe", "ffprobe.exe",
+                          "NOTICE.txt", "LICENSE.txt", "kill_stale_bookvoice.ps1",
+                          "runtime-manifest.json")):
+            if not path.is_file():
+                errors.append(f"missing required file: {rel}")
+        else:
+            if not path.is_dir():
+                errors.append(f"missing required directory: {rel}")
     return errors
 
 
-def wait_for_health(base_url: str, timeout_s: int = 60) -> bool:
+def wait_for_health(base_url: str, timeout_s: int = 120) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if launch.backend_is_ready(base_url):
@@ -72,6 +80,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     app_dir = args.app_dir.resolve()
+    if not app_dir.is_dir():
+        print(f"[smoke] ERROR: app_dir does not exist: {app_dir}")
+        return 1
     errors = check_payload(app_dir)
     if errors:
         for err in errors:

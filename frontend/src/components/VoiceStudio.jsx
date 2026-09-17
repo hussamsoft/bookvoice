@@ -244,12 +244,16 @@ export default function VoiceStudio() {
         (job) => ['QUEUED', 'RUNNING'].includes(job.status),
     ) : null;
     const runningProjectJobId = runningProjectJob?.id;
+    const runningProjectJobRef = useRef(runningProjectJob);
+    useEffect(() => {
+        runningProjectJobRef.current = runningProjectJob;
+    }, [runningProjectJob]);
 
     useEffect(() => {
         if (!runningProjectJobId) return undefined;
         const controller = new AbortController();
         pollControllerRef.current = controller;
-        setActiveJob(runningProjectJob);
+        setActiveJob(runningProjectJobRef.current);
         waitForStudioJob(runningProjectJobId, {
             signal: controller.signal,
             onProgress: (nextJob) => {
@@ -273,7 +277,7 @@ export default function VoiceStudio() {
             if (mountedRef.current) setActiveJob(null);
         });
         return () => controller.abort();
-    }, [project?.id, runningProjectJob, runningProjectJobId, toast]);
+    }, [project?.id, runningProjectJobId, toast]);
 
     if (loading) return <div className="studio-loading" role="status"><RotateCw size={20} className="spin" /> Opening Voice Studio…</div>;
     if (error) return <div className="studio-fatal" role="alert"><h2>Voice Studio is unavailable</h2><p>{error}</p><button className="btn secondary" onClick={() => window.location.reload()}>Reload</button></div>;
@@ -310,7 +314,7 @@ export default function VoiceStudio() {
                             <h1>What would you like to do?</h1>
                             <p>
                                 Write narration in a cloned voice, or re-voice a recording you already have.
-                                Projects, source media, and outputs stay private to this browser on this device.
+                                Stay on this device.
                             </p>
                         </div>
                     </div>
@@ -406,7 +410,7 @@ export default function VoiceStudio() {
                     {!activeJob && retryableJob && (
                         <div className="studio-recovery" role="status">
                             <div>
-                                <strong>{retryableJob.kind.replaceAll('_', ' ')} was interrupted</strong>
+                                <strong>{retryableJob.kind.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())} was interrupted</strong>
                                 <span>{retryableJob.error?.message || retryableJob.message || 'No project files were changed.'}</span>
                             </div>
                             <button

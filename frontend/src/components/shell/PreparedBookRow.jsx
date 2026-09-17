@@ -1,6 +1,13 @@
 import React from 'react';
 import { preparedBookDetails } from '../../utils/preparedPages';
 
+const SOURCE_KIND_LABELS = {
+    pdf: 'PDF',
+    epub: 'EPUB',
+    txt: 'Text',
+    md: 'Markdown',
+};
+
 /**
  * A library book row: source badge, title, and where you left off.
  * Shared by the Library view, Home's continue-reading list, and the
@@ -8,6 +15,8 @@ import { preparedBookDetails } from '../../utils/preparedPages';
  */
 const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
     const details = preparedBookDetails(book);
+    const kind = book.sourceKind || 'pdf';
+    const badge = SOURCE_KIND_LABELS[kind] || kind.toUpperCase();
     return (
         <button
             type="button"
@@ -16,7 +25,7 @@ const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
         >
             <span className="prepared-book-row-heading">
                 <span className="source-kind-badge">
-                    {(book.sourceKind || 'pdf').toUpperCase()}
+                    {badge}
                 </span>
                 {book.title}
             </span>

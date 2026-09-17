@@ -7,17 +7,23 @@ import { getTtsStatus, reloadTtsModel } from '../utils/api';
  * - Keeps polling while loading OR generating so the UI can show chunk progress.
  * - Exposes retryLoad() so a failed model load can be retried from the UI
  *   without restarting the app.
+ *
+ * Pass a `toast` (the object returned by `useToast()`) to surface a brief
+ * "Reloading voice model…" message whenever `retryLoad()` is invoked. The
+ * detail is also visible in the top-bar engine chip, but the toast makes the
+ * action unmissable when it comes from the error banner.
  */
-export function useTtsStatus({ pollWhileGenerating = false } = {}) {
+export function useTtsStatus({ pollWhileGenerating = false, toast = null } = {}) {
     const [modelReady, setModelReady] = useState(false);
     const [modelError, setModelError] = useState(null);
-    const [modelStatusDetail, setModelStatusDetail] = useState('Warming up AI voices...');
+    const [modelStatusDetail, setModelStatusDetail] = useState('Warming up AI voices…');
     const [deviceInfo, setDeviceInfo] = useState(null);
     const [pollEpoch, setPollEpoch] = useState(0);
 
     const retryLoad = useCallback(async () => {
         setModelError(null);
         setModelStatusDetail('Reloading model…');
+        toast?.info?.('Reloading voice model…');
         try {
             await reloadTtsModel();
         } catch (e) {
@@ -25,7 +31,7 @@ export function useTtsStatus({ pollWhileGenerating = false } = {}) {
         }
         // Restart the polling loop immediately.
         setPollEpoch((n) => n + 1);
-    }, []);
+    }, [toast]);
 
     useEffect(() => {
         let cancelled = false;
@@ -71,7 +77,7 @@ export function useTtsStatus({ pollWhileGenerating = false } = {}) {
                             ? ` (${status.elapsed_s}s)`
                             : '';
                     setModelStatusDetail(
-                        (status.detail || 'Warming up AI voices...') + elapsed
+                        (status.detail || 'Warming up AI voices…') + elapsed
                     );
                     schedule(1500);
                     return;

@@ -41,7 +41,7 @@ describe('TopBar', () => {
             />
         );
 
-        const button = screen.getByRole('button', { name: 'Use light mode' });
+        const button = screen.getByRole('button', { name: 'Switch to light mode' });
         fireEvent.click(button);
         expect(toggle).toHaveBeenCalledTimes(1);
     });
@@ -52,7 +52,7 @@ describe('engineStatusFromTts', () => {
         const status = engineStatusFromTts({
             modelReady: false,
             modelError: null,
-            modelStatusDetail: 'Warming up AI voices... (12s)',
+            modelStatusDetail: 'Warming up AI voices… (12s)',
         });
         expect(status).toMatchObject({ tone: 'is-warming', label: 'Warming up…' });
         expect(status.detail).toContain('12s');

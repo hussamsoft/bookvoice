@@ -16,6 +16,15 @@ vi.mock('../../hooks/useUserConfig', () => ({
   useUserConfig: () => ({
     config: { tts_device: 'auto', ocr_use_gpu: false, voice_id: null, check_for_updates: true },
     updateConfig,
+    saveError: null,
+  }),
+}));
+
+vi.mock('../../hooks/useCapabilities', () => ({
+  useCapabilities: () => ({
+    serverMode: false,
+    localFileActions: true,
+    authRequired: false,
   }),
 }));
 

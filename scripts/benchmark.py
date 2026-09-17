@@ -17,9 +17,11 @@ bundled model weights and CUDA or CPU torch).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import sys
+import tempfile
 import time
 import tracemalloc
 from pathlib import Path
@@ -41,8 +43,9 @@ PAGE_TEXT = (
 
 
 def _machine_tag() -> dict:
+    raw_host = platform.node()
     return {
-        "machine": platform.node(),
+        "machine": hashlib.sha256(raw_host.encode("utf-8")).hexdigest()[:16],
         "platform": platform.platform(),
         "python": platform.python_version(),
         "processor": platform.processor(),
@@ -92,13 +95,29 @@ def _run_mock_phase(tts, phase: str, text: str = PAGE_TEXT) -> dict:
 
     start = time.perf_counter()
     tracemalloc.start()
-    with patch.object(tts, "get_model", return_value=model):
-        with patch.object(tts, "maybe_cleanup_sessions"):
-            with patch.object(tts, "_generate_chunk", return_value=fake_wav):
-                with patch.object(tts.ta, "save"):
-                    with patch.object(tts, "_data_dirs", return_value=("d", "v", "s")):
-                        with patch("os.makedirs"):
-                            tts.narrate_text(text, "bench", 0)
+    # ``os.makedirs`` is patched below, so pre-create the per-session
+    # directory the atomic-write helper needs. The synth code calls
+    # ``os.makedirs(output_dir, exist_ok=True)`` itself, but the patch
+    # swallows that call; pre-creating lets the temp-file write succeed.
+    mock_data = tempfile.mkdtemp(prefix="bookvoice-bench-")
+    (Path(mock_data) / "bench").mkdir(exist_ok=True)
+    patches = (
+        patch.object(tts.model, "get_model", return_value=model),
+        patch.object(tts.synth, "maybe_cleanup_sessions"),
+        patch.object(tts.synth, "_generate_chunk", return_value=fake_wav),
+        patch.object(tts.synth.ta, "save"),
+        patch.object(tts.model, "_data_dirs", return_value=(mock_data, mock_data, mock_data)),
+        patch("os.makedirs"),
+    )
+    started = [p.__enter__() for p in patches]
+    try:
+        tts.narrate_text(text, "bench", 0)
+    finally:
+        for patch_obj in reversed(patches):
+            try:
+                patch_obj.__exit__(None, None, None)
+            except Exception:
+                pass
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     elapsed = time.perf_counter() - start

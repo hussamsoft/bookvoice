@@ -49,7 +49,7 @@ class SpeechWindowTests(unittest.TestCase):
     def test_windows_are_cut_at_pauses_rather_than_mid_word(self):
         audio = np.concatenate([tone(2.0), silence(1.0), tone(2.0)])
 
-        windows = tts._speech_windows(audio, 16_000)
+        windows = tts.conversion._speech_windows(audio, 16_000)
 
         self.assertEqual(len(windows), 2)
         first_end = windows[0][1] / 16_000
@@ -62,28 +62,28 @@ class SpeechWindowTests(unittest.TestCase):
     def test_long_uninterrupted_speech_is_split_under_the_window_cap(self):
         audio = tone(70.0)
 
-        windows = tts._speech_windows(audio, 16_000)
+        windows = tts.conversion._speech_windows(audio, 16_000)
 
         self.assertGreater(len(windows), 1)
         for start, end in windows:
-            self.assertLessEqual((end - start) / 16_000, tts.VC_MAX_WINDOW_S + 0.5)
+            self.assertLessEqual((end - start) / 16_000, tts.conversion.VC_MAX_WINDOW_S + 0.5)
 
     def test_short_clicks_do_not_become_their_own_window(self):
         audio = np.concatenate([silence(0.5), tone(0.04), silence(0.5), tone(3.0)])
 
-        windows = tts._speech_windows(audio, 16_000)
+        windows = tts.conversion._speech_windows(audio, 16_000)
 
         self.assertEqual(len(windows), 1)
         self.assertGreater((windows[0][1] - windows[0][0]) / 16_000, 2.5)
 
     def test_fully_silent_audio_still_returns_a_single_window(self):
-        self.assertEqual(tts._speech_windows(silence(1.0), 16_000), [(0, 16_000)])
-        self.assertEqual(tts._speech_windows(np.zeros(0, dtype=np.float32), 16_000), [])
+        self.assertEqual(tts.conversion._speech_windows(silence(1.0), 16_000), [(0, 16_000)])
+        self.assertEqual(tts.conversion._speech_windows(np.zeros(0, dtype=np.float32), 16_000), [])
 
     def test_target_reference_uses_the_densest_ten_seconds(self):
         reference = np.concatenate([silence(6.0, 24_000), tone(12.0, 24_000)])
 
-        selected, start = tts._speech_dense_reference(reference, 24_000)
+        selected, start = tts.conversion._speech_dense_reference(reference, 24_000)
 
         self.assertEqual(selected.shape[-1], 10 * 24_000)
         self.assertGreaterEqual(start, 5.5)
@@ -95,9 +95,9 @@ class VoiceConverterLoadingTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        tts._vc_model = None
+        tts.model._vc_model = None
         tts._vc_source_s3gen = None
-        tts._model = None
+        tts.model._model = None
         # chatterbox is a heavy optional import; stub the module the loader
         # reaches for so this stays a pure unit test.
         self.vc_class = MagicMock(name="ChatterboxVC")
@@ -111,22 +111,22 @@ class VoiceConverterLoadingTests(unittest.TestCase):
             sys.modules.pop("chatterbox.vc", None)
         else:
             sys.modules["chatterbox.vc"] = self._previous
-        tts._vc_model = None
+        tts.model._vc_model = None
         tts._vc_source_s3gen = None
-        tts._model = None
+        tts.model._model = None
         self.temp.cleanup()
 
     def test_reuses_the_resident_narration_decoder_without_a_second_copy(self):
         narration = MagicMock()
         narration.s3gen = MagicMock(name="resident-s3gen")
         narration.device = "cpu"
-        tts._model = narration
+        tts.model._model = narration
         converter = MagicMock()
 
         self.vc_class.side_effect = lambda *args, **kwargs: converter
-        with patch.object(tts, "_local_model_path") as local_path:
-            first = tts.get_voice_converter()
-            second = tts.get_voice_converter()
+        with patch.object(tts.model, "_local_model_path") as local_path:
+            first = tts.conversion.get_voice_converter()
+            second = tts.conversion.get_voice_converter()
 
         self.assertIs(first, converter)
         # Cached: the decoder is wrapped once, and no weights are loaded from disk.
@@ -141,10 +141,10 @@ class VoiceConverterLoadingTests(unittest.TestCase):
         converter = MagicMock()
 
         self.vc_class.from_local.return_value = converter
-        with patch.object(tts, "_local_model_path", return_value=str(checkpoint)), \
-                patch.object(tts, "_resolve_device", return_value="cpu"), \
-                patch.object(tts, "get_model") as get_model:
-            loaded = tts.get_voice_converter()
+        with patch.object(tts.model, "_local_model_path", return_value=str(checkpoint)), \
+                patch.object(tts.model, "_resolve_device", return_value="cpu"), \
+                patch.object(tts.model, "get_model") as get_model:
+            loaded = tts.conversion.get_voice_converter()
 
         self.assertIs(loaded, converter)
         self.vc_class.from_local.assert_called_once_with(str(checkpoint), "cpu")
@@ -152,27 +152,27 @@ class VoiceConverterLoadingTests(unittest.TestCase):
         get_model.assert_not_called()
 
     def test_missing_conversion_weights_name_the_file_and_directory(self):
-        with patch.object(tts, "_local_model_path", return_value=self.temp.name), \
-                patch.object(tts, "_resolve_device", return_value="cpu"):
+        with patch.object(tts.model, "_local_model_path", return_value=self.temp.name), \
+                patch.object(tts.model, "_resolve_device", return_value="cpu"):
             with self.assertRaisesRegex(FileNotFoundError, "s3gen.safetensors"):
-                tts.get_voice_converter()
+                tts.conversion.get_voice_converter()
 
     def test_a_standalone_decoder_is_released_once_the_full_model_loads(self):
         standalone = MagicMock(name="standalone")
-        tts._vc_model = standalone
+        tts.model._vc_model = standalone
         tts._vc_source_s3gen = MagicMock(name="standalone-s3gen")
 
         narration = MagicMock()
         narration.s3gen = MagicMock(name="resident-s3gen")
         narration.device = "cpu"
-        tts._model = narration
+        tts.model._model = narration
         replacement = MagicMock(name="wrapped-resident")
 
         self.vc_class.side_effect = lambda *args, **kwargs: replacement
-        result = tts.get_voice_converter()
+        result = tts.conversion.get_voice_converter()
 
         self.assertIs(result, replacement)
-        self.assertIs(tts._vc_model, replacement)
+        self.assertIs(tts.model._vc_model, replacement)
 
 
 class ConvertVoiceAudioTests(unittest.TestCase):
@@ -210,9 +210,9 @@ class ConvertVoiceAudioTests(unittest.TestCase):
         return converter
 
     def _run(self, audio: np.ndarray, converter, **kwargs) -> dict:
-        with patch.object(tts, "_decode_pcm_mono", return_value=audio), \
-                patch.object(tts, "get_voice_converter", return_value=converter):
-            return tts.convert_voice_audio(
+        with patch.object(tts.conversion, "_decode_pcm_mono", return_value=audio), \
+                patch.object(tts.conversion, "get_voice_converter", return_value=converter):
+            return tts.conversion.convert_voice_audio(
                 str(self.source),
                 str(self.target),
                 "studio-session",
@@ -268,27 +268,27 @@ class ConvertVoiceAudioTests(unittest.TestCase):
 
         self._run(tone(2.0), converter)
 
-        self.assertEqual(seen, [tts.VC_TARGET_GUIDANCE])
+        self.assertEqual(seen, [tts.conversion.VC_TARGET_GUIDANCE])
         self.assertEqual(converter.s3gen.flow.decoder.inference_cfg_rate, 0.7)
 
     def test_conversion_stops_when_the_job_is_cancelled(self):
         audio = np.concatenate([tone(2.0), silence(1.0), tone(2.0)])
-        cancellation = tts.GenerationCancellation()
+        cancellation = tts.queue.GenerationCancellation()
         cancellation.cancel()
 
-        with self.assertRaises(tts.GenerationCancelled):
+        with self.assertRaises(tts.queue.GenerationCancelled):
             self._run(audio, self._converter(), cancel_event=cancellation)
 
     def test_conversion_requires_both_files_to_exist(self):
         with self.assertRaisesRegex(FileNotFoundError, "recording to convert"):
-            tts.convert_voice_audio(
+            tts.conversion.convert_voice_audio(
                 str(Path(self.temp.name) / "missing.wav"),
                 str(self.target),
                 "studio-session",
                 "converted.wav",
             )
         with self.assertRaisesRegex(FileNotFoundError, "target voice reference"):
-            tts.convert_voice_audio(
+            tts.conversion.convert_voice_audio(
                 str(self.source),
                 str(Path(self.temp.name) / "missing.wav"),
                 "studio-session",
@@ -296,11 +296,11 @@ class ConvertVoiceAudioTests(unittest.TestCase):
             )
 
     def test_conversion_filenames_change_with_the_source_and_the_voice(self):
-        with patch.object(tts, "_voice_reference_checksum", return_value="deadbeef"):
-            first = tts.conversion_filename("source-a", "narrator")
-            same = tts.conversion_filename("source-a", "narrator")
-            other_source = tts.conversion_filename("source-b", "narrator")
-            other_voice = tts.conversion_filename("source-a", "guest")
+        with patch.object(tts.model, "_voice_reference_checksum", return_value="deadbeef"):
+            first = tts.conversion.conversion_filename("source-a", "narrator")
+            same = tts.conversion.conversion_filename("source-a", "narrator")
+            other_source = tts.conversion.conversion_filename("source-b", "narrator")
+            other_voice = tts.conversion.conversion_filename("source-a", "guest")
 
         self.assertEqual(first, same)
         self.assertNotEqual(first, other_source)

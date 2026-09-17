@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using BookVoice.App.Backend;
 using Microsoft.UI.Xaml;
@@ -66,8 +67,16 @@ public partial class App : Application
         for (var i = 0; i < argv.Length; i++)
         {
             var arg = argv[i];
-            if (!ForwardableFlags.Contains(arg, StringComparer.OrdinalIgnoreCase))
+            var equalsIndex = arg.IndexOf('=');
+            var flagName = equalsIndex >= 0 ? arg[..equalsIndex] : arg;
+            if (!ForwardableFlags.Contains(flagName, StringComparer.OrdinalIgnoreCase))
             {
+                continue;
+            }
+            if (equalsIndex >= 0)
+            {
+                // --flag=value form keeps the flag and value in one argv slot.
+                forward.Add(arg);
                 continue;
             }
             forward.Add(arg);
@@ -78,6 +87,8 @@ public partial class App : Application
         }
         return forward;
     }
+
+    private static readonly int InstancePayloadMaxBytes = 4 * 1024 * 1024;
 
     private static void PassToRunningInstance(string? bookPath)
     {
@@ -91,6 +102,13 @@ public partial class App : Application
         {
             Directory.CreateDirectory(runtimeDir);
             var payload = JsonSerializer.Serialize(new { book = bookPath });
+            // Cap the request size so a corrupt or malicious instance
+            // handoff cannot force the running shell to allocate a 4 GB
+            // buffer trying to parse it.
+            if (Encoding.UTF8.GetByteCount(payload) > InstancePayloadMaxBytes)
+            {
+                return;
+            }
             File.WriteAllText(AppPaths.InstanceRequestPath(runtimeDir), payload);
         }
         catch (IOException)

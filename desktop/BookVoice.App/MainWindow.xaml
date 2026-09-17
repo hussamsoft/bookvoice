@@ -2,8 +2,7 @@
     x:Class="BookVoice.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:BookVoice.App"
-    Title="BookVoice">
+    xmlns:local="using:BookVoice.App">
 
     <Grid x:Name="Root">
 
@@ -18,6 +17,7 @@
                 <Image
                     Height="72"
                     HorizontalAlignment="Center"
+                    ImageFailed="OnSplashImageFailed"
                     Source="Assets/bookvoice.png" />
                 <TextBlock
                     x:Name="SplashTitle"
@@ -106,7 +106,9 @@
 
         <!-- The app itself, served by the local backend. The default
              background matches the Aurora Ink dark stage color from the web
-             tokens so the WebView never flashes light before first paint. -->
+             tokens so the WebView never flashes light before first paint.
+             KEEP IN SYNC with frontend/src/styles/tokens.css
+             --bg for [data-palette="paper"][data-mode="dark"]. -->
         <Grid x:Name="ContentPanel" Visibility="Collapsed">
             <WebView2
                 x:Name="Web"

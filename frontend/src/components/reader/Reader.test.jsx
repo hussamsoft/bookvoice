@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Reader from './Reader';
 
@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
     narrateTextStream: vi.fn(),
     cancelGeneration: vi.fn(),
     getTtsStatus: vi.fn(),
+    getUserConfig: vi.fn(),
+    saveUserConfig: vi.fn(),
 }));
 
 // Spread the real module so any transitive import keeps working; the
@@ -126,6 +128,8 @@ describe('Reader', () => {
             sourceKind: 'txt',
             pageCount: 4,
         });
+        api.getUserConfig.mockResolvedValue({ version: '1.7.0', config: {} });
+        api.saveUserConfig.mockResolvedValue({ version: '1.7.0', config: {} });
     });
 
     it('shows the open-a-book empty state with the prepared library', async () => {
@@ -192,23 +196,15 @@ describe('Reader', () => {
         expect(screen.getByText('Page 1 of 12')).toBeInTheDocument();
     });
 
-    it('offers Resume after browsing away from the loaded page', async () => {
+    it('keeps playing the loaded narration when the user browses within one page', async () => {
         render(<Reader />);
         fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
         expect(await screen.findByText(/Server page 1 text/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Play narration' }));
-        // Wait until page 1's narration actually owns the player before
-        // browsing — an instant navigation legitimately cancels it.
         await screen.findByRole('button', { name: 'Pause narration' });
         fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
         expect(await screen.findByText(/Server page 2 text/)).toBeInTheDocument();
-        expect(screen.queryByRole('dialog', { name: /resume or start fresh/i })).not.toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-        const dialog = await screen.findByRole('dialog', { name: /resume or start fresh/i });
-        fireEvent.click(within(dialog).getByRole('button', { name: 'Resume' }));
-        expect(await screen.findByText(/Server page 1 text/)).toBeInTheDocument();
         expect(screen.queryByRole('dialog', { name: /resume or start fresh/i })).not.toBeInTheDocument();
     });
 
@@ -335,13 +331,11 @@ describe('Reader', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Play narration' }));
         await waitFor(() => expect(api.narrateTextStream).toHaveBeenCalled());
 
-        // Browse two pages away; the resume dialog appears for the page
-        // being narrated.
+        // Browse two pages away. The migrated reader no longer shows a
+        // resume dialog; navigation tears the in-flight generation down.
         fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
         await screen.findByText(/Server page 2 text/);
         fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-        const dialog = await screen.findByRole('dialog', { name: /resume or start fresh/i });
-        fireEvent.click(within(dialog).getByRole('button', { name: 'Start fresh' }));
 
         // The play load for page 1 was torn down on navigation, and the
         // fresh load for page 3 tears the player down again.
@@ -392,5 +386,82 @@ describe('Reader', () => {
         fireEvent.keyDown(window, { key: ' ', code: 'Space' });
 
         await waitFor(() => expect(api.narrateTextStream).toHaveBeenCalled());
+    });
+
+    it('auto-opens the prepared book referenced by ?book=<id>', async () => {
+        window.history.replaceState(null, '', '/?book=book-1');
+        render(<Reader />);
+        // Page 1 of the text book appears without the user clicking the
+        // library row — same auto-open shape PdfViewer relies on for
+        // desktop deep links and `.bookvoice` double-click.
+        expect(await screen.findByText(/Server page 1 text/)).toBeInTheDocument();
+        expect(api.preparedBookSource).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-open when ?book=<id> does not match a library book', async () => {
+        window.history.replaceState(null, '', '/?book=does-not-exist');
+        render(<Reader />);
+        expect(await screen.findByText(/Open a book to start reading/)).toBeInTheDocument();
+        expect(screen.queryByText(/Server page 1 text/)).not.toBeInTheDocument();
+    });
+
+    it('applies saved voice and language from useUserConfig once it arrives', async () => {
+        api.getUserConfig.mockResolvedValue({
+            version: '1.7.0',
+            config: { voice_id: 'SavedVoice', language_id: 'ar' },
+        });
+        render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await screen.findByText(/Server page 1 text/);
+
+        // Click play and let the streaming narration start; the narration
+        // request carries the saved voice and language, not the defaults.
+        fireEvent.click(screen.getByRole('button', { name: 'Play narration' }));
+        await waitFor(() => {
+            expect(api.narrateTextStream).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.any(String),
+                expect.any(Number),
+                'SavedVoice',
+                'ar',
+                expect.anything(),
+                expect.any(AbortSignal),
+            );
+        });
+    });
+
+    it('exposes a sleep timer that arms and cancels', async () => {
+        const { container } = render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await screen.findByText(/Server page 1 text/);
+
+        const sleepSelect = screen.getByLabelText('Sleep timer');
+        fireEvent.change(sleepSelect, { target: { value: '5' } });
+        // The remaining-time hint appears with a minute value (rounded up).
+        // Other "5 min" matches live in the option list; the hint is the
+        // only node carrying `reader-sleep-remaining`.
+        const hint = container.querySelector('.reader-sleep-remaining');
+        expect(hint).toBeTruthy();
+        expect(hint.textContent).toMatch(/min/);
+
+        // Cancelling returns the dropdown to "off".
+        fireEvent.change(sleepSelect, { target: { value: 'off' } });
+        expect(sleepSelect.value).toBe('off');
+    });
+
+    it('jumps to a typed page number and clamps to the page count', async () => {
+        render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await screen.findByText(/Server page 1 text/);
+
+        const jump = screen.getByLabelText(/Go to page between 1 and 12/);
+        fireEvent.change(jump, { target: { value: '7' } });
+        fireEvent.submit(jump.closest('form'));
+        expect(await screen.findByText(/Server page 7 text/)).toBeInTheDocument();
+
+        // Out-of-range entries clamp rather than error.
+        fireEvent.change(jump, { target: { value: '999' } });
+        fireEvent.submit(jump.closest('form'));
+        expect(await screen.findByText(/Server page 12 text/)).toBeInTheDocument();
     });
 });

@@ -46,6 +46,11 @@ def _initial_entry_refs(index_html: Path, assets_dir: Path) -> list[Path]:
     """
     text = index_html.read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="(/assets/[^"]+)"', text)
+    if not refs:
+        raise SystemExit(
+            f"index.html has no /assets/ references; budget check would silently pass at 0 KiB. "
+            f"File: {index_html}"
+        )
     return [assets_dir / ref.lstrip("/") for ref in refs]
 
 

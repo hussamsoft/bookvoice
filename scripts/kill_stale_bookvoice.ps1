@@ -31,7 +31,9 @@ param(
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Continue'
+# ``Stop`` pairs with ``Set-StrictMode`` so uncaught failures actually
+# surface instead of being silently swallowed by ``Continue``.
+$ErrorActionPreference = 'Stop'
 
 function Get-ProcessSnapshot {
     param([object[]]$Injected)

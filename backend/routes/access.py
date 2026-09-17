@@ -56,7 +56,7 @@ async def create_session(login: LoginRequest, request: Request, response: Respon
                 }
             },
             status_code=429,
-            headers={"Retry-After": str(blocked)},
+            headers={"Retry-After": str(blocked)},  # RFC 7231 also permits HTTP-date; we use delay-seconds.
         )
     if not access_service.verify_password(login.password):
         backoff = access_service.record_login_failure(client_key)

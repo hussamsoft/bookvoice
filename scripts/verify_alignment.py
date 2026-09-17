@@ -23,7 +23,10 @@ BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
 os.environ.setdefault("MODEL_DIR", str(BACKEND / "data" / "models"))
-os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="bookvoice_align_check_"))
+_ALIGN_TEMP = tempfile.TemporaryDirectory(prefix="bookvoice_align_check_")
+os.environ.setdefault("DATA_DIR", _ALIGN_TEMP.name)
+import atexit
+atexit.register(_ALIGN_TEMP.cleanup)
 
 TEXT = (
     "The lighthouse keeper climbed the narrow spiral staircase every evening. "
@@ -75,7 +78,6 @@ def main() -> int:
     model, vocab, blank_id, device = _load_ctc("en")
     id_to_char = {v: k for k, v in vocab.items()}
     waveform, sr = torchaudio.load(wav_path)
-    waveform = waveform.mean(dim=0)
     if sr != 16000:
         waveform = torchaudio.functional.resample(waveform, sr, 16000)
 
@@ -84,11 +86,11 @@ def main() -> int:
     def decode_slice(start_s: float, end_s: float) -> str:
         lo = max(0, int((start_s) * 16000))
         hi = min(waveform.shape[-1], int((end_s) * 16000))
-        piece = waveform[lo:hi]
+        piece = waveform[..., lo:hi]
         if piece.shape[-1] < 400:
             return ""
         x = (piece - piece.mean()) / torch.sqrt(piece.var() + 1e-7)
-        x = x.unsqueeze(0).to(device=device, dtype=next(model.parameters()).dtype)
+        x = x.to(device=device, dtype=next(model.parameters()).dtype)
         with torch.inference_mode():
             ids = model(x).logits.argmax(dim=-1)[0].tolist()
         decoded, last = [], blank_id
@@ -148,8 +150,9 @@ def main() -> int:
     if wrong_word > 0:
         print("[verify] FAIL: some slices speak a neighbouring word")
         return 1
-    if rate < 0.8:
-        print("[verify] FAIL: below 80% self-match sanity bar")
+    rate_threshold = float(os.environ.get("BOOKVOICE_ALIGN_MIN_RATE", "0.8"))
+    if rate < rate_threshold:
+        print(f"[verify] FAIL: below {rate_threshold:.0%} self-match sanity bar")
         return 1
     print("[verify] PASS")
     return 0
