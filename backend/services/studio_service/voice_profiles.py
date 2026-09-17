@@ -25,19 +25,15 @@ class _EventCancellation:
 
 
 def _copy_atomic(source: Path, target: Path) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}-", suffix=".tmp", dir=target.parent)
-    temp = Path(temp_name)
-    try:
-        with os.fdopen(fd, "wb") as output, source.open("rb") as input_handle:
-            import shutil
-            shutil.copyfileobj(input_handle, output, length=1024 * 1024)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temp, target)
-    except Exception:
-        temp.unlink(missing_ok=True)
-        raise
+    """Thin wrapper for the shared helper in media.py.
+
+    Kept as a private alias so callers in this module do not need to
+    reach into ``.media`` directly. Audit finding C-36: deduplicate
+    the previously-duplicated implementations.
+    """
+    from .media import _copy_atomic as _media_copy_atomic
+
+    _media_copy_atomic(source, target)
 
 
 def _source_record(manifest: dict, source_id: str) -> dict:

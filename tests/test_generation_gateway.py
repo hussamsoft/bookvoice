@@ -1,4 +1,12 @@
-"""Generation dispatch: local by default, remote when a deployment registers one."""
+"""Generation dispatch: local only after 2.8.0.
+
+Audit finding C-37 removed the optional off-process executor hook
+(``services.remote_execution``) because it was dormant — no
+deployment registered an executor and ``run_remote_job`` had no
+caller. A future hosted deployment that wants remote execution
+should re-add the executor and dispatch path; this test file
+covers only the local path that ships today.
+"""
 from __future__ import annotations
 
 import sys
@@ -13,7 +21,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from services import generation_gateway as gateway  # noqa: E402
-from services import remote_execution  # noqa: E402
+from services import tts_service  # noqa: E402
 
 
 def _future(value):
@@ -23,132 +31,63 @@ def _future(value):
 
 
 class LocalDispatchTests(unittest.TestCase):
-    """With no executor registered the desktop path must be untouched."""
+    """The default dispatch: every kind goes to the tts_service priority queue."""
 
-    def tearDown(self):
-        remote_execution.set_executor(None)
+    def _payload(self, **overrides):
+        payload = {
+            "sessionId": "s1",
+            "voiceId": None,
+            "languageId": "en",
+            "generationSettings": None,
+        }
+        payload.update(overrides)
+        return payload
 
-    def test_no_executor_is_registered_by_default(self):
-        self.assertFalse(remote_execution.is_remote())
-        self.assertIsNone(remote_execution.executor())
+    def test_narrate_dispatches_through_priority_queue(self):
+        with patch.object(tts_service, "submit_tts", return_value=_future({"ok": True})) as mock:
+            payload = self._payload(text="hello", voiceId="v1")
+            result = gateway.dispatch(gateway.NARRATE, payload)
 
-    def test_narration_goes_through_the_priority_queue_as_current(self):
-        with patch("services.tts_service.submit_tts", return_value=_future({"ok": 1})) as submit:
-            result = gateway.narrate("studio-x", "Hello.", "en", "narrator", {"seed": 3})
+        mock.assert_called_once()
+        args, _ = mock.call_args
+        # submit_tts(priority, fn, *args) — args[0]=priority, args[1]=fn,
+        # args[2:]=positional args including the trailing cancellation.
+        self.assertEqual(args[0], tts_service.TtsPriority.CURRENT)
+        self.assertEqual(args[1], tts_service.narrate_studio_text)
+        # text, sessionId, voiceId, languageId, generationSettings, cancellation
+        self.assertEqual(args[2:], ("hello", "s1", "v1", "en", None, None))
+        self.assertEqual(result, {"ok": True})
 
-        self.assertEqual(result, {"ok": 1})
-        args = submit.call_args.args
-        self.assertEqual(args[0].name, "CURRENT")
-        self.assertEqual(args[2], "Hello.")
-        self.assertEqual(args[3], "studio-x")
-        self.assertEqual(args[4], "narrator")
-        self.assertEqual(args[5], "en")
+    def test_repair_dispatches_with_interactive_priority(self):
+        with patch.object(tts_service, "submit_tts", return_value=_future({"ok": True})) as mock:
+            payload = self._payload(text="fix this")
+            gateway.dispatch(gateway.NARRATE_REPAIR, payload)
 
-    def test_repair_keeps_its_interactive_priority(self):
-        with patch("services.tts_service.submit_tts", return_value=_future({"ok": 2})) as submit:
-            gateway.narrate_repair("studio-x", "Fixed.", "en", "narrator", {})
+        args, _ = mock.call_args
+        self.assertEqual(args[0], tts_service.TtsPriority.INTERACTIVE)
+        self.assertEqual(args[1], tts_service.narrate_studio_repair_text)
+        self.assertEqual(args[2:], ("fix this", "s1", None, "en", None, None))
 
-        self.assertEqual(submit.call_args.args[0].name, "INTERACTIVE")
-
-    def test_conversion_passes_paths_and_the_progress_callback(self):
-        seen = []
-
-        def report(value):
-            seen.append(value)
-
-        with patch("services.tts_service.submit_tts", return_value=_future({"ok": 3})) as submit:
-            gateway.convert(
-                "studio-x", "/data/in.wav", "/data/voice.wav", "out.wav", progress=report
+    def test_convert_dispatches_to_convert_voice_audio(self):
+        with patch.object(tts_service, "submit_tts", return_value=_future({"ok": True})) as mock:
+            payload = self._payload(
+                sourcePath="/data/source.wav",
+                targetVoicePath="/data/target.wav",
+                sessionId="sess-conv",
+                voiceId="v1",
+                filename="source.wav",
             )
+            gateway.dispatch(gateway.CONVERT, payload)
 
-        args = submit.call_args.args
-        self.assertEqual(args[0].name, "CURRENT")
-        self.assertEqual(args[2], "/data/in.wav")
-        self.assertEqual(args[3], "/data/voice.wav")
-        self.assertEqual(args[5], "out.wav")
-        self.assertIs(submit.call_args.kwargs["progress"], report)
+        args, _ = mock.call_args
+        self.assertEqual(args[0], tts_service.TtsPriority.CURRENT)
+        self.assertEqual(args[1], tts_service.convert_voice_audio)
+        self.assertEqual(args[2], "/data/source.wav")
+        self.assertEqual(args[3], "/data/target.wav")
 
-    def test_an_unknown_job_kind_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "Unknown generation job"):
-            gateway.dispatch("teleport", {})
-
-
-class RemoteDispatchTests(unittest.TestCase):
-    def tearDown(self):
-        remote_execution.set_executor(None)
-
-    def test_a_registered_executor_replaces_local_generation_entirely(self):
-        calls = []
-
-        def executor(kind, payload, *, cancel_check=None, progress=None):
-            calls.append((kind, payload))
-            return {"audio_url": "/sessions/studio-x/out.wav"}
-
-        remote_execution.set_executor(executor)
-        with patch("services.tts_service.submit_tts") as submit:
-            result = gateway.narrate("studio-x", "Hello.", "en", "narrator", {"seed": 1})
-
-        submit.assert_not_called()
-        self.assertEqual(result["audio_url"], "/sessions/studio-x/out.wav")
-        kind, payload = calls[0]
-        self.assertEqual(kind, gateway.NARRATE)
-        # The payload must be plain data: it crosses a process boundary.
-        self.assertEqual(payload["text"], "Hello.")
-        self.assertEqual(payload["sessionId"], "studio-x")
-        self.assertEqual(payload["voiceId"], "narrator")
-        self.assertEqual(payload["generationSettings"], {"seed": 1})
-
-    def test_cancellation_is_forwarded_so_a_remote_worker_can_be_stopped(self):
-        received = {}
-
-        def executor(kind, payload, *, cancel_check=None, progress=None):
-            received["cancel_check"] = cancel_check
-            return {}
-
-        class Cancellation:
-            def cancelled(self):
-                return True
-
-        remote_execution.set_executor(executor)
-        gateway.narrate("studio-x", "Hi.", "en", None, {}, cancellation=Cancellation())
-
-        self.assertTrue(received["cancel_check"]())
-
-    def test_conversion_payload_carries_shared_storage_paths(self):
-        received = {}
-
-        def executor(kind, payload, *, cancel_check=None, progress=None):
-            received.update(payload)
-            return {}
-
-        remote_execution.set_executor(executor)
-        gateway.convert("studio-x", Path("/data/in.wav"), Path("/data/voice.wav"), "out.wav")
-
-        self.assertEqual(received["sourcePath"], "/data/in.wav")
-        self.assertEqual(received["targetVoicePath"], "/data/voice.wav")
-        self.assertEqual(received["filename"], "out.wav")
-
-    def test_the_worker_side_runs_jobs_locally_by_name(self):
-        with patch("services.tts_service.submit_tts", return_value=_future({"ok": 9})) as submit:
-            result = gateway.run_remote_job(
-                gateway.CONVERT,
-                {
-                    "sourcePath": "/data/in.wav",
-                    "targetVoicePath": "/data/voice.wav",
-                    "sessionId": "studio-x",
-                    "filename": "out.wav",
-                },
-            )
-
-        self.assertEqual(result, {"ok": 9})
-        submit.assert_called_once()
-
-    def test_clearing_the_executor_restores_local_generation(self):
-        remote_execution.set_executor(lambda *a, **k: {"remote": True})
-        remote_execution.set_executor(None)
-
-        with patch("services.tts_service.submit_tts", return_value=_future({"local": True})):
-            self.assertEqual(gateway.narrate("studio-x", "Hi.", "en", None, {}), {"local": True})
+    def test_unknown_kind_raises(self):
+        with self.assertRaises(ValueError):
+            gateway.dispatch("not_a_real_kind", self._payload())
 
 
 if __name__ == "__main__":

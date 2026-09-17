@@ -1,20 +1,19 @@
 """One dispatch point for every piece of GPU work Voice Studio performs.
 
-Locally this is a thin pass-through to ``tts_service``'s priority queue — the
-desktop app behaves exactly as it did before this module existed. In a hosted
-deployment an executor is registered (see :mod:`services.remote_execution`) and
-the same calls run in a short-lived GPU container instead, so the web process
-never holds a GPU while someone is reading or typing.
+Locally this is a thin pass-through to ``tts_service``'s priority queue —
+the desktop app behaves exactly as it did before this module existed.
+The legacy ``services.remote_execution`` executor hook (audit
+finding C-37) was removed in 2.8.0; a hosted deployment that wants
+remote execution should re-add an optional dispatch path.
 
-Job kinds are addressed by name rather than by function reference because the
-remote side has to resolve them in a different process.
+Job kinds are addressed by name rather than by function reference so
+that a future remote-execution implementation can resolve them in a
+different process.
 """
 from __future__ import annotations
 
 from pathlib import PurePath
 from typing import Any, Callable
-
-from services import remote_execution
 
 
 NARRATE = "narrate_studio"
@@ -67,11 +66,6 @@ def _run_local(kind: str, payload: dict[str, Any], cancellation, progress):
     raise ValueError(f"Unknown generation job: {kind}")
 
 
-def run_remote_job(kind: str, payload: dict[str, Any], progress=None) -> dict:
-    """Execute a job in-process. Called by the worker on the far side."""
-    return _run_local(kind, payload, None, progress)
-
-
 def dispatch(
     kind: str,
     payload: dict[str, Any],
@@ -80,14 +74,15 @@ def dispatch(
     cancel_check: Callable[[], bool] | None = None,
     progress: Callable[[float], None] | None = None,
 ) -> dict:
-    """Run a generation job locally, or remotely when an executor is registered."""
-    executor = remote_execution.executor()
-    if executor is None:
-        return _run_local(kind, payload, cancellation, progress)
-    check = cancel_check
-    if check is None and cancellation is not None:
-        check = cancellation.cancelled
-    return executor(kind, payload, cancel_check=check, progress=progress)
+    """Run a generation job locally.
+
+    The legacy ``services.remote_execution`` executor hook was removed
+    in 2.8.0 (audit finding C-37); when no executor is registered
+    we always run locally. If a hosted deployment later wants remote
+    execution it should re-add the optional dispatch path with the
+    same call signature.
+    """
+    return _run_local(kind, payload, cancellation, progress)
 
 
 def narrate(session_id: str, text: str, language_id: str, voice_id, settings: dict, *,
