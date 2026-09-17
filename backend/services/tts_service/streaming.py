@@ -101,72 +101,76 @@ def narrate_text_streaming(
     segment_meta: list[dict] = []
     chunk_urls: list[str] = []
 
-    with _synth._generate_lock:
-        _model._model_state["status"] = "generating"
-        started_token = _current_generation()
-        try:
-            cursor_s = 0.0
-            for i, chunk in enumerate(chunks):
-                _raise_if_cancelled(cancel_event, started_token)
-                _model._model_state["detail"] = (
-                    f"Generating audio {i + 1}/{total} on {str(device).upper()}"
-                    + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
-                )
-                kwargs = dict(generate_kwargs)
-                if i > 0:
-                    kwargs.pop("audio_prompt_path", None)
-                elif i == 0 and audio_prompt_path:
-                    kwargs["force_prepare"] = False
-                part = _synth._generate_chunk(model, chunk, language_id, **kwargs)
-                if isinstance(part, torch.Tensor):
-                    part = part.detach().cpu()
-                else:
-                    part = torch.as_tensor(part).cpu()
-                if part.dim() == 1:
-                    part = part.unsqueeze(0)
-                samples = int(part.shape[-1])
-                dur = samples / sr if sr > 0 else 0.0
-
-                # Save this chunk immediately so the client can play it now.
-                chunk_file = f"{chunk_stem}_c{i}.wav"
-                chunk_path = safe_join(output_dir, chunk_file)
-                if part.dim() == 1:
-                    save_part = part.unsqueeze(0)
-                else:
-                    save_part = part
-                ta.save(chunk_path, save_part, model.sr)
-
-                start_s = round(cursor_s, 4)
-                end_s = round(cursor_s + dur, 4)
-                chunk_url = f"/sessions/{session_id}/{chunk_file}"
-                chunk_urls.append(chunk_url)
-                segment_meta.append({"text": chunk, "start_s": start_s, "end_s": end_s})
-                cursor_s += dur
-                wav_parts.append(part)
-
-                yield {
-                    "type": "chunk",
-                    "index": i,
-                    "total": total,
-                    "url": chunk_url,
-                    "text": chunk,
-                    "start_s": start_s,
-                    "end_s": end_s,
-                }
-        except _synth.GenerationCancelled:
-            _model._model_state["status"] = "ready"
-            _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
-            raise
-        except Exception as e:
-            _model._model_state["status"] = "ready"
+    # Per-chunk lock acquisition mirrors synth.py:496 — the lock exists
+    # to serialise inference so the model state stays consistent, not to
+    # hold the whole multi-chunk synthesis. The cooperative
+    # _raise_if_cancelled already serialises work between chunks.
+    _model._model_state["status"] = "generating"
+    started_token = _current_generation()
+    try:
+        cursor_s = 0.0
+        for i, chunk in enumerate(chunks):
+            _raise_if_cancelled(cancel_event, started_token)
             _model._model_state["detail"] = (
-                f"Model ready on {str(device).upper()} "
-                f"(last generation failed: {e})"
+                f"Generating audio {i + 1}/{total} on {str(device).upper()}"
+                + (" (CPU - slow; install CUDA torch for GPU)" if device == "cpu" else "")
             )
-            raise
-        else:
-            _model._model_state["status"] = "ready"
-            _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
+            kwargs = dict(generate_kwargs)
+            if i > 0:
+                kwargs.pop("audio_prompt_path", None)
+            elif i == 0 and audio_prompt_path:
+                kwargs["force_prepare"] = False
+            with _synth._generate_lock:
+                part = _synth._generate_chunk(model, chunk, language_id, **kwargs)
+            if isinstance(part, torch.Tensor):
+                part = part.detach().cpu()
+            else:
+                part = torch.as_tensor(part).cpu()
+            if part.dim() == 1:
+                part = part.unsqueeze(0)
+            samples = int(part.shape[-1])
+            dur = samples / sr if sr > 0 else 0.0
+
+            # Save this chunk immediately so the client can play it now.
+            chunk_file = f"{chunk_stem}_c{i}.wav"
+            chunk_path = safe_join(output_dir, chunk_file)
+            if part.dim() == 1:
+                save_part = part.unsqueeze(0)
+            else:
+                save_part = part
+            ta.save(chunk_path, save_part, model.sr)
+
+            start_s = round(cursor_s, 4)
+            end_s = round(cursor_s + dur, 4)
+            chunk_url = f"/sessions/{session_id}/{chunk_file}"
+            chunk_urls.append(chunk_url)
+            segment_meta.append({"text": chunk, "start_s": start_s, "end_s": end_s})
+            cursor_s += dur
+            wav_parts.append(part)
+
+            yield {
+                "type": "chunk",
+                "index": i,
+                "total": total,
+                "url": chunk_url,
+                "text": chunk,
+                "start_s": start_s,
+                "end_s": end_s,
+            }
+    except _synth.GenerationCancelled:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
+        raise
+    except Exception as e:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = (
+            f"Model ready on {str(device).upper()} "
+            f"(last generation failed: {e})"
+        )
+        raise
+    else:
+        _model._model_state["status"] = "ready"
+        _model._model_state["detail"] = f"Model ready on {str(device).upper()}."
 
     # Save the full concatenated file for cache hits + alignment.
     wav = _synth._concat_wavs(wav_parts)
