@@ -89,4 +89,29 @@ describe('useServerPageText', () => {
         await result.current.findText('b1', 'p9', 9);
         expect(peak).toBeLessThanOrEqual(3);
     });
+
+    it('short-circuits on first match without warming the rest of the book', async () => {
+        // Audit finding C-7: the old implementation warmed the entire
+        // book before scanning, so a 500-page query took 30+ s even
+        // when the match was on page 3. The fix scans in wrap-around
+        // order and short-circuits on the first match.
+        let calls = 0;
+        getBookPage.mockImplementation(async (_bookId, page) => {
+            calls += 1;
+            // Page 3 has the match; everything else is filler.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            return { page, text: page === 3 ? 'NEEDLE HERE' : `filler ${page}` };
+        });
+        const { result } = renderHook(() => useServerPageText({ totalPages: 500 }));
+
+        const found = await result.current.findText('b1', 'needle', 1);
+        expect(found).toBe(3);
+        // We should have fetched far fewer than 500 pages. The exact
+        // count depends on the bounded-concurrency interleaving, but
+        // bounded concurrency + short-circuit guarantees the count is
+        // well under total.
+        expect(calls).toBeLessThan(500);
+        // And at least the matched page plus its in-flight neighbours.
+        expect(calls).toBeGreaterThanOrEqual(1);
+    });
 });

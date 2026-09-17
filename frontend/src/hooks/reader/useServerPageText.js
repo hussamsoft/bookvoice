@@ -47,23 +47,34 @@ export function useServerPageText({ totalPages } = {}) {
             const needle = String(query || '').trim().toLocaleLowerCase();
             const total = Number(totalPages) || 0;
             if (!needle || !bookId || !total) return null;
-            // Warm the cache with bounded concurrency, then match in
-            // wrap-around order starting at `startPage`.
-            const pages = Array.from({ length: total }, (_, index) => index + 1);
+            // Warm the cache with bounded concurrency, scanning pages
+            // in wrap-around order so we can short-circuit on the first
+            // match without warming the rest of the book. Audit finding
+            // C-7: the previous version warmed the entire book before
+            // scanning, which was a 30+ s wait for a 500-page cold-cache
+            // query even when the match was on page 3.
+            const first = Math.max(1, Math.min(total, Number(startPage) || 1));
+            const pages = [];
+            for (let offset = 0; offset < total; offset += 1) {
+                pages.push(((first - 1 + offset) % total) + 1);
+            }
+            let found = null;
             await mapWithConcurrency(pages, 3, async (page) => {
-                try {
-                    await fetchPage(bookId, page);
-                } catch {
-                    /* unreadable pages simply never match */
+                if (found != null) return;
+                let text = cacheRef.current.get(`${bookId}:${page}`);
+                if (text == null) {
+                    try {
+                        text = await fetchPage(bookId, page);
+                    } catch {
+                        /* unreadable pages simply never match */
+                        return;
+                    }
+                }
+                if (text.toLocaleLowerCase().includes(needle) && found == null) {
+                    found = page;
                 }
             });
-            const first = Math.max(1, Math.min(total, Number(startPage) || 1));
-            for (let offset = 0; offset < total; offset += 1) {
-                const pageNum = ((first - 1 + offset) % total) + 1;
-                const text = cacheRef.current.get(`${bookId}:${pageNum}`) || '';
-                if (text.toLocaleLowerCase().includes(needle)) return pageNum;
-            }
-            return null;
+            return found;
         },
         [fetchPage, totalPages]
     );
