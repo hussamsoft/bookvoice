@@ -16,7 +16,12 @@ from pathlib import Path, PurePosixPath
 
 from services.book_text_extraction import extract_epub, extract_plain_text, split_into_pages
 from services.config_service import app_version
-from services.path_utils import validate_language_id, validate_page_index, validate_voice_id
+from services.path_utils import (
+    RUNTIME_RECORD_TTL_SECONDS,
+    validate_language_id,
+    validate_page_index,
+    validate_voice_id,
+)
 
 SCHEMA_VERSION = 1
 # On-disk source file per book kind. PDF manifests predate ``sourceKind`` and
@@ -38,10 +43,17 @@ FILE_CHUNK_BYTES = 1024 * 1024
 PREPARATION_STATES = {"QUEUED", "RUNNING", "PAUSED", "COMPLETED", "CANCELLED", "FAILED"}
 LEGACY_WAV_VALIDATION_ERROR = "Prepared narration is not a valid WAV file."
 
+
+class PageTextChangedError(ValueError):
+    """Raised when page text changes mid-generation; callers retry instead of failing.
+
+    Distinct exception type so callers can ``except`` on the class rather than
+    matching the message string.
+    """
+
 _lock = threading.RLock()
 _jobs: dict[str, dict] = {}
 _archives: dict[str, dict] = {}
-RUNTIME_RECORD_TTL_SECONDS = 24 * 3600
 
 
 def _prune_runtime_records() -> None:
@@ -276,6 +288,10 @@ def _write_json(path: Path, payload: dict) -> None:
         except OSError:
             pass
         raise
+    # The ``list_books`` summary cache is keyed by manifest path; invalidate
+    # here so the next UI poll reflects the write above.
+    if path.name == "manifest.json":
+        _summary_cache.pop(path.parent.name, None)
 
 
 def _read_json(path: Path) -> dict:
@@ -407,7 +423,7 @@ def _import_extracted_path(
             raise
         manifest = get_book(book_id)
         manifest["pageCount"] = len(pages)
-        manifest["chapterCount"] = len(pages)
+        manifest["chapterCount"] = len(extracted.get("chapters") or [])
         _write_json(manifest_path, manifest)
     return _summary(get_book(book_id))
 
@@ -450,13 +466,33 @@ def _summary(manifest: dict) -> dict:
 
 
 def list_books() -> list[dict]:
-    books = []
+    # ``list_books`` is called on every UI poll, so caching summaries with
+    # mtime invalidation keeps a large library from re-summarising each
+    # book on every refresh.
+    books: list[dict] = []
     for manifest_path in library_root().glob("*/manifest.json"):
         try:
-            books.append(_summary(get_book(manifest_path.parent.name)))
+            stat = manifest_path.stat()
+        except OSError:
+            continue
+        cache_key = manifest_path.parent.name
+        cached = _summary_cache.get(cache_key)
+        if cached and cached[0] == stat.st_mtime_ns:
+            books.append(cached[1])
+            continue
+        try:
+            summary = _summary(get_book(cache_key))
         except (ValueError, FileNotFoundError, KeyError):
             continue
+        _summary_cache[cache_key] = (stat.st_mtime_ns, summary)
+        books.append(summary)
     return sorted(books, key=lambda item: item.get("updatedAt") or 0, reverse=True)
+
+
+# ``(mtime_ns, summary)`` cache for ``list_books``. ``_summary`` walks every
+# profile, completed-page count, and progress block in a manifest; doing
+# it on every UI poll is wasteful for libraries with many books.
+_summary_cache: dict[str, tuple[int, dict]] = {}
 
 
 def get_book(book_id: str) -> dict:
@@ -486,9 +522,27 @@ def get_book(book_id: str) -> dict:
 def delete_book(book_id: str) -> None:
     _stop_book_jobs(book_id)
     target = book_dir(book_id)
-    with _lock:
-        if target.exists():
-            shutil.rmtree(target)
+    # Drop the cached summary up-front so a concurrent list_books does not
+    # resurrect a deleted book into the UI.
+    _summary_cache.pop(book_id, None)
+    # Workers release their file handles once their joins above complete,
+    # but on Windows the OS can still hold the handles for a beat. Retry
+    # the rmtree a few times before giving up so a transient share
+    # collision does not leave an orphan book directory behind.
+    last_exc: OSError | None = None
+    for attempt in range(5):
+        if not target.exists():
+            return
+        try:
+            with _lock:
+                if target.exists():
+                    shutil.rmtree(target)
+            return
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(0.2 * (attempt + 1))
+    if last_exc is not None:
+        raise last_exc
 
 
 def _stop_book_jobs(book_id: str, timeout: float = 10.0) -> None:
@@ -508,7 +562,12 @@ def _stop_book_jobs(book_id: str, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     for worker in threads:
         if worker is threading.current_thread():
-            continue
+            # Re-entrant delete: the caller is one of the workers. Joining
+            # self would deadlock; refuse to proceed instead of silently
+            # racing a still-running worker against an rmtree.
+            raise RuntimeError(
+                "Cannot delete a book from inside its own preparation worker."
+            )
         worker.join(timeout=max(0.0, deadline - time.monotonic()))
         if worker.is_alive():
             raise RuntimeError("Book preparation is still stopping; try again shortly.")
@@ -610,7 +669,9 @@ def mark_page_audio(
     with _lock:
         page_meta = get_page(book_id, page)
         if expected_text_sha256 and page_meta.get("textSha256") != expected_text_sha256:
-            raise ValueError("Page text changed while narration was generating.")
+            raise PageTextChangedError(
+                "Page text changed while narration was generating."
+            )
         target = page_audio_path(book_id, profile, page)
         target.parent.mkdir(parents=True, exist_ok=True)
         if audio_source.resolve() != target.resolve():
@@ -818,6 +879,9 @@ def delete_archive(archive_id: str) -> None:
 
 
 def import_bookvoice(payload: bytes, filename: str) -> dict:
+    # Kept for the in-process test harness and any future caller that has
+    # a payload already in memory; the HTTP route streams to disk first
+    # and uses ``import_bookvoice_path`` instead.
     with tempfile.TemporaryDirectory() as temp_dir:
         archive_path = Path(temp_dir) / "upload.bookvoice"
         archive_path.write_bytes(payload)
@@ -849,11 +913,15 @@ def _copy_file_atomic(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{destination.stem}-", suffix=".tmp", dir=destination.parent)
     os.close(fd)
+    temp_path = Path(temp_name)
     try:
-        shutil.copy2(source, temp_name)
-        os.replace(temp_name, destination)
+        shutil.copy2(source, temp_path)
+        # Use the shared retry-aware replace so a transient Windows
+        # sharing violation does not surface as an error.
+        from services.storage_utils import replace_file_with_retry
+        replace_file_with_retry(temp_path, destination)
     except Exception:
-        Path(temp_name).unlink(missing_ok=True)
+        temp_path.unlink(missing_ok=True)
         raise
 
 
@@ -988,10 +1056,13 @@ def import_bookvoice_path(path: Path, filename: str) -> dict:
         existing_progress = None
         if (target / "manifest.json").exists():
             existing_progress = get_book(book_id).get("progress")
-        _stop_book_jobs(book_id)
-        if existing_progress and int(existing_progress.get("updatedAt") or 0) > int((manifest.get("progress") or {}).get("updatedAt") or 0):
-            manifest["progress"] = existing_progress
+        # Stop workers and swap the staged tree under a single lock so a
+        # concurrent preparation cannot recreate files between the two
+        # steps.
         with _lock:
+            _stop_book_jobs(book_id)
+            if existing_progress and int(existing_progress.get("updatedAt") or 0) > int((manifest.get("progress") or {}).get("updatedAt") or 0):
+                manifest["progress"] = existing_progress
             _replace_book_from_staging(staging, target, manifest)
     return _summary(manifest)
 
@@ -1119,8 +1190,23 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                         break
                     _update_job(job, status="RUNNING", error=None)
                     continue
-                _update_job(job, _future=future)
+                with _lock:
+                    job["_future"] = future
                 try:
+                    # Poll the cancel event instead of blocking on
+                    # future.result() so cancellation can interrupt a
+                    # multi-minute generation chunk immediately. A 0.25s
+                    # tick keeps the UI responsive without busy-waiting.
+                    result = None
+                    while not future.done():
+                        if _job_cancel_requested(job):
+                            future.cancel()
+                            cancellation.cancel()
+                            break
+                        time.sleep(0.25)
+                    if not future.done():
+                        # We cancelled above; the worker will raise shortly.
+                        raise GenerationCancelled()
                     result = future.result()
                 except (GenerationCancelled, CancelledError):
                     if _job_cancel_requested(job):
@@ -1131,25 +1217,25 @@ def _run_preparation(job_id: str, voice_id: str | None, language_id: str) -> Non
                     time.sleep(0.25)
                     _update_job(job, status="RUNNING")
                     continue
-                finally:
-                    _remove_job_field(job, "_future")
                 if _job_status(job) == "CANCELLED":
                     break
                 relative = str(result["audio_url"]).removeprefix("/sessions/")
                 source = Path(os.environ.get("DATA_DIR", "data")) / "sessions" / relative
                 try:
-                    mark_page_audio(
-                        book_id, profile, page, source,
-                        result.get("word_timings") or [], result.get("duration_s") or 0,
-                        voice_id, language_id,
-                        expected_text_sha256=page_meta.get("textSha256"),
-                    )
-                except ValueError as exc:
-                    if str(exc) == "Page text changed while narration was generating.":
-                        continue
-                    raise
-                _complete_job_page(job, page)
-                _persist_job(job)
+                    # Atomic update under the shared lock: page metadata,
+                    # manifest, and job bookkeeping land in one write.
+                    with _lock:
+                        job.pop("_future", None)
+                        _complete_job_page(job, page)
+                        _mark_page_audio_locked(
+                            job, book_id, profile, page, source,
+                            result.get("word_timings") or [],
+                            result.get("duration_s") or 0,
+                            voice_id, language_id,
+                            expected_text_sha256=page_meta.get("textSha256"),
+                        )
+                except PageTextChangedError:
+                    continue
                 break
             if _job_status(job) == "CANCELLED":
                 break
@@ -1167,11 +1253,6 @@ def _update_job(job: dict, **changes) -> None:
         job.update(changes)
 
 
-def _remove_job_field(job: dict, field: str) -> None:
-    with _lock:
-        job.pop(field, None)
-
-
 def _job_cancel_requested(job: dict) -> bool:
     with _lock:
         return bool(job.get("cancelRequested"))
@@ -1185,6 +1266,80 @@ def _job_status(job: dict) -> str:
 def _complete_job_page(job: dict, page: int) -> None:
     with _lock:
         job["completedPages"] = sorted(set(job.get("completedPages", [])) | {page})
+
+
+def _mark_page_audio_locked(
+    job: dict,
+    book_id: str,
+    profile: str,
+    page: int,
+    source: Path,
+    word_timings: list,
+    duration: float,
+    voice_id: str | None,
+    language_id: str,
+    expected_text_sha256: str | None,
+) -> dict:
+    """Atomic manifest update for one finished page.
+
+    Combines the manifest read, the per-page manifest write, and the job
+    bookkeeping under one ``_lock`` acquisition so a concurrent update
+    cannot interleave and double-persist the same job state. Previously
+    ``_remove_job_field`` ran separately and ``_persist_job`` could be
+    invoked twice for the same chunk.
+    """
+    _validate_wav_file(source)
+    page_meta = get_page(book_id, page)
+    if expected_text_sha256 and page_meta.get("textSha256") != expected_text_sha256:
+        raise PageTextChangedError(
+            "Page text changed while narration was generating."
+        )
+    target = page_audio_path(book_id, profile, page)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != target.resolve():
+        fd, temp_name = tempfile.mkstemp(prefix=f".{target.stem}-", suffix=".wav.tmp", dir=target.parent)
+        os.close(fd)
+        temp_path = Path(temp_name)
+        try:
+            shutil.copy2(source, temp_path)
+            _validate_wav_file(temp_path)
+            os.replace(temp_path, target)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
+    audio_sha256 = _sha256_file(target)
+    page_meta["wordTimings"] = word_timings or []
+    page_meta["audio"] = {
+        "profileId": profile,
+        "path": f"audio/{profile}/page-{page}.wav",
+        "sha256": audio_sha256,
+        "duration": float(duration or 0),
+    }
+    _write_json(book_dir(book_id) / "pages" / f"{page}.json", page_meta)
+    manifest = get_book(book_id)
+    profiles = manifest.setdefault("profiles", {})
+    record = profiles.setdefault(
+        profile,
+        {
+            "id": profile,
+            "voiceId": voice_id,
+            "languageId": validate_language_id(language_id),
+            "modelVersion": app_version(),
+            "completedPages": [],
+        },
+    )
+    record["completedPages"] = sorted(set(record.get("completedPages", [])) | {page})
+    manifest["activeProfileId"] = profile
+    manifest.setdefault("pageHashes", {})[f"{page}.json"] = _sha256_file(
+        book_dir(book_id) / "pages" / f"{page}.json"
+    )
+    manifest.setdefault("audioChecksums", {})[
+        f"audio/{profile}/page-{page}.wav"
+    ] = audio_sha256
+    manifest["updatedAt"] = int(time.time())
+    manifest["preparation"] = _public_job(job)
+    _write_json(_manifest_path(book_id), manifest)
+    return page_meta
 
 
 def _persist_job(job: dict) -> None:
