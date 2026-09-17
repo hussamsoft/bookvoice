@@ -45,3 +45,14 @@ Work in this order. Do not begin product additions until the stabilization and p
 - [x] Task 17: build and smoke portable and MSI from a clean checkout. *(BookVoice.msi + BookVoice-User.msi build green; scripts/smoke_launch.py validates install dirs; copy-paste dist/ deprecated for end users; real-browser gapless smoke pending)*
 - [x] Confirm source/static/dist hashes and version metadata match. *(release-manifest.json + build.py validate enforce parity)*
 - [x] Publish before/after correctness and performance results with remaining risks. *(bundle before/after in tasks/bundle-baseline.json; TTS pipeline timings in tasks/perf-baseline.json; remaining risks: Whisper packaging deferred, real-browser gapless smoke, full a11y audit)*
+
+## A11y follow-ups (from `scripts/audit_a11y.py`, run on the 2.8.0 build)
+
+The Playwright + axe-core audit scans the five primary routes (`/`, `/library`, `/reader`, `/studio`, `/settings`) in both `light` and `dark` mode. Two unique violations are found and need a follow-up fix in the frontend. Both are site-wide; the per-route number in `scripts/audit_a11y.py` is the per-page node count (consistently 1 across all routes).
+
+- [ ] **A11Y-1 (critical)** — `label`: The hidden file `<input type="file">` (the "Choose a book file" picker) has no implicit `<label>`, no explicit `<label>`, no `aria-label`, and no `aria-labelledby`. The visible "Choose a book file" button is rendered as a sibling, so screen readers announce the input as unlabelled. Fix: add `aria-label="Choose a book file"` to the `<input>` element (or wrap the visible button as an explicit `<label for="…">`).
+- [ ] **A11Y-2 (serious)** — `aria-prohibited-attr`: The toast region `<div class="toast-region" aria-label="Notifications">` uses `aria-label` on a `<div>` with no role, which axe-core flags because `aria-label` is only valid on elements with an interactive or landmark role. Fix: add `role="region"` (or `role="status"` if a polite live region is acceptable) to the div.
+
+## Follow-ups (deferred from `tasks/plan-bookvoice-improvements.md`)
+
+- [ ] **Phase 1C — split `services/book_library_service.py`** (1,232 lines) into a 7-module package (`paths`, `io`, `importers`, `catalog`, `pages`, `archives`, `preparations`). Prototyped but reverted in 2.8.0 because the per-page state machine (`mark_page_audio` with its 8-arg signature, `_run_preparation`'s pipeline, the `expected_text_sha256` re-validation flow, and the per-page JSON on-disk cache) has tighter coupling than the function map captured. The `__getattr__` + `__init__.py` re-export pattern from 1A/1B carries over cleanly, but the signature changes need a dedicated slice with proper test coverage.

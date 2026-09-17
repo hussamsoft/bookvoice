@@ -1,6 +1,6 @@
 /* eslint-disable react/only-export-components */
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle, Info, X } from 'lucide-react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
@@ -11,6 +11,8 @@ const COALESCE_MS = 2000;
 const EXIT_MS = 160;
 
 let toastId = 0;
+const TOAST_ID_EPOCH = Date.now();
+const nextToastId = () => TOAST_ID_EPOCH + (++toastId);
 
 export function ToastProvider({ children }) {
     const [toasts, setToasts] = useState([]);
@@ -22,6 +24,14 @@ export function ToastProvider({ children }) {
     const commit = useCallback((next) => {
         toastsRef.current = next;
         setToasts(next);
+    }, []);
+
+
+    // Unmount cleanup: cancel any pending auto-dismiss / exit timers so they
+    // don't fire after the provider is gone.
+    useEffect(() => () => {
+        timersRef.current.forEach((timer) => clearTimeout(timer));
+        timersRef.current.clear();
     }, []);
 
 
@@ -58,7 +68,7 @@ export function ToastProvider({ children }) {
 
     const push = useCallback(
         (message, type = 'info', duration = 4000) => {
-            const next = { id: toastId++, message, type, leaving: false };
+            const next = { id: nextToastId(), message, type, leaving: false };
             const dupKey = `${type}:${message}`;
             const now = Date.now();
             const existing = toastsRef.current.find(
@@ -94,7 +104,7 @@ export function ToastProvider({ children }) {
 
     const icons = {
         info: Info,
-        success: CheckCircle,
+        success: CheckCircle2,
         error: AlertCircle,
     };
 
@@ -113,7 +123,7 @@ export function ToastProvider({ children }) {
                 <button
                     className="toast-dismiss"
                     onClick={() => dismiss(id)}
-                    aria-label="Dismiss"
+                    aria-label="Dismiss notification"
                 >
                     <X size={16} aria-hidden="true" />
                 </button>
@@ -124,7 +134,7 @@ export function ToastProvider({ children }) {
     return (
         <ToastContext.Provider value={toast}>
             {children}
-            <div className="toast-region" aria-label="Notifications">
+            <div className="toast-region" role="region" aria-label="Notifications">
                 {toasts.map(renderToast)}
             </div>
         </ToastContext.Provider>

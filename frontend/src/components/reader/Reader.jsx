@@ -27,10 +27,11 @@ import { resolvePageContent } from '../../utils/pageContentResolver';
 import { documentFingerprint, loadReadingProgress } from '../../utils/readingProgress';
 import { createSessionId } from '../../utils/session';
 import { usePdfDocument } from '../../hooks/usePdfDocument';
+import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../../hooks/useSleepTimer';
 import { useTtsStatus } from '../../hooks/useTtsStatus';
+import { useUserConfig } from '../../hooks/useUserConfig';
 import { useBookmarks } from '../../hooks/reader/useBookmarks';
 import { useKeyboardShortcuts } from '../../hooks/reader/useKeyboardShortcuts';
-import { usePageResume } from '../../hooks/reader/usePageResume';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
 import { useReaderNarration } from '../../hooks/reader/useReaderNarration';
 import { useReaderPageLifecycle } from '../../hooks/reader/useReaderPageLifecycle';
@@ -45,7 +46,7 @@ import TextStage from './TextStage';
 const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
 /**
- * Reader (new) — composition root for the migrated reader.
+ * Reader — composition root for the migrated reader.
  *
  * Stage A.8.1 opens real books: files land in the prepared library
  * (`importPreparedBook`), PDFs render through `PdfStage` (react-pdf),
@@ -68,6 +69,7 @@ export default function Reader() {
     const [libraryBookId, setLibraryBookId] = useState(null);
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
+    const [pageJumpInput, setPageJumpInput] = useState('1');
     const [pageText, setPageText] = useState('');
     const [query, setQuery] = useState('');
     const [lastQuery, setLastQuery] = useState('');
@@ -75,6 +77,15 @@ export default function Reader() {
     const [statusHint, setStatusHint] = useState('');
     const [sessionId] = useState(() => createSessionId('reader'));
     const { modelReady } = useTtsStatus();
+    // Saved user voice/language. Apply-once so a user selection before the
+    // config fetch settles wins over the stored value (mirrors
+    // BookSession/PdfViewer + configApply.test.js).
+    const { config } = useUserConfig();
+    const [activeVoiceId, setActiveVoiceId] = useState(null);
+    const [targetLanguage, setTargetLanguage] = useState('en');
+    const configAppliedRef = useRef(false);
+    const userTouchedVoiceRef = useRef(false);
+    const userTouchedLanguageRef = useRef(false);
 
     // Refs mirror the values the async paths (content resolution, search,
     // shortcuts) read: a freshly activated book must resolve against its
@@ -96,6 +107,14 @@ export default function Reader() {
     // The prepared-page record from the latest content resolution; the
     // lifecycle passes only (text, source, ctx) to onContent.
     const preparedRef = useRef(null);
+    // Auto-open guard for the `?book=<id>` deep link (desktop shell,
+    // .bookvoice double-click, addresses card). PdfViewer holds the
+    // same flag (PdfViewer.jsx:239).
+    const deepLinkOpenedRef = useRef(false);
+    // Sleep-timer handle. The page-ended signal lives in the narration
+    // hook; the reader only needs to fire it on `transportState ===
+    // 'stopped'`. `onExpire` is wired below once `narration` exists.
+    const sleepRef = useRef(null);
 
     const { bookmarks, toggle, set: setBookmarks, isBookmarked } = useBookmarks({ initial: [] });
     const zoom = useReaderZoom({ initial: 1 });
@@ -173,9 +192,8 @@ export default function Reader() {
         audioRef,
         transport,
         sessionId,
-        // Server default voice; the picker lands with the next slice.
-        voiceId: null,
-        languageId: 'en',
+        voiceId: activeVoiceId,
+        languageId: targetLanguage,
         modelReady,
         getPage,
         onNarratePage: useCallback((page) => {
@@ -185,18 +203,35 @@ export default function Reader() {
     });
     narrationRef.current = narration;
 
-    const resume = usePageResume({
-        currentPage: pageNumber,
-        audioPage: narration.audioPage,
-        hasAudio: narration.audioPage != null,
-        onResume: useCallback(() => {
-            // The audio kept playing while browsing; follow it back.
-            lifecycle.browsePage(narration.audioPage);
-        }, [lifecycle, narration]),
-        onStartFresh: useCallback(() => {
-            lifecycle.loadPage(pageNumber, { autoplay: true });
-        }, [lifecycle, pageNumber]),
+    // Sleep timer: counts down only while narration plays; expiry stops
+    // playback so the user doesn't fall asleep to a finished page.
+    const sleep = useSleepTimer({
+        playing: narration.isPlaying,
+        onExpire: narration.stopPlayback,
     });
+    sleepRef.current = sleep;
+
+    // Whenever the transport naturally reaches the end of the page
+    // (streaming playlist exhausted, last chunk ended), notify the
+    // end-of-chapter sleep mode. The minute-mode timer ignores this.
+    useEffect(() => {
+        if (narration.transportState === 'stopped') {
+            sleep.notifyPageEnded();
+        }
+    }, [narration.transportState, sleep]);
+
+    // Apply-once the saved voice/language from useUserConfig. A user
+    // touch before config arrives wins (see configApply.test.js).
+    useEffect(() => {
+        if (!config || configAppliedRef.current) return;
+        configAppliedRef.current = true;
+        if (!userTouchedVoiceRef.current && config.voice_id) {
+            setActiveVoiceId(config.voice_id);
+        }
+        if (!userTouchedLanguageRef.current && config.language_id) {
+            setTargetLanguage(config.language_id);
+        }
+    }, [config]);
 
     useReaderProgress({
         documentId,
@@ -259,6 +294,24 @@ export default function Reader() {
         if (Number.isFinite(search.result)) lifecycle.browsePage(search.result);
     }, [search.result, lifecycle]);
 
+    // Keep the page-jump input in lockstep with the current page so the
+    // field never disagrees with the toolbar's "Page N of M" status.
+    useEffect(() => {
+        setPageJumpInput(String(pageNumber));
+    }, [pageNumber]);
+
+    const submitPageJump = useCallback((event) => {
+        event?.preventDefault?.();
+        const parsed = Number.parseInt(pageJumpInput, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            setPageJumpInput(String(pageNumber));
+            return;
+        }
+        const clamped = numPages ? Math.min(parsed, numPages) : parsed;
+        if (clamped !== pageNumber) lifecycle.browsePage(clamped);
+        setPageJumpInput(String(clamped));
+    }, [pageJumpInput, pageNumber, numPages, lifecycle]);
+
     useKeyboardShortcuts({
         isEnabled: () => Boolean(fileRef.current),
         onToggleBookmark: () => toggle(pageNumber),
@@ -281,6 +334,25 @@ export default function Reader() {
             // The global `?` handler in App.jsx owns this; no-op here.
         },
     });
+
+    // `?book=<id>` deep link: open the prepared book whose id matches,
+    // once the library list is loaded. Mirrors PdfViewer.jsx:237-242 so
+    // desktop deep links and `.bookvoice` double-click work with the
+    // new reader at default. Books from Library/Home are opened through
+    // `openLibraryBook`, so the URL is already in sync. The ref bridges
+    // to the function (defined below) so the effect doesn't need it in
+    // its deps and re-fire on every render.
+    const openLibraryBookRef = useRef(null);
+    useEffect(() => {
+        if (deepLinkOpenedRef.current) return;
+        if (!books || books.length === 0) return;
+        const requestedId = new URLSearchParams(window.location.search).get('book');
+        if (!requestedId) return;
+        const target = books.find((book) => book.id === requestedId);
+        if (!target) return;
+        deepLinkOpenedRef.current = true;
+        openLibraryBookRef.current?.(target);
+    }, [books]);
 
     const activateBook = (f, book = null) => {
         if (!f) return;
@@ -328,6 +400,7 @@ export default function Reader() {
             toast.error(error.message || 'Could not open the prepared book.');
         }
     };
+    openLibraryBookRef.current = openLibraryBook;
 
     const handleFileChange = async (event) => {
         const selected = event.target.files[0];
@@ -422,6 +495,7 @@ export default function Reader() {
                         type="file"
                         className="file-input"
                         accept={FILE_ACCEPT}
+                        aria-label="Choose a book file"
                         onChange={handleFileChange}
                     />
                     <p className="reader-open-hint">
@@ -490,6 +564,19 @@ export default function Reader() {
                 >
                     Next
                 </button>
+                <form className="reader-page-jump" onSubmit={submitPageJump}>
+                    <label htmlFor="reader-page-jump-input" className="sr-only">Go to page</label>
+                    <input
+                        id="reader-page-jump-input"
+                        type="number"
+                        min={1}
+                        max={numPages || 1}
+                        value={pageJumpInput}
+                        onChange={(event) => setPageJumpInput(event.target.value)}
+                        onBlur={submitPageJump}
+                        aria-label={`Go to page between 1 and ${numPages || 1}`}
+                    />
+                </form>
                 <button
                     type="button"
                     className="btn primary btn-compact"
@@ -502,11 +589,12 @@ export default function Reader() {
                 </button>
                 <button
                     type="button"
-                    className="icon-btn"
+                    className="btn secondary btn-compact"
                     onClick={narration.stopPlayback}
                     aria-label="Stop narration"
                 >
-                    <Square size={16} aria-hidden="true" />
+                    <Square size={14} aria-hidden="true" />
+                    Stop
                 </button>
                 <button
                     type="button"
@@ -577,6 +665,31 @@ export default function Reader() {
                         <Search size={14} aria-hidden="true" />
                     </button>
                 </form>
+                <label className="reader-sleep">
+                    <span className="sr-only">Sleep timer</span>
+                    <select
+                        className="reader-sleep-select"
+                        aria-label="Sleep timer"
+                        value={sleep.minutes == null ? 'off' : String(sleep.minutes)}
+                        onChange={(event) => {
+                            const value = event.target.value;
+                            if (value === 'off') sleep.cancel();
+                            else if (value === SLEEP_END_OF_CHAPTER) sleep.setMinutes(SLEEP_END_OF_CHAPTER);
+                            else sleep.setMinutes(Number(value));
+                        }}
+                    >
+                        <option value="off">Sleep: Off</option>
+                        {SLEEP_MINUTE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option} min</option>
+                        ))}
+                        <option value={SLEEP_END_OF_CHAPTER}>End of chapter</option>
+                    </select>
+                    {sleep.minutes === SLEEP_END_OF_CHAPTER ? (
+                        <span className="reader-sleep-remaining">chapter end</span>
+                    ) : sleep.remainingMs != null ? (
+                        <span className="reader-sleep-remaining">{Math.ceil(sleep.remainingMs / 60000)} min</span>
+                    ) : null}
+                </label>
             </div>
             {searchStatus && (
                 <small className="reader-search-status" role="status">{searchStatus}</small>
@@ -594,14 +707,6 @@ export default function Reader() {
                     >
                         Try again
                     </button>
-                </div>
-            )}
-            {resume.showChoice && (
-                <div className="reader-resume-choice" role="dialog" aria-label="Resume or start fresh?">
-                    <p>Resume narration on page {narration.audioPage}, or start fresh on page {pageNumber}?</p>
-                    <button type="button" className="btn secondary btn-compact" onClick={resume.resume}>Resume</button>
-                    <button type="button" className="btn primary btn-compact" onClick={resume.startFresh}>Start fresh</button>
-                    <button type="button" className="btn text btn-compact" onClick={resume.dismiss}>Dismiss</button>
                 </div>
             )}
             {!pdfLoadError && (isTextBook ? (
