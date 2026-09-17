@@ -49,6 +49,16 @@ async def _studio_device_scope(
     # while keeping the opaque id out of media URLs.
     if device_cookie != studio.current_device_id():
         forwarded_scheme = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        # Audit finding C-35: when BOOKVOICE_TRUST_PROXY_HEADERS is on,
+        # honour X-Forwarded-Proto for the Secure flag too — otherwise
+        # browsers behind a TLS-terminating proxy that doesn't append
+        # X-Forwarded-Proto refuse to send the non-Secure cookie over
+        # HTTPS. Mirrors how protect_local_api honours forwarded_proto
+        # in services/security.py.
+        if not str(os.environ.get("BOOKVOICE_TRUST_PROXY_HEADERS", "")).strip().lower() in {
+            "1", "true", "yes", "on",
+        }:
+            forwarded_scheme = ""
         response.set_cookie(
             DEVICE_COOKIE_NAME,
             studio.current_device_id(),
