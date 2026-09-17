@@ -56,7 +56,28 @@ internal static class AppPaths
     /// commit-level version and lands in the same runtime dir as the Python
     /// side). Without git — the packaged case — the VERSION file decides.
     /// </summary>
+    // Cached result of ReadVersion. ReadVersion can stall for up to 2 s
+    // when git is slow or missing (audit finding C-6). It is called from
+    // MainWindow.ConfigureWindow and MainWindow.ResolvePaths — both on
+    // the UI thread — so we cache the result after the first call. The
+    // appdir is fixed for the lifetime of the process (MainWindow
+    // resolves it once in the constructor), so this is safe.
+    private static string? _cachedVersion;
+    private static string? _cachedVersionAppDir;
+
     public static string ReadVersion(string appDir)
+    {
+        if (_cachedVersion is not null && _cachedVersionAppDir == appDir)
+        {
+            return _cachedVersion;
+        }
+        var version = ReadVersionUncached(appDir);
+        _cachedVersion = version;
+        _cachedVersionAppDir = appDir;
+        return version;
+    }
+
+    private static string ReadVersionUncached(string appDir)
     {
         try
         {
@@ -95,9 +116,25 @@ internal static class AppPaths
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "BookVoice");
 
-    public static bool IsPortable() =>
-        string.Equals(Environment.GetEnvironmentVariable("BOOKVOICE_PORTABLE")?.Trim().ToLowerInvariant(), "1")
-        || IsTruthy(Environment.GetEnvironmentVariable("BOOKVOICE_PORTABLE"));
+    public static bool IsPortable()
+    {
+        if (string.Equals(Environment.GetEnvironmentVariable("BOOKVOICE_PORTABLE")?.Trim().ToLowerInvariant(), "1")
+            || IsTruthy(Environment.GetEnvironmentVariable("BOOKVOICE_PORTABLE")))
+        {
+            return true;
+        }
+        // A layout marker in the exe directory declares the install portable
+        // without forcing the launcher to set an environment variable.
+        try
+        {
+            var marker = Path.Combine(AppContext.BaseDirectory, "portable.txt");
+            return File.Exists(marker);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     private static bool IsTruthy(string? value) =>
         value is not null && value.Trim().ToLowerInvariant() is "true" or "yes";
