@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import tempfile
@@ -71,7 +72,7 @@ def _looks_like_wav(data: bytes) -> bool:
     return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
 
 
-def _convert_to_wav_pcm(data: bytes) -> bytes:
+async def _convert_to_wav_pcm(data: bytes) -> bytes:
     if _looks_like_wav(data):
         try:
             with wave.open(BytesIO(data), "rb") as wf:
@@ -98,16 +99,23 @@ def _convert_to_wav_pcm(data: bytes) -> bytes:
             buffer.write(data)
         converted = Path(str(staged) + ".wav")
         staged_converted = converted
-        media_tools.run_media_tool(
-            "ffmpeg",
-            [
-                "-y", "-v", "error", "-i", str(staged),
-                "-map", "0:a:0", "-vn",
-                "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
-                "-f", "wav", str(converted),
-            ],
-            timeout=120,
-        )
+
+        def _run_ffmpeg() -> None:
+            media_tools.run_media_tool(
+                "ffmpeg",
+                [
+                    "-y", "-v", "error", "-i", str(staged),
+                    "-map", "0:a:0", "-vn",
+                    "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le",
+                    "-f", "wav", str(converted),
+                ],
+                timeout=120,
+            )
+
+        # ffmpeg can take many seconds on a long upload. Running it on the
+        # event loop would block /api/health polls and every other handler;
+        # same pattern as routes/books.py:77-117.
+        await asyncio.to_thread(_run_ffmpeg)
         return converted.read_bytes()
     except (RuntimeError, ValueError, OSError) as e:
         raise ValueError(
@@ -182,7 +190,7 @@ async def upload_voice(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        wav_bytes = _convert_to_wav_pcm(raw)
+        wav_bytes = await _convert_to_wav_pcm(raw)
         _validate_wav_duration(wav_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -199,6 +207,11 @@ async def upload_voice(
             safe_name,
             consent_confirmed=True,
             source_info={"kind": "AUDIO", "fileName": file.filename},
+            # 0.3s..60s allows webm/opus recorder snippets, which are
+            # shorter than the 5s..30s Studio sample range; both ranges
+            # are validated by the profile service and the divergence is
+            # intentional (the Library path accepts the same uploads the
+            # web UI offers in /settings/voices).
             min_seconds=0.3,
             max_seconds=60,
         )
