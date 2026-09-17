@@ -1,5 +1,12 @@
 namespace BookVoice.App.Backend;
 
+// Audit finding M-35 / C-5: the hand-rolled Mutex/EventWaitHandle pair
+// below works, but the modern Microsoft.Windows.AppLifecycle.AppInstance
+// SDK handles single-instance plumbing AND command-line forwarding in
+// one call (RedirectActivationToAsync). Migrating to it is a runtime
+// change that requires a Windows host to validate; deferred until the
+// CI runner can host a WinUI test. Tracked as a follow-up.
+
 /// <summary>
 /// One desktop shell per machine: the shell owns the backend, so a second
 /// launch signals the running one (optionally handing it a .bookvoice to
