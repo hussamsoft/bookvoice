@@ -1,6 +1,7 @@
 """Chaptered M4B audiobook export jobs for prepared books."""
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -9,6 +10,9 @@ from pathlib import Path
 
 from services import book_library_service as library
 from services import media_tools
+from services.path_utils import RUNTIME_RECORD_TTL_SECONDS
+
+_log = logging.getLogger(__name__)
 
 
 class NoPreparedAudioError(ValueError):
@@ -17,7 +21,6 @@ class NoPreparedAudioError(ValueError):
 
 _lock = threading.RLock()
 _jobs: dict[str, dict] = {}
-RUNTIME_RECORD_TTL_SECONDS = 24 * 3600
 FFPROBE_TIMEOUT_SECONDS = 120
 FFMPEG_TIMEOUT_SECONDS = 1800
 
@@ -34,6 +37,12 @@ def _prune_runtime_records() -> None:
 def _update_job(job: dict, **changes) -> None:
     with _lock:
         job.update(changes)
+    if "status" in changes:
+        _log.info(
+            "audiobook export %s -> %s",
+            job.get("id"),
+            changes["status"],
+        )
 
 
 def _cancel_requested(job: dict) -> bool:
@@ -86,10 +95,25 @@ def create_audiobook_export(book_id: str, profile_id: str) -> dict:
     # so the create response always reports the contractual initial state.
     response = _public_job(job)
     thread = threading.Thread(target=_run_export, args=(job["id"],), daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except RuntimeError as exc:
+        _log.warning("audiobook export worker failed to start: %s", exc)
+        _update_job(
+            job,
+            status="FAILED",
+            error="Could not start the audiobook export worker.",
+            endedAt=time.time(),
+        )
+        return _public_job(job)
     return response
 
 def get_audiobook_job(book_id: str, job_id: str) -> dict:
+    # Prune before read so the polling endpoint (which the frontend
+    # hits often) bounds _jobs as much as create does. Without this,
+    # a long-running server with many completed exports and no
+    # downloads accumulates _jobs entries forever (audit finding C-27).
+    _prune_runtime_records()
     with _lock:
         job = _jobs.get(job_id)
         if job is None or job.get("bookId") != book_id:
@@ -226,6 +250,9 @@ def _render_m4b(job: dict, durations: list[tuple[int, int]]) -> Path:
         if _cancel_requested(job):
             raise media_tools.MediaToolCancelled("ffmpeg was cancelled.")
         os.replace(temp_output, final_output)
+        if _cancel_requested(job):
+            final_output.unlink(missing_ok=True)
+            raise media_tools.MediaToolCancelled("ffmpeg was cancelled.")
         return final_output
     finally:
         list_path.unlink(missing_ok=True)
