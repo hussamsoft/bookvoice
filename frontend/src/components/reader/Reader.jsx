@@ -99,6 +99,25 @@ export default function Reader() {
     const isTextBookRef = useRef(false);
     const audioRef = useRef(null);
     const progressSaveFailedRef = useRef(false);
+    // Leading-edge throttle for the prepared-book progress mirror.
+    // The closure stored in `progressPendingFlushRef` is rebuilt on
+    // every effect run so the eventual write reflects the *latest*
+    // state, but the timer is only armed if none is pending. Without
+    // this, transport.currentTime updates (~4 Hz during playback)
+    // would clear and re-arm the timer on every tick and the save
+    // would never fire while the user is listening. See
+    // useReaderProgress.js for the same leading-edge throttle pattern.
+    const progressPendingFlushRef = useRef(null);
+    const progressFlushTimerRef = useRef(null);
+    const flushPreparedProgress = () => {
+        if (progressFlushTimerRef.current) {
+            clearTimeout(progressFlushTimerRef.current);
+            progressFlushTimerRef.current = null;
+        }
+        const snapshot = progressPendingFlushRef.current;
+        progressPendingFlushRef.current = null;
+        if (snapshot) snapshot();
+    };
     // The narration hook is created below the lifecycle (its fresh-page
     // escape hatch needs it), but the lifecycle's onContent needs the
     // hook — the ref bridges the cycle the same way PdfViewer bridges
@@ -243,11 +262,16 @@ export default function Reader() {
     });
 
     // Server-side mirror of the reading position for library books, so
-    // the library's continue-reading row stays current. Debounced;
-    // failures toast once per open book.
+    // the library's continue-reading row stays current. Leading-edge
+    // throttle (audit finding C-6): the previous trailing-edge
+    // debounce never fired during continuous playback because
+    // transport.currentTime ticks ~4 Hz reset the timer on every
+    // tick. The new pattern arms a timer only if none is pending and
+    // rebuilds the snapshot closure on every state change, so the
+    // eventual write reflects the latest values.
     useEffect(() => {
         if (!libraryBookId || !file) return undefined;
-        const timer = setTimeout(() => {
+        progressPendingFlushRef.current = () => {
             updatePreparedProgress(libraryBookId, {
                 page: pageNumber,
                 time: transport.currentTime,
@@ -264,9 +288,16 @@ export default function Reader() {
                     toast.error('Could not save prepared-book progress.');
                 }
             });
-        }, 3000);
-        return () => clearTimeout(timer);
+        };
+        if (progressFlushTimerRef.current == null) {
+            progressFlushTimerRef.current = setTimeout(flushPreparedProgress, 3000);
+        }
+        return undefined;
     }, [file, libraryBookId, pageNumber, bookmarks, transport.currentTime, setBooks, toast]);
+
+    // Flush the pending progress save when the tab is hidden or the
+    // reader unmounts, mirroring useReaderProgress's visibility flush.
+    useEffect(() => () => flushPreparedProgress(), [libraryBookId]);
 
     // Ctrl/Cmd+wheel zoom over the reading surface. Attached natively
     // (non-passive) because React's synthetic onWheel cannot
