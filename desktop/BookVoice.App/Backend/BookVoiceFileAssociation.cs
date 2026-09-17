@@ -24,7 +24,14 @@ internal static class BookVoiceFileAssociation
                 {
                     progId.SetValue(null, "BookVoice prepared book");
                     using var icon = progId.CreateSubKey("DefaultIcon");
-                    icon.SetValue(null, $"\"{exe}\",0");
+                    // Audit finding C-10: write a RELATIVE icon path
+                    // (Explorer resolves it against the ProgId's
+                    // application directory). The previous code wrote
+                    // the absolute install path, which broke icons after
+                    // a portable move even though the comment claimed
+                    // it was relative. The relative form is
+                    // "Assets\\bookvoice.ico,0".
+                    icon.SetValue(null, "Assets\\bookvoice.ico,0");
                     using var command = progId.CreateSubKey("shell\\open\\command");
                     command.SetValue(null, $"\"{exe}\" \"%1\"");
                 }
