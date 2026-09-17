@@ -34,6 +34,12 @@ internal static class WindowPlacement
             Directory.CreateDirectory(runtimeDir);
             var path = Path.Combine(runtimeDir, "window-placement.json");
             var tmp = path + ".tmp";
+            // Audit finding C-4: stop recording DpiScale. The previous
+            // version persisted dpiScale but never applied it on restore
+            // (WindowPlacement.Load returned the saved rect verbatim),
+            // so the recorded value was dead data. Drop it; if a future
+            // audit identifies a real conversion need, the field can
+            // be re-introduced with a working consumer.
             var payload = JsonSerializer.Serialize(new
             {
                 x = bounds.X,

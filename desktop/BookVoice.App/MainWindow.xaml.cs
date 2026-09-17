@@ -88,8 +88,7 @@ public sealed partial class MainWindow : Window
                 sender.Position.Y,
                 sender.Size.Width,
                 sender.Size.Height,
-                Maximized: false,
-                DpiScale: GetDpiScale());
+                Maximized: false);
         }
         // Audit finding C-9: clamp against the display the window is
         // actually on, not always the Primary display. A window on a
@@ -633,10 +632,6 @@ public sealed partial class MainWindow : Window
         }
         var maximized = AppWindow.Presenter is OverlappedPresenter presenter
             && presenter.State == OverlappedPresenterState.Maximized;
-        // Record the current DPI scale so a future launch on a different
-        // monitor can convert the saved pixel rect back into the user's
-        // intended effective layout.
-        var dpiScale = GetDpiScale();
         if (maximized)
         {
             // Audit finding C-8: persist the user's last non-maximized
@@ -649,10 +644,10 @@ public sealed partial class MainWindow : Window
             var restore = _lastNormalBounds
                 ?? WindowPlacement.Load(_runtimeDir)
                 ?? new WindowBounds(0, 0, MinWidth, MinHeight, Maximized: false);
-            WindowPlacement.Save(_runtimeDir, restore with { Maximized = true, DpiScale = dpiScale });
+            WindowPlacement.Save(_runtimeDir, restore with { Maximized = true });
             return;
         }
-        var current = new WindowBounds(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height, Maximized: false, DpiScale: dpiScale);
+        var current = new WindowBounds(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height, Maximized: false);
         _lastNormalBounds = current;
         WindowPlacement.Save(_runtimeDir, current);
     }
