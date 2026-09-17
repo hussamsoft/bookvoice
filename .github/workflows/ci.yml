@@ -63,3 +63,55 @@ jobs:
         # (which needs FFmpeg, the models and PyInstaller), so a stale
         # committed UI bundle shipped in 2.6.0 and 2.6.1 unnoticed.
         run: python ../scripts/check_static_sync.py
+
+  gapless_browser:
+    name: Gapless browser smoke (playwright)
+    # Non-gating: runs on every push, but failures are advisory for one
+    # week of nightly runs. Promote to a required check after the smoke
+    # is reliably green for two consecutive nightly windows.
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install Playwright (Python) + Chromium
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Run gapless browser smoke
+        run: python scripts/smoke_gapless_browser.py
+
+  a11y_audit:
+    name: A11y audit (playwright + axe-core)
+    # Non-gating: runs on every push; two known issues (A11Y-1, A11Y-2 in
+    # tasks/todo.md) are tracked. Promote to a required check after they
+    # are closed and the audit is clean for two consecutive nightly
+    # windows.
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install Playwright (Python) + Chromium
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Run a11y audit
+        run: python scripts/audit_a11y.py --json a11y-report.json
+      - name: Upload a11y report
+        if: always()
+        uses: actions/upload-artifact@main
+        with:
+          name: a11y-report
+          path: a11y-report.json
+          if-no-files-found: ignore
