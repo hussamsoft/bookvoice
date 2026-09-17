@@ -66,7 +66,13 @@ while [ $# -gt 0 ]; do
     --system-unit) UNIT_MODE="system"; shift ;;
     --user-unit) UNIT_MODE="user"; shift ;;
     --cuda|--gpu) CUDA=1; shift ;;
-    --host) BIND_HOST="$2"; shift 2 ;;
+    --host)
+        case "$2" in
+            lan|all|any) BIND_HOST="0.0.0.0" ;;
+            loopback|localhost|127.0.0.1) BIND_HOST="127.0.0.1" ;;
+            *) BIND_HOST="$2" ;;
+        esac
+        shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --password) PASSWORD="$2"; shift 2 ;;
     --models-src) MODELS_SRC="$2"; shift 2 ;;
@@ -151,11 +157,15 @@ if [ "$DO_APT" -eq 1 ]; then
     step "installing system packages via apt (python3-venv, python3-dev, ffmpeg, OpenCV libs)"
     export DEBIAN_FRONTEND=noninteractive
     $SUDO apt-get update -y
-    PKGS=(python3 python3-venv python3-dev ffmpeg libgl1 libglib2.0-0 curl rsync)
+    PKGS=(python3 python3-venv python3-dev ffmpeg libgl1 libglib2.0-0 curl rsync git)
     if ! $SUDO apt-get install -y "${PKGS[@]}"; then
-      # Ubuntu 24.04 renamed libglib2.0-0 to libglib2.0-0t64.
+      # Ubuntu 24.04 renamed libglib2.0-0 -> libglib2.0-0t64 and
+      # libgl1 -> libgl1t64. Replace each in turn.
       step "retrying apt install with t64 package names (Ubuntu 24.04)"
-      $SUDO apt-get install -y "${PKGS[@]/libglib2.0-0/libglib2.0-0t64}"
+      PKGS_T64=("${PKGS[@]/libglib2.0-0/libglib2.0-0t64}")
+      PKGS_T64=("${PKGS_T64[@]/libgl1 /libgl1t64}")  # exact match: 'libgl1 '
+      PKGS_T64=("${PKGS_T64[@]/libgl1$/libgl1t64}")
+      $SUDO apt-get install -y "${PKGS_T64[@]}"
     fi
   else
     warn "apt unavailable (no root?) — skipping package installation; ensure python3(3.11+), python3-venv, python3-dev, ffmpeg, libgl1, libglib2.0-0, curl are installed"
