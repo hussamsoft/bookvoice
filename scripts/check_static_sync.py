@@ -33,7 +33,7 @@ def _relative_files(root: Path) -> set[str]:
     return {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file()
+        if path.is_file() and not path.is_symlink()
     }
 
 
@@ -93,8 +93,10 @@ def _describe_difference(build_file: Path, committed_file: Path) -> list[str]:
     for offset, (a, b) in enumerate(zip(left, right)):
         if a != b:
             lines.append(f"      first differing byte at offset {offset}:")
-            lines.append(f"        built     | {left[max(0, offset - 60):offset + 60]!r}")
-            lines.append(f"        committed | {right[max(0, offset - 60):offset + 60]!r}")
+            for label, buffer in (("built", left), ("committed", right)):
+                start = max(0, offset - 60)
+                end = min(len(buffer), offset + 60)
+                lines.append(f"        {label:<10} | {buffer[start:end]!r}")
             return lines
     if len(left) != len(right):
         shorter = min(len(left), len(right))
@@ -109,7 +111,8 @@ def _describe_difference(build_file: Path, committed_file: Path) -> list[str]:
 def _census(raw: bytes) -> str:
     crlf = raw.count(CRLF)
     return (
-        f"{len(raw):>8} bytes  CRLF={crlf}  loneLF={raw.count(LF) - crlf}"
+        f"{len(raw):>8} bytes  CRLF={crlf}"
+        f"  loneLF={raw.count(LF) - crlf}"
         f"  loneCR={raw.count(CR) - crlf}"
     )
 

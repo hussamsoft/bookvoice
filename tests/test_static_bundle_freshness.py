@@ -38,14 +38,23 @@ LOCAL_ASSET = re.compile(r"""(?:src|href)="(/assets/[^"]+)\"""")
 # a drive path once whitespace is gone, and a plain word-boundary rule flags it.
 SEP = r"(?:\\{1,2}|/)"  # a JS string literal doubles Windows backslashes
 LOCAL_PATH = re.compile(
-    rf"""['"`][A-Za-z]:{SEP}[A-Za-z0-9 _.\-]{{2,}}{SEP}"""
+    rf"""['"`][A-Za-z]:{SEP}[A-Za-z0-9 _\-]{{2,}}{SEP}"""
 )
 
 
 def _theme_attributes(css: str) -> set[str]:
+    matched = [
+        selector
+        for selector in ROOT_SELECTOR.findall(css)
+        if selector
+    ]
+    if not matched:
+        raise AssertionError(
+            "tokens.css has no :root[attribute] theme selectors to verify."
+        )
     return {
         name
-        for selector in ROOT_SELECTOR.findall(css)
+        for selector in matched
         for name in DATA_ATTRIBUTE.findall(selector)
     }
 
@@ -101,7 +110,7 @@ class StaticBundleFreshnessTests(unittest.TestCase):
             for path in STATIC.glob(pattern)
         ]
         offenders = []
-        for asset in sorted(assets) + [INDEX_HTML]:
+        for asset in sorted(assets) + sorted([INDEX_HTML]):
             text = asset.read_text(encoding="utf-8", errors="replace")
             for match in set(LOCAL_PATH.findall(text)):
                 offenders.append(f"{asset.name}: {match}")
