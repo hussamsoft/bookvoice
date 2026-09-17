@@ -121,17 +121,22 @@ __all__ = [
 # normal attribute lookup misses — the explicit re-exports above still
 # win, and writes to module attributes (which tests no longer do after
 # the setUp refactor) bypass this hook entirely.
-_SUBMODULES_FOR_FORWARD: dict[str, object] = {}
-for _sub in (queue, model, synth, streaming, conversion, studio):
-    for _name in dir(_sub):
-        if _name.startswith("__"):
-            continue
-        _SUBMODULES_FOR_FORWARD.setdefault(_name, _sub)
-del _sub, _name
+#
+# O(1) lookup per attribute (audit finding L-66). The previous dict-
+# of-everything approach scanned every submodule at import time and
+# walked a dict on every miss. Per-submodule dicts make the import
+# cost grow with the number of public names in the package (small)
+# instead of with every name in every submodule (larger).
+_SUBMODULE_BY_NAME: dict[str, object] = {
+    name: sub
+    for sub in (queue, model, synth, streaming, conversion, studio)
+    for name in dir(sub)
+    if not name.startswith("__")
+}
 
 
 def __getattr__(name):
-    sub = _SUBMODULES_FOR_FORWARD.get(name)
+    sub = _SUBMODULE_BY_NAME.get(name)
     if sub is not None:
         return getattr(sub, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
