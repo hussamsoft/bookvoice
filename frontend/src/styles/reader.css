@@ -464,6 +464,36 @@
   margin: 0;
 }
 
+.reader-nav-menu-label {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--space-1) var(--space-2);
+}
+
+.reader-bookmark-jumps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.reader-bookmark-toggle {
+  /* Fixed-width icon-only toggle so its size doesn't shift neighbours
+   * when the label flips between "Bookmark this page" and "Bookmarked"
+   * (F-13). */
+  width: 36px;
+  height: 36px;
+}
+
+.text-page-column--loading {
+  /* The skeleton inside a text page column should look like the column's
+   * normal reading width — i.e. paper-and-ink, not full bleed. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .page-search {
   display: flex;
   align-items: center;

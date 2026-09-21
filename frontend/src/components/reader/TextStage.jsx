@@ -19,7 +19,7 @@ function splitParagraphs(text) {
         .filter((para) => para.length > 0);
 }
 
-export default function TextStage({ text, pageNumber, numPages, displayZoom, isLoading }) {
+export default function TextStage({ text, pageNumber, numPages, displayZoom, isLoading, currentWord }) {
     // Loading the next page must not look like an empty result. Render a
     // skeleton while the page is being resolved; show the empty state only
     // when the fetch has completed and the page is genuinely empty. (F-09.)
@@ -45,18 +45,40 @@ export default function TextStage({ text, pageNumber, numPages, displayZoom, isL
         );
     }
     const paragraphs = splitParagraphs(text);
+    // F-08: split each paragraph into word-level spans so `useWordHighlight`
+    // can mark the currently-narrated word with `.is-current-word`. We track
+    // the running word index across paragraphs because the hook passes a
+    // single global index for the whole page text.
+    let runningIndex = 0;
     return (
         <div
             className="text-page-column"
             style={{ zoom: displayZoom }}
             aria-label={`Page ${pageNumber} of ${numPages}`}
         >
-            {paragraphs.map((paragraph, index) => (
-                // The paragraph index is a stable enough key here: the
-                // page text itself is stable within a render, and React
-                // only needs the key for diffing across re-renders.
-                <p key={index}>{paragraph}</p>
-            ))}
+            {paragraphs.map((paragraph, paragraphIndex) => {
+                const words = paragraph.split(/\s+/).filter(Boolean);
+                const paragraphStart = runningIndex;
+                runningIndex += words.length;
+                return (
+                    <p key={paragraphIndex}>
+                        {words.map((word, wordIndex) => {
+                            const globalIndex = paragraphStart + wordIndex;
+                            const isCurrent = Number.isFinite(currentWord)
+                                && globalIndex === currentWord;
+                            return (
+                                <span
+                                    key={`${paragraphIndex}-${wordIndex}`}
+                                    className={isCurrent ? 'is-current-word' : undefined}
+                                >
+                                    {word}
+                                    {wordIndex < words.length - 1 ? ' ' : ''}
+                                </span>
+                            );
+                        })}
+                    </p>
+                );
+            })}
         </div>
     );
 }

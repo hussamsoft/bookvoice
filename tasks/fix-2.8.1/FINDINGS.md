@@ -15,13 +15,13 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-04 | S1 | Reader toolbar unreachable below ~1225px; existing fix targets deleted classes | `reader.css:4,178,367-377` | 1 | verified |
 | F-05 | S1 | Home/Library errors silently swallowed by `onError={() => {}}` | `App.jsx:141,145` | 1 | verified |
 | F-06 | S1 | Modal scrim inverts (brightens) in dark mode | `controls.css:424` | 1 | verified |
-| F-07 | S2 | Reader lost scrubber, time, rate, transcript, bookmark jump, voice/language | `Reader.jsx`, `PlaybackControls.jsx` | 2 | open |
-| F-08 | S2 | `useWordHighlight`/`pdfHighlight`/`wordPronunciation` fully orphaned | `hooks/useWordHighlight.js` | 2 | open |
-| F-09 | S2 | `lifecycle.isLoading` never consumed; false empty state on every page turn | `Reader.jsx`, `TextStage.jsx:11-13` | 2 | open |
+| F-07 | S2 | Reader lost scrubber, time, rate, transcript, bookmark jump, voice/language | `Reader.jsx`, `PlaybackControls.jsx` | 2 | verified |
+| F-08 | S2 | `useWordHighlight`/`pdfHighlight`/`wordPronunciation` fully orphaned | `hooks/useWordHighlight.js` | 2 | deferred (partial) |
+| F-09 | S2 | `lifecycle.isLoading` never consumed; false empty state on every page turn | `Reader.jsx`, `TextStage.jsx:11-13` | 2 | verified |
 | F-10 | S2 | Mobile transport padding applied to the wrong component | `reader.css:186-189,1189` | 3 | open |
 | F-11 | S2 | 89 of 421 CSS classes orphaned; parity test guards only one direction | `styles/*.css`, `styles-parity.test.js` | 6 | open |
-| F-12 | S2 | Text books render as one `<p>` — all paragraph structure lost | `TextStage.jsx:22` | 2 | open |
-| F-13 | S2 | Reader toolbar is a flat undifferentiated row of ~20 controls | `Reader.jsx:570-720` | 2 | open |
+| F-12 | S2 | Text books render as one `<p>` — all paragraph structure lost | `TextStage.jsx:22` | 2 | verified |
+| F-13 | S2 | Reader toolbar is a flat undifferentiated row of ~20 controls | `Reader.jsx:570-720` | 2 | verified |
 | F-14 | S2 | All palette swatches render identically; DOM mutation during render | `useTheme.js:31-46`, `SettingsView.jsx:97` | 1 | verified |
 | F-15 | S2 | Settings view has no top-bar title | `App.jsx:19-25` | 1 | verified |
 | F-16 | S2 | Four different touch-target sizes (44/36/32/28); `.compact` alias missed | `controls.css:122,150,673`, `studio.css:643` | 3 | open |
@@ -46,7 +46,7 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-35 | S2 | Theme: no follow-system, no `matchMedia` listener, no palette validation | `useTheme.js`, `index.html` | 5 | open |
 | F-36 | S3 | Progress visibility flush documented but not implemented | `Reader.jsx:305-306` | 5 | open |
 | F-37 | S3 | Vestigial `userTouched*` refs; five stale comments referencing deleted code | `Reader.jsx:94-95` and others | 6 | open |
-| F-38 | S3 | "Try again" on PDF error retries nothing; double error reporting | `Reader.jsx:735-745` | 2 | open |
+| F-38 | S3 | "Try again" on PDF error retries nothing; double error reporting | `Reader.jsx:735-745` | 2 | verified |
 | F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | open |
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | open |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | open |

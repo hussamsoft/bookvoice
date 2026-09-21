@@ -40,4 +40,25 @@ describe('TextStage paragraph structure (F-12)', () => {
         expect(container.querySelector('.text-page-empty')).toBeInTheDocument();
         expect(container.querySelectorAll('.text-page-column p').length).toBe(0);
     });
+
+    it('marks the current narration word with the highlight class (F-08)', () => {
+        const { container } = render(
+            <TextStage
+                text="The quick brown fox."
+                pageNumber={1}
+                numPages={1}
+                displayZoom={1}
+                currentWord={1}
+            />
+        );
+        // The hook passes the current word index; TextStage wraps each
+        // word in a <span> and tags the active one with .is-current-word.
+        // F-08 wires useWordHighlight to drive `currentWord`; this
+        // contract is what the hook consumes.
+        const current = container.querySelector('.is-current-word');
+        expect(current).toBeInTheDocument();
+        // Word is followed by an inline space character to preserve the
+        // original whitespace between tokens; trim to compare cleanly.
+        expect(current.textContent.trim()).toBe('quick');
+    });
 });

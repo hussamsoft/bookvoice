@@ -1,0 +1,1 @@
+var e=[{code:`en`,name:`English`},{code:`ar`,name:`Arabic`}];export{e as t};

@@ -169,6 +169,12 @@ a {
   border-radius: var(--radius-md);
 }
 
+.skeleton--short {
+  min-height: 64px;
+  width: 60%;
+  border-radius: var(--radius-md);
+}
+
 .skeleton--book-row {
   min-height: 64px;
   border-radius: var(--radius-md);

@@ -2,19 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Bookmark,
     BookmarkCheck,
-    FastForward,
+    ChevronDown,
     FolderOpen,
-    Pause,
-    Play,
-    Rewind,
     Search,
-    Square,
     Volume2,
     VolumeX,
     ZoomIn,
     ZoomOut,
 } from 'lucide-react';
 import { useToast } from '../Toast';
+import PlaybackControls from '../PlaybackControls';
 import {
     getPreparedPage,
     importPreparedBook,
@@ -27,7 +24,7 @@ import { resolvePageContent } from '../../utils/pageContentResolver';
 import { documentFingerprint, loadReadingProgress } from '../../utils/readingProgress';
 import { createSessionId } from '../../utils/session';
 import { usePdfDocument } from '../../hooks/usePdfDocument';
-import { SLEEP_END_OF_CHAPTER, SLEEP_MINUTE_OPTIONS, useSleepTimer } from '../../hooks/useSleepTimer';
+import { useSleepTimer } from '../../hooks/useSleepTimer';
 import { useTtsStatus } from '../../hooks/useTtsStatus';
 import { useUserConfig } from '../../hooks/useUserConfig';
 import { useBookmarks } from '../../hooks/reader/useBookmarks';
@@ -85,6 +82,7 @@ export default function Reader() {
     const [foundPage, setFoundPage] = useState(null);
     const [pdfLoadError, setPdfLoadError] = useState(null);
     const [statusHint, setStatusHint] = useState('');
+    const [moreOpen, setMoreOpen] = useState(false);
     const [sessionId] = useState(() => createSessionId('reader'));
     const { modelReady } = useTtsStatus();
     // Saved user voice/language. Apply-once so a user selection before the
@@ -232,6 +230,13 @@ export default function Reader() {
     });
     narrationRef.current = narration;
 
+    // F-08: word-level highlight plumbing is in place (TextStage accepts
+    // `currentWord` and wraps each word in a span), but the full
+    // `useWordHighlight` RAF integration is deferred to a follow-up —
+    // see tasks/fix-2.8.1/LOG.md. Word timings from the streaming
+    // endpoint aren't reliable enough yet to drive the loop deterministically.
+    const currentWord = null;
+
     // Sleep timer: counts down only while narration plays; expiry stops
     // playback so the user doesn't fall asleep to a finished page.
     const sleep = useSleepTimer({
@@ -355,6 +360,26 @@ export default function Reader() {
     useEffect(() => {
         setPageJumpInput(String(pageNumber));
     }, [pageNumber]);
+
+    // Close the "More" popover on outside click or Escape, mirroring F-02.
+    useEffect(() => {
+        if (!moreOpen) return undefined;
+        const onOutside = (event) => {
+            const target = event.target;
+            const insideMenu = target.closest?.('.reader-nav-menu');
+            const insideTrigger = target.closest?.('.reader-nav-more');
+            if (!insideMenu && !insideTrigger) setMoreOpen(false);
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setMoreOpen(false);
+        };
+        document.addEventListener('mousedown', onOutside);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onOutside);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [moreOpen]);
 
     const submitPageJump = useCallback((event) => {
         event?.preventDefault?.();
@@ -596,13 +621,15 @@ export default function Reader() {
             <div className="reader-toolbar-row">
                 <button
                     type="button"
-                    className="btn secondary btn-compact"
+                    className="icon-btn reader-bookmark-toggle"
                     onClick={() => toggle(pageNumber)}
                     aria-label={isBookmarked(pageNumber) ? `Remove bookmark from page ${pageNumber}` : `Bookmark page ${pageNumber}`}
                     aria-pressed={isBookmarked(pageNumber)}
+                    title={isBookmarked(pageNumber) ? 'Remove bookmark' : 'Bookmark this page'}
                 >
-                    {isBookmarked(pageNumber) ? <BookmarkCheck size={16} aria-hidden="true" /> : <Bookmark size={16} aria-hidden="true" />}
-                    {isBookmarked(pageNumber) ? 'Bookmarked' : 'Bookmark this page'}
+                    {isBookmarked(pageNumber)
+                        ? <BookmarkCheck size={16} aria-hidden="true" />
+                        : <Bookmark size={16} aria-hidden="true" />}
                 </button>
                 <span className="reader-page-status" aria-live="polite">
                     Page {pageNumber}{numPages ? ` of ${numPages}` : ''}
@@ -640,118 +667,102 @@ export default function Reader() {
                 </form>
                 <button
                     type="button"
-                    className="btn primary btn-compact"
-                    onClick={() => narration.handlePlay()}
-                    disabled={narration.isGenerating}
-                    aria-label={narration.isPlaying ? 'Pause narration' : 'Play narration'}
+                    className="icon-btn reader-nav-more"
+                    onClick={() => setMoreOpen((value) => !value)}
+                    aria-haspopup="true"
+                    aria-expanded={moreOpen}
+                    aria-label="More options"
+                    title="More options"
                 >
-                    {narration.isPlaying ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
-                    {narration.isPlaying ? 'Pause' : 'Play'}
+                    <ChevronDown size={16} aria-hidden="true" />
                 </button>
-                <button
-                    type="button"
-                    className="btn secondary btn-compact"
-                    onClick={narration.stopPlayback}
-                    aria-label="Stop narration"
-                >
-                    <Square size={14} aria-hidden="true" />
-                    Stop
-                </button>
-                <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => transport.skipBy(-10)}
-                    aria-label="Back 10 seconds"
-                >
-                    <Rewind size={16} aria-hidden="true" />
-                </button>
-                <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => transport.skipBy(10)}
-                    aria-label="Forward 10 seconds"
-                >
-                    <FastForward size={16} aria-hidden="true" />
-                </button>
-                <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={narration.toggleMute}
-                    aria-pressed={narration.muted}
-                    aria-label={narration.muted ? 'Unmute narration' : 'Mute narration'}
-                >
-                    {narration.muted ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
-                </button>
-                <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={zoom.out}
-                    disabled={zoom.zoom <= zoom.min}
-                    aria-label="Zoom out"
-                >
-                    <ZoomOut size={16} aria-hidden="true" />
-                </button>
-                <span className="reader-zoom-pct" aria-live="polite">{Math.round(zoom.zoom * 100)}%</span>
-                <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={zoom.in}
-                    disabled={zoom.zoom >= zoom.max}
-                    aria-label="Zoom in"
-                >
-                    <ZoomIn size={16} aria-hidden="true" />
-                </button>
-                <button
-                    type="button"
-                    className="btn text btn-compact"
-                    onClick={zoom.fit}
-                >
-                    Fit
-                </button>
-                <form className="reader-search" onSubmit={submitSearch}>
-                    <label htmlFor="reader-search-input" className="sr-only">Find in book</label>
-                    <input
-                        id="reader-search-input"
-                        type="search"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Find in book"
-                    />
-                    <button
-                        type="submit"
-                        className="btn secondary btn-compact"
-                        disabled={!query.trim() || search.isSearching}
-                        aria-label="Search"
-                    >
-                        <Search size={14} aria-hidden="true" />
-                    </button>
-                </form>
-                <label className="reader-sleep">
-                    <span className="sr-only">Sleep timer</span>
-                    <select
-                        className="reader-sleep-select"
-                        aria-label="Sleep timer"
-                        value={sleep.minutes == null ? 'off' : String(sleep.minutes)}
-                        onChange={(event) => {
-                            const value = event.target.value;
-                            if (value === 'off') sleep.cancel();
-                            else if (value === SLEEP_END_OF_CHAPTER) sleep.setMinutes(SLEEP_END_OF_CHAPTER);
-                            else sleep.setMinutes(Number(value));
-                        }}
-                    >
-                        <option value="off">Sleep: Off</option>
-                        {SLEEP_MINUTE_OPTIONS.map((option) => (
-                            <option key={option} value={option}>{option} min</option>
-                        ))}
-                        <option value={SLEEP_END_OF_CHAPTER}>End of chapter</option>
-                    </select>
-                    {sleep.minutes === SLEEP_END_OF_CHAPTER ? (
-                        <span className="reader-sleep-remaining">chapter end</span>
-                    ) : sleep.remainingMs != null ? (
-                        <span className="reader-sleep-remaining">{Math.ceil(sleep.remainingMs / 60000)} min</span>
-                    ) : null}
-                </label>
             </div>
+            <PlaybackControls
+                transport={transport}
+                onToggle={narration.handlePlay}
+                onStop={narration.stopPlayback}
+                onSeek={transport.seekTo}
+                duration={Number.isFinite(narration.scrubberDuration) ? narration.scrubberDuration : null}
+                sleepRef={sleepRef}
+                pageLabel={`Page ${pageNumber}${numPages ? ` of ${numPages}` : ''}`}
+                generating={narration.isGenerating}
+            />
+            {moreOpen && (
+                <div className="reader-nav-menu" aria-label="More reader options">
+                    <div className="reader-nav-menu-group">
+                        <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={narration.toggleMute}
+                            aria-pressed={narration.muted}
+                            aria-label={narration.muted ? 'Unmute narration' : 'Mute narration'}
+                        >
+                            {narration.muted ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
+                        </button>
+                        <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={zoom.out}
+                            disabled={zoom.zoom <= zoom.min}
+                            aria-label="Zoom out"
+                        >
+                            <ZoomOut size={16} aria-hidden="true" />
+                        </button>
+                        <span className="reader-zoom-pct" aria-live="polite">{Math.round(zoom.zoom * 100)}%</span>
+                        <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={zoom.in}
+                            disabled={zoom.zoom >= zoom.max}
+                            aria-label="Zoom in"
+                        >
+                            <ZoomIn size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                            type="button"
+                            className="btn text btn-compact"
+                            onClick={zoom.fit}
+                        >
+                            Fit
+                        </button>
+                    </div>
+                    <div className="reader-nav-menu-group">
+                        <form className="reader-search" onSubmit={submitSearch}>
+                            <label htmlFor="reader-search-input" className="sr-only">Find in book</label>
+                            <input
+                                id="reader-search-input"
+                                type="search"
+                                value={query}
+                                onChange={(event) => setQuery(event.target.value)}
+                                placeholder="Find in book"
+                            />
+                            <button
+                                type="submit"
+                                className="btn secondary btn-compact"
+                                disabled={!query.trim() || search.isSearching}
+                                aria-label="Search"
+                            >
+                                <Search size={14} aria-hidden="true" />
+                            </button>
+                        </form>
+                    </div>
+                    {bookmarks.length > 0 && (
+                        <div className="reader-nav-menu-group reader-bookmark-jumps">
+                            <span className="reader-nav-menu-label">Bookmarks</span>
+                            {bookmarks.map((page) => (
+                                <button
+                                    key={page}
+                                    type="button"
+                                    className="btn text btn-compact bookmark-jump"
+                                    onClick={() => lifecycle.browsePage(page)}
+                                >
+                                    Page {page}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
             {searchStatus && (
                 <small className="reader-search-status" role="status">{searchStatus}</small>
             )}
@@ -777,6 +788,7 @@ export default function Reader() {
                     numPages={numPages}
                     displayZoom={zoom.displayZoom}
                     isLoading={lifecycle.isLoading}
+                    currentWord={currentWord}
                 />
             ) : (
                 <PdfStage

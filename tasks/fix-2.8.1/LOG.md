@@ -72,3 +72,31 @@ Failed as: topBarTitle.textContent was ''; Suspense fallback degraded to "Loadin
 Changed:   App.jsx (added settings: 'Settings' to VIEW_TITLES)
 Gate:      (pending)
 Notes:     n/a
+
+## F-07 — PlaybackControls wiring in Reader             [phase 2] 2026-09-20
+Test:      Reader.test.jsx :: "exposes a working scrubber that agrees with the clock (F-07)"
+Failed as: no `Narration position` labelled scrubber existed in the toolbar; Reader had inline play/stop/skip/mute but no time/scrubber/rate.
+Changed:   Reader.jsx (mounts <PlaybackControls> with transport, onToggle, onStop, onSeek, duration=scrubberDuration, sleepRef, pageLabel, generating); removed duplicate inline transport controls.
+Gate:      lint OK / vitest OK / build OK / static-sync OK
+Notes:     scrubber-duration test seeds audio.duration=12 via Object.defineProperty and asserts both scrubber.max=12 and clock reads "0:00 / 0:12", proving they draw from the same source.
+
+## F-13 — Group toolbar into nav + transport + More     [phase 2] 2026-09-20
+Test:      Reader.test.jsx :: "groups the toolbar into navigation + transport + a more popover (F-13)"
+Failed as: toolbar was a flat row of ~20 controls; no "More options" button existed.
+Changed:   Reader.jsx (toolbar now: bookmark-icon / page-status / prev / next / page-jump / More-options trigger); <PlaybackControls> renders below; More-options popover groups zoom, mute, fit, search, and bookmark jumps. Bookmark button is now a fixed-width icon-only toggle (.reader-bookmark-toggle) so toggling doesn't shift neighbours.
+Gate:      see F-07
+Notes:     removed role="menu" from the popover (it isn't an ARIA menu pattern); a real menu pattern belongs to Phase 4 (F-27).
+
+## F-38 — Relabel Try again -> Dismiss; drop redundant toast [phase 2] 2026-09-20
+Test:      Reader.test.jsx :: "PDF error button is labelled Dismiss..."
+Failed as: button labelled "Try again"; handleDocumentError also toast.error'd.
+Changed:   Reader.jsx (.reader-pdf-error button now "Dismiss"; handleDocumentError no longer toasts).
+Gate:      see F-07
+Notes:     static contract test (file-source assertion) because jsdom cannot deterministically drive react-pdf onLoadError.
+
+## F-08 — DEFERRED (partial)                            [phase 2] 2026-09-20
+Decision:  Wire (per user prompt) — but partial. TextStage now wraps each word in a <span> and applies `.is-current-word` when `currentWord` matches; this is the downstream contract `useWordHighlight` will drive. Full hook integration in Reader was attempted but reverted: the hook's `requestAnimationFrame` loop interacts badly with `narrateTextStream`'s pending-Promise harness in tests, causing 11 unrelated Reader tests to time out. Defer the full hook wiring until word timings are reliably surfaced end-to-end.
+Test:      TextStage.test.jsx :: "marks the current narration word with the highlight class (F-08)" (passing); useWordHighlight-adoption.test.js documents the deferral.
+Changed:   TextStage.jsx (split paragraphs into word spans, currentWord prop); Reader.jsx (passes currentWord={null} — full integration deferred).
+Gate:      see F-07
+Notes:     The audit finding is partially addressed: the rendering contract is in place and verifiable, the hook is still orphaned. A follow-up issue should land the RAF integration with deterministic timings.
