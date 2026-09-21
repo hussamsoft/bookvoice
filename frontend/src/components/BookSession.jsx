@@ -205,9 +205,12 @@ export default function BookSession({ epoch, onDirty, onOpenBook }) {
 
     return (
         <div className="book-session">
-            <header className="session-header">
+            {/* F-23: a <header> outside any sectioning content maps to a
+                second banner landmark — the page has exactly one (App's). */}
+            <div className="session-header">
                 <div className="header-top">
-                    <h2>Scan pages</h2>
+                    {/* F-24: this is the scan view's document heading. */}
+                    <h1>Scan pages</h1>
                     <div className="header-top-actions">
                         <span className="page-indicator">Page {currentPageIndex + 1}</span>
                         {pages.length > 0 && (
@@ -294,7 +297,7 @@ export default function BookSession({ epoch, onDirty, onOpenBook }) {
                         Narration is running on the CPU, so it will be much slower than with a GPU.
                     </StatusBanner>
                 )}
-            </header>
+            </div>
 
             <div className="session-content">
                 {step === 'capture' && <CameraCapture onCapture={handleCapture} />}

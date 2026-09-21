@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy, MonitorSmartphone } from 'lucide-react';
 import Button from '../ui/Button';
 import { useToast } from '../Toast';
@@ -53,12 +53,62 @@ export default function SettingsView() {
         }
     }, [toast]);
 
+    // F-29: palette+mode is a single choice across ten options, so it is a
+    // radiogroup — one tab stop, arrow keys move the selection (selection
+    // follows focus), not ten aria-pressed buttons that each promise an
+    // independent toggle.
+    const paletteOptions = PALETTES.flatMap((palette) =>
+        ['light', 'dark'].map((mode) => ({ palette: palette.id, name: palette.name, mode })),
+    );
+    const paletteGroupRef = useRef(null);
+    const pendingFocusRef = useRef(null);
+
+    useEffect(() => {
+        if (pendingFocusRef.current == null) return;
+        const radios = paletteGroupRef.current?.querySelectorAll('[role="radio"]');
+        radios?.[pendingFocusRef.current]?.focus();
+        pendingFocusRef.current = null;
+    });
+
+    const onPaletteKeyDown = (event) => {
+        const current = paletteOptions.findIndex(
+            (option) => option.palette === theme.palette && option.mode === theme.mode,
+        );
+        if (current === -1) return;
+        const count = paletteOptions.length;
+        let next;
+        switch (event.key) {
+            case 'ArrowRight':
+            case 'ArrowDown':
+                next = (current + 1) % count;
+                break;
+            case 'ArrowLeft':
+            case 'ArrowUp':
+                next = (current - 1 + count) % count;
+                break;
+            case 'Home':
+                next = 0;
+                break;
+            case 'End':
+                next = count - 1;
+                break;
+            default:
+                return;
+        }
+        event.preventDefault();
+        const option = paletteOptions[next];
+        theme.setPalette(option.palette);
+        theme.setMode(option.mode);
+        pendingFocusRef.current = next;
+    };
+
     return (
         <div className="settings-page">
-            <header className="settings-page-header">
+            {/* F-23: plain block — App's <header> is the page's one banner. */}
+            <div className="settings-page-header">
                 <h1>Settings</h1>
                 <p className="hint">Appearance follows this browser; everything else follows this computer.</p>
-            </header>
+            </div>
 
             {saveError && (
                 <div className="status-banner error" role="alert">
@@ -79,7 +129,13 @@ export default function SettingsView() {
 
             <section className="settings-card" aria-labelledby="settings-appearance">
                 <h2 className="settings-section-title" id="settings-appearance">Appearance</h2>
-                <div className="appearance-grid" role="group" aria-label="Color palette">
+                <div
+                    className="appearance-grid"
+                    role="radiogroup"
+                    aria-label="Color palette and mode"
+                    ref={paletteGroupRef}
+                    onKeyDown={onPaletteKeyDown}
+                >
                     {PALETTES.map((palette) => (
                         <div key={palette.id} className="appearance-palette">
                             <span className="appearance-palette-name">{palette.name}</span>
@@ -90,13 +146,15 @@ export default function SettingsView() {
                                         <button
                                             key={mode}
                                             type="button"
+                                            role="radio"
+                                            aria-checked={active}
+                                            tabIndex={active ? 0 : -1}
                                             className={`appearance-option ${active ? 'is-active' : ''}`}
                                             onClick={() => {
                                                 theme.setPalette(palette.id);
                                                 theme.setMode(mode);
                                             }}
-                                            aria-pressed={active}
-                                            title={`${palette.name} (${mode})`}
+                                            aria-label={`${palette.name}, ${mode}`}
                                         >
                                             <span
                                                 className="theme-selector-swatch"

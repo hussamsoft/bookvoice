@@ -133,3 +133,103 @@ Notes:     cover thumbnails remain deferred per FINDINGS.md
 ## F-41 — Inconsistent loading treatment                [phase 3] 2026-09-20
 Test:      HomeView.test.jsx (skeleton slot; Adding… button), LibraryView.test.jsx (Adding… button), SettingsView.test.jsx (single loading status) — all failed first
 Changed:   HomeView.jsx (skeletons reserve continue slot; bottom hint removed; unified add button), LibraryView.jsx (icon swapped for spinner + Adding… label), SettingsView.jsx (one page-level role=status; per-section duplicates removed)
+
+---
+
+Phase 4 (accessibility) — resumed 2026-09-20 on a dirty tree that already
+carried uncommitted F-22..F-26 sources + tests + a static rebuild. Pre-fix
+evidence for those five was produced retroactively: the five source files
+were stashed (tests kept), the working-tree tests were run against HEAD, and
+each failed as below; the stash was then restored. Findings F-27..F-31 and
+F-42 were written failing-first in the normal order.
+
+## F-22 — Light-mode contrast failures                   [phase 4] 2026-09-20
+Test:      frontend/src/styles/contrast.test.js :: "WCAG AA contrast for semantic text pairs (F-22)"
+Failed as: against HEAD tokens.css — paper/light: success 4.0847, error/error-bg 4.2680, warning/warning-bg 3.9927, accent-on/live 4.3038 — exactly the ratios in the finding table; blue/sage/plum/sand light error+warning pairs also below 4.5; all dark-mode pairs passed.
+Changed:   tokens.css (darkened light --success/--error/--warning/--live per palette), studio.css (.studio-autosave --ink-faint → --ink-muted; --ink-faint is now decorative-only: the engine-chip dot), controls.css + reader.css (collapsed the duplicated .transport-play.is-playing / .transport-primary / .transport-secondary into single definitions in reader.css, absorbing controls.css's font-size/color — PlaybackControls' Studio usage is unaffected because main.jsx loads reader.css app-wide).
+Gate:      lint OK / vitest OK / build OK / static-sync OK
+Notes:     .transport-secondary previously carried `font-size: var(--text-xs)` from controls.css and color from both files; the merged reader.css rule keeps the computed union.
+
+## F-23 — Two banner landmarks                           [phase 4] 2026-09-20
+Test:      TopBar.test.jsx :: "renders no header element (App supplies the single banner) (F-23)"; App.test.jsx :: "exposes exactly one banner landmark in every view (F-23)"
+Failed as: against HEAD TopBar.jsx — `expect(container.querySelector('header')).toBeNull()` found `<header class="topbar">`; queryByRole('banner') resolved it.
+Changed:   TopBar.jsx (`<header className="topbar">` → `<div>`); BookSession.jsx, SettingsView.jsx (nested view `<header>`s → `<div>` — inside `<main>` they were not banners per spec, but the "make the inner element a div" rule is applied consistently; App.test guard documents it).
+Gate:      see F-22
+Notes:     App's outer `<header className="main-header">` remains the one banner.
+
+## F-24 — Heading order; Reader had no h1                [phase 4] 2026-09-20
+Test:      Reader.test.jsx :: "renders exactly one h1 in both the empty and open states (F-24)"; BookSession.test.jsx :: "names the scan view with exactly one h1 (F-24)"; App.test.jsx :: "each real view renders exactly one h1 (F-24)"
+Failed as: against HEAD Reader.jsx — getByRole('heading', {level:1, name:/Open a book/}) found nothing (it was an h2); BookSession guard would fail on HEAD too (Scan had only h2/h3 — no h1 anywhere).
+Changed:   Reader.jsx (empty-state h2→h1; toolbar h1 with the book title — the Reader now names what you are reading), TopBar.jsx (.topbar-title h2→div — a label, not a heading), BookSession.jsx (<h2>Scan pages</h2>→h1), VoiceStudio.jsx (fatal-error-state h2→h1), reader.css (.reader-book-title).
+Gate:      see F-22
+Notes:     DEFERRAL: the Voice Studio WORKBENCH (post-project-open) still has no h1 — its project header is a name-input row and re-heading it risks the 19 VoiceStudio tests; logged for a Phase 5-adjacent follow-up rather than widened here. The per-view exactly-one-h1 guard covers Home/Library/Settings/Reader/Scan; Studio landing has one (F-41-era workbench gap documented, not papered over).
+
+## F-25 — Six-plus concurrent live regions in the Reader [phase 4] 2026-09-20
+Test:      Reader.test.jsx :: "routes all reader status through a single polite live region (F-25)"
+Failed as: against HEAD Reader.jsx — `container.querySelectorAll('[role="status"], [aria-live="polite"]')` counted 5+ (page-status span aria-live, statusHint role=status, search role=status, generating role=status, zoom-pct aria-live); the guard asserts exactly 1.
+Changed:   Reader.jsx — ONE `<p className="sr-only" role="status">` that routes search status / generating / hint / page label through a single derived string; visible page-status, zoom %, search-status, generating lines are plain text now (no aria-live on zoom → no per-tick announcements).
+Gate:      see F-22
+Notes:     Ctrl+wheel zoom now announces nothing (buttons have names, value is visible) — matches the finding's intent.
+
+## F-26 — Toast live regions + WCAG 2.2.1 timing         [phase 4] 2026-09-20
+Test:      Toast.test.jsx :: "puts live semantics on the persistent regions, not the toast nodes (F-26)", "never auto-dismisses error toasts (F-26)", "pauses auto-dismiss while the region is hovered (F-26)", "the dismiss control is a real button (F-26)"; blur-and-toast.test.js :: "both live regions are styled and share the stack (F-26)"
+Failed as: against HEAD Toast.jsx — `.toast-region` lacked aria-live="polite" (it was role="region" only; each toast node carried role=alert/status with its content pre-inserted); error toasts auto-dismissed at 4 s; hover did not pause; dismiss button had no type="button".
+Changed:   Toast.jsx (persistent polite + assertive sibling regions, toasts become plain nodes, expiresAt bookkeeping with pause on hover/focus, errors never auto-dismiss, focus parked on the region when a focused toast expires, console.warn in DEV when the provider is missing, type="button"); shell.css (.toast-stack wrapper owns the fixed positioning + F-20 mobile clearance; regions styled; :empty regions suppressed); Toast.test's older role-based queries retargeted to `.toast` (the toast nodes genuinely no longer have status/alert roles — premise superseded, assertion strength preserved).
+Gate:      see F-22
+Notes:     SUPERSEDED PREMISE: blur-and-toast.test.js's "the orphaned .toast-region-error selector is gone" (F-20) is replaced by the F-26 contract that re-renders `.toast-region-error` deliberately — the fixed-position/overlap-safe stack + calc/--bottom-nav-h clearance assertions are carried over unchanged onto `.toast-stack`, so F-20's actual guarantee (toasts never cover the nav) still has a test.
+Notes:     Screen-reader smoke (NVDA) remains a manual exit-gate item — not runnable here; the DOM contract the SR depends on is test-covered.
+
+## F-27 — Popovers: one pattern, one implementation      [phase 4] 2026-09-20
+Test:      LibraryView.test.jsx :: "book-actions popover follows the shared keyboard pattern (F-27)"; Reader.test.jsx :: "More options popover follows the shared keyboard pattern (F-27)"
+Failed as: open menu → getByRole('group', {name:'Book actions'}) absent (it was role="menu"); focus stayed on the trigger; ArrowDown/Home/End cycled nothing; Escape left focus wherever it was.
+Changed:   NEW frontend/src/hooks/usePopoverMenu.js — disclosure contract shared by both popovers: focus first enabled control on open, Down/Up wrap between enabled controls, Home/End, Escape closes and restores focus to the trigger. LibraryView.jsx (dropped role="menu"/"menuitem", role="group" + refs + hook), Reader.jsx (same hook on the More popover, role="group"). The ARIA-menu alternative was rejected because the Reader popover holds a search field and zoom buttons, which are not menuitems — the finding offers "or drop the roles"; this lands the drop-the-roles option with the promised keyboard behaviour.
+Gate:      lint OK / vitest OK / build OK / static-sync OK
+Notes:     Existing LibraryView tests that queried by role=menuitem were retargeted to buttons — same interactions asserted, corrected roles (superseded premise, not weakened).
+
+## F-28 — Disabled controls / engine chip explain via tooltip only [phase 4] 2026-09-20
+Test:      LibraryView.test.jsx :: "shows the disabled-action reason as visible text, not only a tooltip (F-28)"; TopBar.test.jsx :: "surfaces the engine detail as reachable text, not only a tooltip (F-28)" + "renders no detail element when there is nothing to explain"
+Failed as: with a profile-less book, no text "Prepare the book first" existed in the popover (title attribute only); TopBar detail rendered only as title={...} — getByRole('status') had no textContent.
+Changed:   LibraryView.jsx (.book-actions-menu-hint paragraph when !hasProfile; disabled buttons keep tooltips only when ENABLED), TopBar.jsx (.engine-chip-detail span when detail non-empty), reader.css + shell.css (hint + chip-detail styling, ellipsis-clamped so long backend messages cannot stretch the header).
+Gate:      see F-27
+Notes:     detail strings from useTtsStatus/status API are short diagnostics ("CUDA unavailable, falling back to CPU"); the chip's tone colors are AA-checked by the F-22 contrast test.
+
+## F-29 — Palette buttons → radiogroup                   [phase 4] 2026-09-20
+Test:      SettingsView.test.jsx :: "models palette+mode as one radiogroup with named options (F-29)", "arrow keys move palette selection (F-29)", "clicking a palette option still selects it"
+Failed as: getByRole('radiogroup', {name:'Color palette and mode'}) — the old markup was role="group" aria-label="Color palette" of aria-pressed buttons named only by title.
+Changed:   SettingsView.jsx — role="radiogroup" renamed to what it controls; options are role="radio" with aria-label "Violet Dusk, dark", aria-checked, roving tabIndex (one tab stop), Arrow*/Home/End move selection with selection-follows-focus and post-update focus restore.
+Gate:      see F-27
+Notes:     SUPERSEDED PREMISE: the F-14-era test "offers every palette in both modes with the active one pressed" asserted the aria-pressed contract the finding orders replaced; its substance (one active option, click selects) is carried by the three new tests. The real audit run (below) caught the radiogroup rendering with 1 tabbable radio — verified live.
+
+## F-30 — Reduced motion deleted the loading vocabulary  [phase 4] 2026-09-20
+Test:      styles/reduced-motion.test.js :: "reduced-motion loading fallbacks (F-30)" — progress keeps a visible static bar, waveform renders static full-height, spinner stops
+Failed as: base.css/controls.css contained no prefers-reduced-motion fallbacks for .loading-progress / .loading-waveform / .spinner (blanket kill rule only).
+Changed:   controls.css — explicit reduce block: .spinner/.spin animation:none (all current uses sit next to a text label: "Adding…", "Opening Voice Studio…", verified by grep); .loading-waveform span animation:none + scaleY(1); .loading-progress::after animation:none + width:45% static indeterminate stub.
+Gate:      see F-27
+Notes:     The blanket base.css rule is kept (right default); .skeleton shimmer stopping is acceptable — the placeholder fill remains.
+
+## F-31 — Focus geometry rewrite; no forced-colors       [phase 4] 2026-09-20
+Test:      styles/focus-and-forced-colors.test.js :: "focus ring geometry (F-31)", "forced-colors support (F-31)"
+Failed as: the :focus-visible rule body contained `border-radius` (5 occurrences matched, assertion failed); BASE_CSS had no @media (forced-colors: active).
+Changed:   base.css — border-radius dropped from :focus-visible (outline follows the element radius natively); forced-colors block: outline: Highlight for focus, CanvasText outline for .is-active/.current/[aria-current=page] so fill-only state survives High Contrast flattening.
+Gate:      see F-27
+
+## F-42 — Settings outside nav; RTL-unsafe safe-area     [phase 4] 2026-09-20
+Test:      Sidebar.test.jsx (new file) :: "wraps every nav control, Settings included, in a nav landmark", "the secondary nav is also a navigation landmark"; styles/safe-area.test.js :: "mobile sidebar safe areas (F-42)"
+Failed as: getByRole('navigation', {name:'Secondary'}) did not exist (footer was a div — Settings matched no nav at all); SHELL_CSS contained no env(safe-area-inset-right) (the 3-value padding shorthand reused inset-left for both sides).
+Changed:   Sidebar.jsx (.sidebar-footer → <nav aria-label="Secondary">), shell.css (padding-block/padding-inline with each inset explicit), reader.css + shell.css + studio.css (margin-left/right: auto → margin-inline-start/end — .reader-nav-more, .theme-selector-mode, .studio-section-toggle, .studio-section-kicker).
+Gate:      see F-27
+Notes:     The RTL audit item ("verify nothing else assumes LTR") was completed by inspecting all 4 physical auto-margin sites and converting them; remaining physical properties (borders, text-align:left on rows) are content-side, not reading-direction side.
+
+## Phase 4 exit gate — audit_a11y.py                     [phase 4] 2026-09-20
+Running the planned baseline exposed the harness itself was broken three ways (the plan file itself warns axe will catch things the review did not enumerate — here the harness hid even the enumerated ones):
+  1. Routes: App.jsx derives its view from localStorage, never the URL path — goto'/settings rendered HOME. All five "routes" had been scanning the same surface. Fixed with a route→(view,url) map (reader reached via ?book= deep link).
+  2. Stub: the client fetches /api/voices/ (trailing slash); exact-match stub fell to {} → VoiceSettings setVoices(undefined) → the whole Settings route crashed behind the ErrorBoundary, and a crashed page reports zero axe violations. Fixed path normalization; /settings now genuinely renders and scans clean.
+  3. Traversal: checked activeElement BEFORE the first Tab (→ body → zero stops recorded — the "keyboard traversal" silently did nothing); after adding a pre-loop press it double-pressed (the loop's trailing press remained) and recorded every other control. Fixed; verified against a live probe: all 10-11 tabbable controls per route, in order.
+Result: 5 routes × light/dark = **0 axe violations**. Traversal coverage recorded in a11y-baseline.json.
+Remaining manual item: NVDA smoke of the toast/live regions and visual focus-indicator + forced-colors spot check — not runnable in this environment; DOM/CSS contracts are test-covered.
+App-layer findings the fixed audit caught that the review missed: unlabeled `.file-input` on Home + Library (aria-label added — same pattern the Reader already used); `role="list"` containing the `role="status"` empty state in StudioProjectSidebar (empty state moved outside the list). Both were live-broken, not polish; no new FINDINGS.md ids were invented for them (covered by F-22..F-31's phase acceptance).
+
+## Gate status note — backend pytest (environment)       [phase 4] 2026-09-20
+`python -m pytest tests -q` currently fails 11 tests (test_tts_lifecycle ×10, test_voice_conversion ×1) IN THE FULL-SUITE RUN, deterministically. Proven pre-existing and unrelated to 2.8.1: a clean worktree of 766698a AND of 4524079 (the pre-remediation baseline the whole plan was written against) reproduces the identical 11 failures; the same files pass in isolation (71 passed). Cause: order-dependent state in the TTS suite plus missing local model weights on this machine (`backend/services/data/models/en` is untracked/gitignored and absent; README: weights are installed by the first-run payload). LOG entries for phases 1–3 claim "pytest OK" for partial runs only — the full-suite gate was green on a different machine state.
+ACTION: 2.8.1 phases 4-6 proceed with the pytest gate recorded as "no new failures vs baseline (463 passed / 11 pre-existing failures / 1 skipped)"; the suite-hygiene failure is deferred as F-45 (see FINDINGS.md Deferred).
+

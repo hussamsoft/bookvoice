@@ -63,9 +63,10 @@ a {
 }
 
 :focus-visible {
+  /* F-31: no border-radius here — it rewrote the focused element's own
+     shape. The outline follows the element's radius in modern browsers. */
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
@@ -197,5 +198,24 @@ a {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* F-31: Windows High Contrast (forced-colors) is a first-class mode for a
+   Windows desktop app. The OS flattens background fills and custom colours,
+   so anything communicated by fill alone must regain a system-colour cue. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* State that leaned on --accent-soft / tone backgrounds gets a border
+     instead: active nav items, active toggles, current transcript words. */
+  .is-active,
+  .current,
+  [aria-current="page"] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
   }
 }

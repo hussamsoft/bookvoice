@@ -69,6 +69,13 @@ describe('BookSession scan wizard', () => {
         importMock.mockReset();
     });
 
+    it('names the scan view with exactly one h1 (F-24)', () => {
+        renderSession();
+        const h1s = screen.getAllByRole('heading', { level: 1 });
+        expect(h1s).toHaveLength(1);
+        expect(h1s[0]).toHaveTextContent('Scan pages');
+    });
+
     it('keeps a captured page as text and offers Save to Library', async () => {
         const onOpenBook = vi.fn();
         importMock.mockResolvedValue({ id: 'b1', title: 'Scanned pages 2026-09-06' });

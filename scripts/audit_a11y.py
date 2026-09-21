@@ -63,21 +63,27 @@ class StubHandler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):  # noqa: N802
-        if self.path == "/api/health":
+        # Phase 4: match on the query-less, trailing-slash-free path. The
+        # client fetches /api/voices/ (FastAPI redirects the slash-less
+        # form), and an exact string match sent it to the catch-all `{}`
+        # — which made VoiceSettings crash the whole Settings route behind
+        # the ErrorBoundary during the audit.
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path == "/api/health":
             self._json(200, {"status": "ready"})
-        elif self.path == "/api/tts/status":
+        elif path == "/api/tts/status":
             self._json(200, {"status": "ready", "detail": "", "device": "cpu", "cuda": False})
-        elif self.path == "/api/user/config":
+        elif path == "/api/user/config":
             self._json(200, {"version": "1.0.0", "config": {}})
-        elif self.path == "/api/server/addresses":
+        elif path == "/api/server/addresses":
             self._json(200, {"lan": [], "loopback": "http://127.0.0.1:1"})
-        elif self.path == "/api/library/books":
+        elif path == "/api/library/books":
             self._json(200, [])
-        elif self.path == "/api/voices":
+        elif path == "/api/voices":
             self._json(200, {"voices": [], "default_voice_id": None})
-        elif self.path == "/api/studio/projects":
+        elif path == "/api/studio/projects":
             self._json(200, [])
-        elif self.path == "/api/preparations/voices":
+        elif path == "/api/preparations/voices":
             self._json(200, {"voices": []})
         else:
             self._json(200, {})
@@ -234,6 +240,28 @@ def _build_inject_script(payload: bytes) -> str:
 # ---------- Audit ----------
 
 ROUTES = ["/", "/library", "/reader", "/studio", "/settings"]
+
+# Phase 4: App.jsx derives the visible view from localStorage
+# ('bookvoice.app.view') or a ?book= deep link — never from the URL path.
+# Goto'ing /settings therefore rendered the HOME view and every route was
+# scanned twice as the same surface. Map each route to the state that
+# actually mounts it. ('reader' is not a storable view — it is reached via
+# ?book=; the stub library does not know the id, so the Reader scans in its
+# open-a-book empty state.)
+VIEW_FOR_ROUTE = {
+    "/": "home",
+    "/library": "library",
+    "/reader": "home",
+    "/studio": "studio",
+    "/settings": "settings",
+}
+URL_FOR_ROUTE = {
+    "/": "/",
+    "/library": "/library",
+    "/reader": "/?book=audit-1",
+    "/studio": "/studio",
+    "/settings": "/settings",
+}
 MODES = ["light", "dark"]
 
 
@@ -296,11 +324,18 @@ def _shape_violations(raw: list) -> list[dict]:
 
 def keyboard_traversal(page, route: str, frontend_port: int) -> list[dict]:
     """Tab through the page once and record each focused element's selector and accessible name."""
-    page.goto(f"http://127.0.0.1:{frontend_port}{route}", wait_until="domcontentloaded")
+    page.goto(
+        f"http://127.0.0.1:{frontend_port}{URL_FOR_ROUTE[route]}",
+        wait_until="networkidle",
+    )
     focused: list[dict] = []
     seen_keys: set[tuple] = set()
     cap = 100
     for _ in range(cap):
+        # Phase 4: press Tab BEFORE recording. The original order evaluated
+        # activeElement first — which is <body> on a fresh load — and broke
+        # out immediately, so every traversal silently recorded zero stops.
+        page.keyboard.press("Tab")
         info = page.evaluate(
             """
             () => {
@@ -322,7 +357,6 @@ def keyboard_traversal(page, route: str, frontend_port: int) -> list[dict]:
             break
         seen_keys.add(key)
         focused.append(info)
-        page.keyboard.press("Tab")
     return focused
 
 
@@ -349,7 +383,14 @@ def run_audit(args: argparse.Namespace) -> int:
                 context = browser.new_context()
                 page = context.new_page()
                 for route in ROUTES:
-                    url = f"http://127.0.0.1:{port}{route}"
+                    url = f"http://127.0.0.1:{port}{URL_FOR_ROUTE[route]}"
+                    page.goto(url, wait_until="domcontentloaded")
+                    # The app reads its view from localStorage, not the path:
+                    # set it, then load the URL that mounts the surface.
+                    page.evaluate(
+                        "(v) => localStorage.setItem('bookvoice.app.view', v)",
+                        VIEW_FOR_ROUTE[route],
+                    )
                     page.goto(url, wait_until="networkidle")
                     for mode in MODES:
                         result = audit_route(page, route, mode)

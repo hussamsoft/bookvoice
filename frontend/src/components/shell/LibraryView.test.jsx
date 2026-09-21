@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../Toast';
 import LibraryView from './LibraryView';
@@ -73,30 +73,79 @@ describe('LibraryView', () => {
         renderLibrary();
 
         fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Prepare whole book' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Prepare whole book' }));
         await waitFor(() => expect(prepareMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' })));
 
         fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
-        fireEvent.click(screen.getByRole('menuitem', { name: /save \.bookvoice file/i }));
+        fireEvent.click(screen.getByRole('button', { name: /save \.bookvoice file/i }));
         await waitFor(() => expect(archiveMock).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'b1' }), 'p1'));
 
         fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Export audiobook' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export audiobook' }));
         await waitFor(() => expect(audiobookMock).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'b1' }), 'p1'));
+    });
+
+    it('book-actions popover follows the shared keyboard pattern (F-27)', async () => {
+        renderLibrary();
+        const trigger = screen.getByRole('button', { name: /Book actions for Alice/i });
+        fireEvent.click(trigger);
+
+        const popover = screen.getByRole('group', { name: 'Book actions' });
+        expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        // F-27: no ARIA menu roles without the full pattern — plain buttons.
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        // Open moves focus into the popover.
+        expect(popover.contains(document.activeElement)).toBe(true);
+
+        const items = Array.from(popover.querySelectorAll('button:not(:disabled)'));
+        expect(items.length).toBe(3);
+        fireEvent.keyDown(popover, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(items[1]);
+        fireEvent.keyDown(popover, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(items[2]);
+        fireEvent.keyDown(popover, { key: 'ArrowDown' }); // wraps
+        expect(document.activeElement).toBe(items[0]);
+        fireEvent.keyDown(popover, { key: 'ArrowUp' }); // wraps back
+        expect(document.activeElement).toBe(items[2]);
+        fireEvent.keyDown(popover, { key: 'Home' });
+        expect(document.activeElement).toBe(items[0]);
+        fireEvent.keyDown(popover, { key: 'End' });
+        expect(document.activeElement).toBe(items[2]);
+
+        fireEvent.keyDown(popover, { key: 'Escape' });
+        expect(screen.queryByRole('group', { name: 'Book actions' })).not.toBeInTheDocument();
+        expect(document.activeElement).toBe(trigger);
+    });
+
+    it('shows the disabled-action reason as visible text, not only a tooltip (F-28)', async () => {
+        // A book with no prepared profile: export rows are disabled.
+        const withProfile = books[0].profiles;
+        books[0].profiles = [];
+        try {
+            renderLibrary();
+            fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
+            const popover = screen.getByRole('group', { name: 'Book actions' });
+            const hint = within(popover).getByText(/Prepare the book first/i);
+            expect(hint).toBeInTheDocument();
+            // The disabled buttons themselves must not be the only carrier.
+            expect(hint.tagName).not.toBe('BUTTON');
+        } finally {
+            books[0].profiles = withProfile;
+        }
     });
 
     it('closes the book-actions menu on an outside click', async () => {
         renderLibrary();
 
         fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
-        expect(screen.getByRole('menu', { name: 'Book actions' })).toBeInTheDocument();
+        expect(screen.getByRole('group', { name: 'Book actions' })).toBeInTheDocument();
 
         fireEvent.mouseDown(document.body);
 
         await waitFor(() => expect(
-            screen.queryByRole('menu', { name: 'Book actions' })
+            screen.queryByRole('group', { name: 'Book actions' })
         ).not.toBeInTheDocument());
     });
 

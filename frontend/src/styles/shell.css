@@ -170,6 +170,17 @@
   white-space: nowrap;
 }
 
+.engine-chip-detail {
+  /* F-28: the why used to live only in `title` — unreachable by keyboard
+     or touch. Rendered as real text now, clamped so one long backend
+     message cannot stretch the header. */
+  font-weight: 400;
+  color: inherit;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .engine-chip-dot {
   width: 8px;
   height: 8px;
@@ -482,9 +493,12 @@
     flex-direction: row;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-2) max(var(--space-2), env(safe-area-inset-left))
-      calc(var(--space-2) + env(safe-area-inset-bottom));
-    padding-top: var(--space-2);
+    /* F-42: the old 3-value shorthand reused safe-area-inset-left for BOTH
+       horizontal sides — wrong clearance on a landscape notched phone.
+       Logical properties, each inset explicit. */
+    padding-block: var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom));
+    padding-inline: max(var(--space-2), env(safe-area-inset-left))
+      max(var(--space-2), env(safe-area-inset-right));
     border-right: none;
     border-top: 1px solid var(--hairline);
   }
@@ -625,7 +639,8 @@
 }
 
 .theme-selector-mode {
-  margin-left: auto;
+  /* F-42: logical end-offset (RTL-safe). */
+  margin-inline-start: auto;
   font-size: var(--text-xs);
   color: var(--ink-muted);
   font-weight: 400;
@@ -762,9 +777,12 @@
 
 /* --- Toasts ------------------------------------------------------------ */
 
-/* F-20: `.toast-region-error` was orphaned — Toast.jsx renders exactly one
-   region. Deleted rather than kept as dead surface. */
-.toast-region {
+/* F-26: Toast.jsx renders two persistent live regions (polite + assertive
+   for errors) inside one presentational stack. The stack owns positioning
+   so the regions can never overlap each other; the regions only lay out
+   their own toasts. (F-20 removed `.toast-region-error` while it was
+   orphaned; F-26 brings it back deliberately.) */
+.toast-stack {
   position: fixed;
   bottom: var(--space-5);
   left: 50%;
@@ -776,10 +794,23 @@
   width: min(420px, calc(100vw - 32px));
 }
 
+.toast-region,
+.toast-region-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* An empty live region must not contribute a phantom gap to the stack. */
+.toast-region:empty,
+.toast-region-error:empty {
+  display: none;
+}
+
 /* F-20: at phone widths the sidebar becomes a fixed bottom bar — lift the
    toasts clear of it (and the home indicator) so they never cover nav. */
 @media (max-width: 720px) {
-  .toast-region {
+  .toast-stack {
     bottom: calc(var(--bottom-nav-h) + var(--space-2));
   }
 }

@@ -37,7 +37,9 @@ export default function Sidebar({ view, onNavigate }) {
                     );
                 })}
             </nav>
-            <div className="sidebar-footer">
+            {/* F-42: a nav control outside every navigation landmark was
+                invisible to landmark-based navigation — own labelled nav. */}
+            <nav className="sidebar-footer" aria-label="Secondary">
                 <button
                     type="button"
                     className={`sidebar-item ${view === 'settings' ? 'is-active' : ''}`}
@@ -48,7 +50,7 @@ export default function Sidebar({ view, onNavigate }) {
                     <Settings size={20} aria-hidden="true" />
                     <span className="sidebar-item-label">Settings</span>
                 </button>
-            </div>
+            </nav>
         </div>
     );
 }

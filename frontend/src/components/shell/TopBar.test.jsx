@@ -24,10 +24,57 @@ describe('TopBar', () => {
             />
         );
 
-        expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
+        // F-23/F-24: the top bar is not a second banner landmark and its
+        // title is a label, not a document heading (each view owns its h1).
+        expect(screen.getByText('Library')).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Library' })).not.toBeInTheDocument();
         const chip = screen.getByRole('status');
         expect(chip).toHaveTextContent('Voices ready');
         expect(chip).toHaveClass('is-ready');
+    });
+
+    it('renders no header element (App supplies the single banner) (F-23)', () => {
+        const { container } = render(
+            <TopBar
+                title="Library"
+                engineStatus={{ tone: 'is-ready', label: 'Voices ready', detail: '' }}
+                theme={themeStub('dark')}
+                onThemeToggle={() => {}}
+            />
+        );
+        expect(container.querySelector('header')).toBeNull();
+        expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    });
+
+    it('surfaces the engine detail as reachable text, not only a tooltip (F-28)', () => {
+        render(
+            <TopBar
+                title="Library"
+                engineStatus={{
+                    tone: 'is-error',
+                    label: 'Engine error',
+                    detail: 'CUDA unavailable, falling back to CPU',
+                }}
+                theme={themeStub('light')}
+                onThemeToggle={() => {}}
+            />
+        );
+        // Keyboard/touch users can never hover a chip — the reason must be
+        // in the DOM as text inside the status chip, not only its title.
+        const chip = screen.getByRole('status');
+        expect(chip).toHaveTextContent('CUDA unavailable, falling back to CPU');
+    });
+
+    it('renders no detail element when there is nothing to explain', () => {
+        const { container } = render(
+            <TopBar
+                title="Library"
+                engineStatus={{ tone: 'is-ready', label: 'Voices ready', detail: '' }}
+                theme={themeStub('light')}
+                onThemeToggle={() => {}}
+            />
+        );
+        expect(container.querySelector('.engine-chip-detail')).toBeNull();
     });
 
     it('toggles the theme and persists the choice', () => {

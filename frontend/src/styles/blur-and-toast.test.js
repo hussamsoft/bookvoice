@@ -6,12 +6,18 @@
 // `.modal-panel` blurred an already-blurred `.modal-overlay` backdrop
 // through 88%-opaque glass: two full-screen passes for no visible delta.
 //
-// F-20 — the toast region must clear the mobile bottom nav.
+// F-20 — the toast stack must clear the mobile bottom nav.
 //
 // Pre-fix `.toast-region` sat at `bottom: var(--space-5)` (24px) with no
 // safe-area offset; at ≤720px the sidebar becomes a fixed bottom bar, so
-// toasts rendered on top of Scan / Studio / Settings. Also
-// `.toast-region-error` was orphaned (Toast.jsx renders one region).
+// toasts rendered on top of Scan / Studio / Settings. At the time
+// `.toast-region-error` was orphaned (Toast.jsx rendered one region).
+//
+// F-26 supersedes that premise: the toast system now renders TWO persistent
+// live regions (polite + assertive-for-errors). The fixed positioning moved
+// to a shared `.toast-stack` wrapper so the regions can never overlap; the
+// clearance contract (calc-based offset from --bottom-nav-h) is unchanged,
+// and `.toast-region-error` is rendered again — deliberately, with styling.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -94,16 +100,28 @@ describe('toast region clears the mobile nav (F-20)', () => {
             from = i;
         }
         const combined = blocks.join('\n');
-        expect(combined).toMatch(/\.toast-region\b/);
-        // The offset must derive from a token (nav height + safe area),
-        // not a hardcoded pixel value.
-        const toastRule = combined.match(/\.toast-region\s*\{([^}]*)\}/);
-        expect(toastRule).toBeTruthy();
-        expect(toastRule[1]).toMatch(/bottom:\s*calc\(/);
-        expect(toastRule[1]).toMatch(/--bottom-nav-h/);
+        // F-26: the fixed container is the `.toast-stack` wrapper around the
+        // two live regions; the clearance contract itself is F-20's.
+        expect(combined).toMatch(/\.toast-stack\b/);
+        const stackRule = combined.match(/\.toast-stack\s*\{([^}]*)\}/);
+        expect(stackRule).toBeTruthy();
+        expect(stackRule[1]).toMatch(/bottom:\s*calc\(/);
+        expect(stackRule[1]).toMatch(/--bottom-nav-h/);
     });
 
-    it('the orphaned .toast-region-error selector is gone', () => {
-        expect(SHELL_CSS).not.toMatch(/\.toast-region-error/);
+    it('both live regions are styled and share the stack (F-26)', () => {
+        // .toast-region-error was orphaned (F-20); F-26 renders it again as
+        // the persistent assertive region, so it must have real styling —
+        // and neither region may carry its own `position: fixed`, or the
+        // two regions overlap each other.
+        expect(SHELL_CSS).toMatch(/\.toast-region[,\s][^{]*\{[^}]*\}/);
+        expect(SHELL_CSS).toMatch(/\.toast-region-error/);
+        for (const sel of ['\\.toast-region', '\\.toast-region-error']) {
+            for (const body of ruleBlocks(SHELL_CSS, sel)) {
+                expect(body).not.toMatch(/position:\s*fixed/);
+            }
+        }
+        const stack = ruleBlocks(SHELL_CSS, '\\.toast-stack');
+        expect(stack.some((b) => /position:\s*fixed/.test(b))).toBe(true);
     });
 });

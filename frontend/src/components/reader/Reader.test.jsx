@@ -160,6 +160,70 @@ describe('Reader', () => {
         expect(screen.getByLabelText(/Choose a book file/)).toBeInTheDocument();
     });
 
+    it('renders exactly one h1 in both the empty and open states (F-24)', async () => {
+        render(<Reader />);
+        // Empty state: the invitation is the h1.
+        expect(screen.getByRole('heading', { level: 1, name: /Open a book/ })).toBeInTheDocument();
+
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        // Open state: the book title becomes the single h1.
+        const h1s = await screen.findAllByRole('heading', { level: 1 });
+        expect(h1s.length).toBe(1);
+        expect(h1s[0]).toHaveTextContent('Seed book');
+    });
+
+    it('routes all reader status through a single polite live region (F-25)', async () => {
+        const { container } = render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await screen.findByRole('heading', { level: 1, name: /Seed book/ });
+
+        const live = container.querySelectorAll('[role="status"], [aria-live="polite"]');
+        expect(live.length).toBe(1);
+        // The visible page status stays on screen but must not itself be live.
+        const pageStatus = container.querySelector('.reader-toolbar-row .reader-page-status');
+        expect(pageStatus).not.toHaveAttribute('aria-live');
+        expect(pageStatus).not.toHaveAttribute('role');
+        // Zoom percent is never announced per tick.
+        const zoomPct = container.querySelector('.reader-zoom-pct');
+        if (zoomPct) expect(zoomPct).not.toHaveAttribute('aria-live');
+    });
+
+    it('More options popover follows the shared keyboard pattern (F-27)', async () => {
+        render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+
+        const trigger = screen.getByRole('button', { name: 'More options' });
+        fireEvent.click(trigger);
+        const popover = screen.getByRole('group', { name: 'More reader options' });
+        expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+        // Open moves focus into the popover.
+        expect(popover.contains(document.activeElement)).toBe(true);
+
+        // Down/Up cycle between enabled controls, wrapping.
+        const focusables = Array.from(
+            popover.querySelectorAll('button:not(:disabled), input:not(:disabled)')
+        );
+        expect(focusables.length).toBeGreaterThan(1);
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        fireEvent.keyDown(popover, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(focusables[1]);
+        fireEvent.keyDown(popover, { key: 'End' });
+        expect(document.activeElement).toBe(last);
+        fireEvent.keyDown(popover, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(first);
+        fireEvent.keyDown(popover, { key: 'Home' });
+        expect(document.activeElement).toBe(first);
+        fireEvent.keyDown(popover, { key: 'ArrowUp' });
+        expect(document.activeElement).toBe(last);
+
+        // Escape closes and returns focus to the trigger.
+        fireEvent.keyDown(popover, { key: 'Escape' });
+        expect(screen.queryByRole('group', { name: 'More reader options' })).not.toBeInTheDocument();
+        expect(document.activeElement).toBe(trigger);
+    });
+
     it('opens a text book from the library and restores saved progress', async () => {
         localStorage.setItem(
             `bookvoice:reader:${SEED_DOC_ID}`,
@@ -206,7 +270,7 @@ describe('Reader', () => {
         fireEvent.change(screen.getByLabelText(/find in book/i), { target: { value: 'page 7' } });
         fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
-        expect(await screen.findByText(/Found .page 7. on page 7/)).toBeInTheDocument();
+        await waitFor(() => expect(screen.getAllByText(/Found .page 7. on page 7/).length).toBeGreaterThan(0));
         await findPageText(container, /Server page 7 text/)
         expect(screen.getAllByText('Page 7 of 12').length).toBeGreaterThan(0);
     });
@@ -332,7 +396,7 @@ describe('Reader', () => {
         expect(screen.getAllByText('Page 8 of 12').length).toBeGreaterThan(0);
 
         // The "Found on page 7" status must still be visible after the jump.
-        expect(screen.getByText(/Found .page 7. on page 7/)).toBeInTheDocument();
+        expect(screen.getAllByText(/Found .page 7. on page 7/).length).toBeGreaterThan(0);
     });
 
     it('reports when a search has no match and stays on the page', async () => {
@@ -344,7 +408,7 @@ describe('Reader', () => {
         fireEvent.change(screen.getByLabelText(/find in book/i), { target: { value: 'unfindable' } });
         fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
-        expect(await screen.findByText(/No matches for .unfindable./)).toBeInTheDocument();
+        await waitFor(() => expect(screen.getAllByText(/No matches for .unfindable./).length).toBeGreaterThan(0));
         expect(screen.getAllByText('Page 1 of 12').length).toBeGreaterThan(0);
     });
 

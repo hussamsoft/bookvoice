@@ -30,6 +30,7 @@ import { useTtsStatus } from '../../hooks/useTtsStatus';
 import { useUserConfig } from '../../hooks/useUserConfig';
 import { useBookmarks } from '../../hooks/reader/useBookmarks';
 import { useKeyboardShortcuts } from '../../hooks/reader/useKeyboardShortcuts';
+import { usePopoverMenu } from '../../hooks/usePopoverMenu';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
 import { useReaderNarration } from '../../hooks/reader/useReaderNarration';
 import { useReaderPageLifecycle } from '../../hooks/reader/useReaderPageLifecycle';
@@ -362,7 +363,7 @@ export default function Reader() {
         setPageJumpInput(String(pageNumber));
     }, [pageNumber]);
 
-    // Close the "More" popover on outside click or Escape, mirroring F-02.
+    // Close the "More" popover on outside click, mirroring F-02.
     useEffect(() => {
         if (!moreOpen) return undefined;
         const onOutside = (event) => {
@@ -381,6 +382,17 @@ export default function Reader() {
             document.removeEventListener('keydown', onKey);
         };
     }, [moreOpen]);
+
+    // F-27: shared popover focus contract (same hook as the Library
+    // book-actions menu).
+    const moreMenuRef = useRef(null);
+    const moreTriggerRef = useRef(null);
+    usePopoverMenu({
+        open: moreOpen,
+        containerRef: moreMenuRef,
+        triggerRef: moreTriggerRef,
+        onClose: () => setMoreOpen(false),
+    });
 
     const submitPageJump = useCallback((event) => {
         event?.preventDefault?.();
@@ -572,7 +584,8 @@ export default function Reader() {
             <div className="pdf-viewer-container">
                 <audio ref={audioRef} className="audio-hidden" preload="auto" />
                 <div className="reader-open">
-                    <h2 className="reader-open-title">Open a book to start reading</h2>
+                    {/* F-24: the first heading on the screen is the h1. */}
+                    <h1 className="reader-open-title">Open a book to start reading</h1>
                     <label className="btn primary" htmlFor="reader-upload">
                         <FolderOpen size={16} aria-hidden="true" />
                         Choose a book file
@@ -615,8 +628,22 @@ export default function Reader() {
     return (
         <div className="pdf-viewer-container" ref={rootRef} data-transport-state={narration.transportState} data-source-kind={sourceKind}>
             <audio ref={audioRef} className="audio-hidden" preload="auto" />
-            {statusHint && <small className="reader-page-status" role="status">{statusHint}</small>}
+            {statusHint && <small className="reader-page-status">{statusHint}</small>}
+            {/* F-25: ONE polite live region for the whole reader. Page turns,
+                search results, hints and narration state all route through
+                here; the visible status elements below are plain text. */}
+            <p className="sr-only" role="status">
+                {searchStatus
+                    || (narration.isGenerating
+                        ? 'Generating narration…'
+                        : statusHint || `Page ${pageNumber}${numPages ? ` of ${numPages}` : ''}`)}
+            </p>
             <div className="reader-toolbar-row">
+                {/* F-24: the Reader had no h1 and never named the book being
+                    read. The title is the document heading. */}
+                <h1 className="reader-book-title">
+                    {books.find((b) => b.id === libraryBookId)?.title || file?.name || 'Reader'}
+                </h1>
                 <button
                     type="button"
                     className="icon-btn reader-bookmark-toggle"
@@ -629,7 +656,7 @@ export default function Reader() {
                         ? <BookmarkCheck size={16} aria-hidden="true" />
                         : <Bookmark size={16} aria-hidden="true" />}
                 </button>
-                <span className="reader-page-status" aria-live="polite">
+                <span className="reader-page-status">
                     Page {pageNumber}{numPages ? ` of ${numPages}` : ''}
                 </span>
                 <button
@@ -665,6 +692,7 @@ export default function Reader() {
                 </form>
                 <button
                     type="button"
+                    ref={moreTriggerRef}
                     className="icon-btn reader-nav-more"
                     onClick={() => setMoreOpen((value) => !value)}
                     aria-haspopup="true"
@@ -686,7 +714,7 @@ export default function Reader() {
                 generating={narration.isGenerating}
             />
             {moreOpen && (
-                <div className="reader-nav-menu" aria-label="More reader options">
+                <div className="reader-nav-menu" role="group" aria-label="More reader options" ref={moreMenuRef}>
                     <div className="reader-nav-menu-group">
                         <button
                             type="button"
@@ -706,7 +734,7 @@ export default function Reader() {
                         >
                             <ZoomOut size={16} aria-hidden="true" />
                         </button>
-                        <span className="reader-zoom-pct" aria-live="polite">{Math.round(zoom.zoom * 100)}%</span>
+                        <span className="reader-zoom-pct">{Math.round(zoom.zoom * 100)}%</span>
                         <button
                             type="button"
                             className="icon-btn"
@@ -762,10 +790,10 @@ export default function Reader() {
                 </div>
             )}
             {searchStatus && (
-                <small className="reader-search-status" role="status">{searchStatus}</small>
+                <small className="reader-search-status">{searchStatus}</small>
             )}
             {narration.isGenerating && (
-                <small className="reader-page-status" role="status">Generating narration…</small>
+                <small className="reader-page-status">Generating narration…</small>
             )}
             {pdfLoadError && (
                 <div className="reader-pdf-error" role="alert">

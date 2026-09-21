@@ -215,7 +215,8 @@
 
 .studio-autosave {
   font-size: var(--text-xs);
-  color: var(--ink-faint);
+  /* F-22: --ink-faint fails AA for text (3.25:1) — it is decorative-only. */
+  color: var(--ink-muted);
 }
 
 .studio-local-badge {
@@ -320,7 +321,8 @@
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--ink-muted);
-  margin-left: auto;
+  /* F-42: logical (RTL-safe). */
+  margin-inline-start: auto;
   flex: none;
 }
 
@@ -337,7 +339,8 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ink-muted);
-  margin-right: auto;
+  /* F-42: logical (RTL-safe). */
+  margin-inline-end: auto;
 }
 
 

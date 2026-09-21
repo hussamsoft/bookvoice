@@ -116,6 +116,7 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                             type="file"
                             accept={BOOK_ACCEPT}
                             className="file-input"
+                            aria-label="Choose a book file to add"
                             onChange={handleAddBook}
                         />
                     </div>

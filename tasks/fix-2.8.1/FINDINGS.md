@@ -30,16 +30,16 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-19 | S2 | `100vh` on a phone-targeted app | `shell.css:5,20` | 3 | verified |
 | F-20 | S2 | Toast region collides with the mobile bottom nav | `shell.css:762-773` | 3 | verified |
 | F-21 | S3 | Library visually flat; no covers; `.prepared-book-row` lacks `cursor: pointer`; row markup duplicated and drifted | `reader.css:1146`, `Reader.jsx:549-562` | 3 | verified |
-| F-22 | S2 | Light-mode contrast failures (5 token pairs below AA) | `tokens.css`, `shell.css`, `controls.css` | 4 | open |
-| F-23 | S2 | Two `banner` landmarks (nested `<header>`) | `App.jsx:121`, `TopBar.jsx:10` | 4 | open |
-| F-24 | S3 | Heading order starts at `h2`; Reader has no `h1` | `TopBar.jsx:11`, `Reader.jsx:527` | 4 | open |
-| F-25 | S3 | Six-plus concurrent live regions in the Reader | `Reader.jsx:577,672` | 4 | open |
-| F-26 | S2 | Toast live regions inserted with content — unreliable announcement; 4s auto-dismiss, no pause | `Toast.jsx:115-120,146` | 4 | open |
-| F-27 | S3 | `role="menu"` without the keyboard pattern | `LibraryView.jsx:52` | 4 | open |
-| F-28 | S3 | Disabled controls explain themselves only via `title` | `LibraryView.jsx:85-99` | 4 | open |
-| F-29 | S3 | Palette buttons have no accessible name but `title`; should be a radiogroup | `SettingsView.jsx:84-101` | 4 | open |
-| F-30 | S2 | Reduced motion removes all loading feedback | `base.css:196-202`, `controls.css:722-780` | 4 | open |
-| F-31 | S3 | `:focus-visible` rewrites element `border-radius`; no `forced-colors` support | `base.css:88-93` | 4 | open |
+| F-22 | S2 | Light-mode contrast failures (5 token pairs below AA) | `tokens.css`, `shell.css`, `controls.css` | 4 | verified |
+| F-23 | S2 | Two `banner` landmarks (nested `<header>`) | `App.jsx:121`, `TopBar.jsx:10` | 4 | verified |
+| F-24 | S3 | Heading order starts at `h2`; Reader has no `h1` | `TopBar.jsx:11`, `Reader.jsx:527` | 4 | verified |
+| F-25 | S3 | Six-plus concurrent live regions in the Reader | `Reader.jsx:577,672` | 4 | verified |
+| F-26 | S2 | Toast live regions inserted with content — unreliable announcement; 4s auto-dismiss, no pause | `Toast.jsx:115-120,146` | 4 | verified |
+| F-27 | S3 | `role="menu"` without the keyboard pattern | `LibraryView.jsx:52` | 4 | verified |
+| F-28 | S3 | Disabled controls explain themselves only via `title` | `LibraryView.jsx:85-99` | 4 | verified |
+| F-29 | S3 | Palette buttons have no accessible name but `title`; should be a radiogroup | `SettingsView.jsx:84-101` | 4 | verified |
+| F-30 | S2 | Reduced motion removes all loading feedback | `base.css:196-202`, `controls.css:722-780` | 4 | verified |
+| F-31 | S3 | `:focus-visible` rewrites element `border-radius`; no `forced-colors` support | `base.css:88-93` | 4 | verified |
 | F-32 | S3 | Refs written during render | `Reader.jsx:229,237,412`, `Modal.jsx:70` | 5 | open |
 | F-33 | S2 | `useUserConfig` per-instance with no shared invalidation; null-config crash path | `useUserConfig.js`, `LibraryView.jsx:123` | 5 | open |
 | F-34 | S2 | False data-loss warning after a successful scan save | `App.jsx`, `BookSession.jsx:169-185` | 5 | open |
@@ -50,7 +50,7 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | open |
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | open |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
-| F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | open |
+| F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | verified |
 | F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | open |
 | F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | open |
 
@@ -60,3 +60,14 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 - Backend `logging` migration (F-43) — touches ~50 call sites; land as its own PR.
 - Content-addressed book ids: re-importing an edited file orphans progress.
   Behaviour is intentional; documented here so it is not "fixed" by accident.
+- F-45 (new, 2026-09-20, found during Phase 4 gating): `python -m pytest tests -q`
+  fails 11 backend tests (test_tts_lifecycle ×10, test_voice_conversion ×1) in
+  full-suite order only — deterministically reproduced in clean worktrees of
+  `766698a` **and** the pre-remediation baseline `4524079`, and green when the
+  two files run in isolation. Root causes: order-dependent state in the TTS
+  suite + missing local model weights on this machine
+  (`backend/services/data/models/en`, untracked, normally installed by the
+  first-run payload). Out of remediation scope (no 2.8.1 phase can or should
+  touch it); the pytest gate for Phases 4–6 is recorded as *no new failures
+  vs baseline*, with the full-suite claim withheld until the suite is fixed
+  on its own ticket.

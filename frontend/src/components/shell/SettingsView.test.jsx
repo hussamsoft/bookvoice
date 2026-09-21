@@ -61,17 +61,57 @@ describe('SettingsView', () => {
     expect(screen.getByRole('heading', { name: 'Device & connections' })).toBeInTheDocument();
   });
 
-  it('offers every palette in both modes with the active one pressed', () => {
+  // F-29 supersedes the old "active one pressed" contract: the palette set
+  // is single-choice, so it is a radiogroup (one tab stop, arrows move
+  // selection) instead of ten tabbable aria-pressed buttons.
+  it('models palette+mode as one radiogroup with named options (F-29)', () => {
     localStorage.setItem('bookvoice.palette', 'plum');
     localStorage.setItem('bookvoice.mode', 'dark');
     renderSettings();
 
-    const group = screen.getByRole('group', { name: 'Color palette' });
-    const active = within(group).getAllByRole('button', { pressed: true });
-    expect(active).toHaveLength(1);
-    expect(active[0].getAttribute('title')).toBe('Violet Dusk (dark)');
+    const group = screen.getByRole('radiogroup', { name: 'Color palette and mode' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios).toHaveLength(10); // five palettes x both modes
 
-    fireEvent.click(within(group).getByTitle('Moss Glow (light)'));
+    // Explicit accessible names — title-only naming is the last-resort
+    // fallback and loses to the aria-hidden swatch contents.
+    const selected = radios.filter((r) => r.getAttribute('aria-checked') === 'true');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toHaveAccessibleName('Violet Dusk, dark');
+    expect(radios.some((r) => r.getAttribute('aria-label') === 'Aurora Ink, dark')).toBe(true);
+
+    // One tab stop: only the selected radio is in tab order.
+    expect(selected[0].tabIndex).toBe(0);
+    expect(radios.filter((r) => r.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it('arrow keys move palette selection (F-29)', () => {
+    localStorage.setItem('bookvoice.palette', 'plum');
+    localStorage.setItem('bookvoice.mode', 'dark');
+    renderSettings();
+
+    const group = screen.getByRole('radiogroup', { name: 'Color palette and mode' });
+    const radios = within(group).getAllByRole('radio');
+    const current = radios.find((r) => r.getAttribute('aria-checked') === 'true');
+    expect(current).toHaveAccessibleName('Violet Dusk, dark');
+
+    fireEvent.keyDown(current, { key: 'ArrowRight' });
+    const next = radios[(radios.indexOf(current) + 1) % radios.length];
+    expect(next).toHaveAccessibleName('Ember Dusk, light');
+    expect(next).toHaveAttribute('aria-checked', 'true');
+    expect(next).toHaveFocus();
+    expect(document.documentElement).toHaveAttribute('data-palette', 'sand');
+    expect(document.documentElement).toHaveAttribute('data-mode', 'light');
+
+    fireEvent.keyDown(next, { key: 'ArrowLeft' });
+    expect(current).toHaveAttribute('aria-checked', 'true');
+    expect(document.documentElement).toHaveAttribute('data-palette', 'plum');
+  });
+
+  it('clicking a palette option still selects it', () => {
+    renderSettings();
+    const group = screen.getByRole('radiogroup', { name: 'Color palette and mode' });
+    fireEvent.click(within(group).getByRole('radio', { name: 'Moss Glow, light' }));
     expect(document.documentElement).toHaveAttribute('data-palette', 'sage');
     expect(document.documentElement).toHaveAttribute('data-mode', 'light');
   });

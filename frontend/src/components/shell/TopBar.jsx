@@ -6,9 +6,12 @@ import { Moon, Sun } from 'lucide-react';
  */
 export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
     const dark = theme.mode === 'dark';
+    // F-23/F-24: not a <header> (App already wraps this in the page banner —
+    // nested headers both map to role=banner), and the title is a label, not
+    // a document heading — each view renders its own h1.
     return (
-        <header className="topbar">
-            <h2 className="topbar-title">{title}</h2>
+        <div className="topbar">
+            <div className="topbar-title">{title}</div>
             <div className="topbar-tools">
                 <span
                     className={`engine-chip ${engineStatus.tone}`}
@@ -17,6 +20,11 @@ export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
                 >
                     <span className="engine-chip-dot" aria-hidden="true" />
                     {engineStatus.label}
+                    {/* F-28: detail was tooltip-only — hover is unreachable
+                        for keyboard and touch users. */}
+                    {engineStatus.detail ? (
+                        <span className="engine-chip-detail">{engineStatus.detail}</span>
+                    ) : null}
                 </span>
                 <button
                     type="button"
@@ -28,6 +36,6 @@ export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
                     {dark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
             </div>
-        </header>
+        </div>
     );
 }

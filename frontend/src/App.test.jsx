@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import App from './App';
 import { ToastProvider } from './components/Toast';
@@ -147,6 +147,28 @@ describe('App shell navigation', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Library' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Leave without saving' }));
         expect(await screen.findByRole('heading', { name: 'Library', level: 1 })).toBeInTheDocument();
+    });
+
+    it('exposes exactly one banner landmark in every view (F-23)', async () => {
+        renderApp();
+        expect(screen.getAllByRole('banner')).toHaveLength(1);
+        for (const label of ['Library', 'Scan', 'Studio', 'Settings']) {
+            fireEvent.click(screen.getByRole('button', { name: label }));
+            await waitFor(() => expect(screen.getAllByRole('banner')).toHaveLength(1));
+        }
+    });
+
+    it('each real view renders exactly one h1 (F-24)', async () => {
+        renderApp();
+        expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+        await screen.findByRole('heading', { level: 1, name: 'Library' });
+        expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+        await screen.findByRole('heading', { level: 1, name: 'Settings' });
+        expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     });
 
     it('shows the Settings top-bar title and exposes a Settings nav button', async () => {

@@ -280,7 +280,7 @@ export default function VoiceStudio() {
     }, [project?.id, runningProjectJobId, toast]);
 
     if (loading) return <div className="studio-loading" role="status"><RotateCw size={20} className="spin" /> Opening Voice Studio…</div>;
-    if (error) return <div className="studio-fatal" role="alert"><h2>Voice Studio is unavailable</h2><p>{error}</p><button className="btn secondary" onClick={() => window.location.reload()}>Reload</button></div>;
+    if (error) return <div className="studio-fatal" role="alert"><h1>Voice Studio is unavailable</h1><p>{error}</p><button className="btn secondary" onClick={() => window.location.reload()}>Reload</button></div>;
 
     // A recovered failure is historical once a newer job completes. Looking
     // for any old failed job made the same error banner persist forever.

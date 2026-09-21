@@ -103,14 +103,18 @@ export default function StudioProjectSidebar({
                     </button>
                 </form>
 
-                <div className="studio-project-list" role="list">
+                {/* axe (Phase 4 exit gate): role="list" may not contain a
+                    role="status" child — the empty state renders outside
+                    the list instead of inside it. */}
                 {projects.length === 0 ? (
                     <div className="empty-state" role="status">
                         <FolderPlus size={28} className="empty-state-icon" aria-hidden="true" />
                         <p className="empty-state-title">No Studio projects yet</p>
                         <p className="empty-state-hint">Create one to save scripts, media, and outputs locally.</p>
                     </div>
-                ) : projects.map((project) => (
+                ) : (
+                    <div className="studio-project-list" role="list">
+                        {projects.map((project) => (
                     <article
                         className={`studio-project-row ${project.id === activeId ? 'is-active' : ''}`}
                         key={project.id}
@@ -159,8 +163,9 @@ export default function StudioProjectSidebar({
                             </button>
                         </div>
                     </article>
-                ))}
-                </div>
+                        ))}
+                    </div>
+                )}
 
                 <p className="studio-sidebar-hint">
                     <ShieldCheck size={14} aria-hidden="true" />

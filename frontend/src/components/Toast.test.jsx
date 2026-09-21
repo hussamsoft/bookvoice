@@ -33,6 +33,47 @@ describe('Toast', () => {
         vi.useFakeTimers();
     });
 
+    it('puts live semantics on the persistent regions, not the toast nodes (F-26)', async () => {
+        setup();
+        await fire();
+        expect(document.querySelector('.toast-region')).toHaveAttribute('aria-live', 'polite');
+        expect(document.querySelector('.toast-region-error')).toHaveAttribute('aria-live', 'assertive');
+        const toastEl = document.querySelector('.toast');
+        expect(toastEl).not.toHaveAttribute('role');
+        expect(toastEl).not.toHaveAttribute('aria-live');
+    });
+
+    it('never auto-dismisses error toasts (F-26)', async () => {
+        setup({ type: 'error' });
+        await fire();
+        await act(async () => {
+            vi.advanceTimersByTime(30000);
+        });
+        expect(document.querySelector('.toast-error')).toBeInTheDocument();
+    });
+
+    it('pauses auto-dismiss while the region is hovered (F-26)', async () => {
+        setup();
+        await fire();
+        fireEvent.mouseEnter(document.querySelector('.toast-region'));
+        await act(async () => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(document.querySelector('.toast')).toBeInTheDocument();
+        fireEvent.mouseLeave(document.querySelector('.toast-region'));
+        await act(async () => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(document.querySelector('.toast')).not.toBeInTheDocument();
+    });
+
+    it('the dismiss control is a real button (F-26)', async () => {
+        setup();
+        await fire();
+        const btn = screen.getByRole('button', { name: 'Dismiss notification' });
+        expect(btn).toHaveAttribute('type', 'button');
+    });
+
     it('coalesces identical tone+message toasts inside the 2s window', async () => {
         setup();
 
@@ -43,7 +84,7 @@ describe('Toast', () => {
         });
         await fire();
 
-        expect(screen.getAllByRole('status')).toHaveLength(1);
+        expect(Array.from(document.querySelectorAll('.toast'))).toHaveLength(1);
 
         // Outside the window a fresh entry stacks.
         await act(async () => {
@@ -51,7 +92,7 @@ describe('Toast', () => {
         });
         await fire();
 
-        expect(screen.getAllByRole('status')).toHaveLength(2);
+        expect(Array.from(document.querySelectorAll('.toast'))).toHaveLength(2);
     });
 
     it('does not coalesce different messages or tones', async () => {
@@ -69,7 +110,7 @@ describe('Toast', () => {
         );
         await fire();
 
-        expect(screen.getAllByRole('status')).toHaveLength(2);
+        expect(Array.from(document.querySelectorAll('.toast'))).toHaveLength(2);
     });
 
     it('bumps the timestamp on coalesce, restarting the auto-dismiss clock', async () => {
@@ -88,7 +129,7 @@ describe('Toast', () => {
         });
         await fire(); // coalesces with the second, bumps timestamp to t=4000
 
-        let alerts = screen.getAllByRole('status');
+        let alerts = Array.from(document.querySelectorAll('.toast'));
         expect(alerts).toHaveLength(2);
 
         // Original duration is 5s: without the bump both entries would be
@@ -96,7 +137,7 @@ describe('Toast', () => {
         await act(async () => {
             vi.advanceTimersByTime(4100); // t=8100
         });
-        alerts = screen.getAllByRole('status');
+        alerts = Array.from(document.querySelectorAll('.toast'));
         expect(alerts).toHaveLength(1);
 
         await act(async () => {
@@ -109,19 +150,19 @@ describe('Toast', () => {
         setup();
         await fire();
 
-        const toastEl = screen.getByRole('status');
+        const toastEl = document.querySelector('.toast');
         expect(toastEl).not.toHaveClass('toast-leaving');
 
         await act(async () => {
             fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
         });
 
-        expect(screen.getByRole('status')).toHaveClass('toast-leaving');
+        expect(document.querySelector('.toast')).toHaveClass('toast-leaving');
 
         await act(async () => {
             vi.advanceTimersByTime(EXIT_MS + 50);
         });
-        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        expect(document.querySelector('.toast')).not.toBeInTheDocument();
     });
 });
 

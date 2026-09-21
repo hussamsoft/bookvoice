@@ -548,21 +548,10 @@ input[type="checkbox"] {
   );
 }
 
-.transport-primary,
-.transport-secondary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.transport-secondary {
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
-}
-
-.transport-play.is-playing {
-  background: var(--signal);
-}
+/* F-22: single definitions of .transport-play.is-playing, .transport-primary
+   and .transport-secondary live in reader.css (the only base definitions);
+   the duplicates here silently re-split the contract. PlaybackControls is
+   unaffected on the Studio side — main.jsx loads reader.css app-wide. */
 
 .transport-rate-control,
 .transport-sleep-control {
@@ -810,6 +799,28 @@ input[type="checkbox"] {
 @keyframes bv-progress {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(350%); }
+}
+
+/* F-30: the blanket kill switch in base.css deletes this whole loading
+   vocabulary for reduced-motion users — waveforms freeze at scaleY(0.3)
+   and the progress bar's ::after freezes off-screen (invisible). Each
+   indicator gets a static fallback so every loading state stays
+   perceivable without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .spin {
+    animation: none;
+  }
+
+  .loading-waveform span {
+    animation: none;
+    transform: scaleY(1);
+  }
+
+  .loading-progress::after {
+    animation: none;
+    width: 45%;
+  }
 }
 
 /* --- Keyboard shortcuts sheet ---------------------------------------- */

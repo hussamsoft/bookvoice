@@ -1,0 +1,378 @@
+{
+  "summary": {
+    "routesScanned": 10,
+    "violationsByRoute": {
+      "/": 0,
+      "/library": 0,
+      "/reader": 0,
+      "/studio": 0,
+      "/settings": 0
+    }
+  },
+  "report": {
+    "routes": [
+      {
+        "route": "/",
+        "mode": "light",
+        "violations": []
+      },
+      {
+        "route": "/",
+        "mode": "dark",
+        "violations": []
+      },
+      {
+        "route": "/library",
+        "mode": "light",
+        "violations": []
+      },
+      {
+        "route": "/library",
+        "mode": "dark",
+        "violations": []
+      },
+      {
+        "route": "/reader",
+        "mode": "light",
+        "violations": []
+      },
+      {
+        "route": "/reader",
+        "mode": "dark",
+        "violations": []
+      },
+      {
+        "route": "/studio",
+        "mode": "light",
+        "violations": []
+      },
+      {
+        "route": "/studio",
+        "mode": "dark",
+        "violations": []
+      },
+      {
+        "route": "/settings",
+        "mode": "light",
+        "violations": []
+      },
+      {
+        "route": "/settings",
+        "mode": "dark",
+        "violations": []
+      }
+    ],
+    "keyboardTraversals": {
+      "/": [
+        {
+          "tag": "a",
+          "id": null,
+          "name": "Skip to main content",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Home",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Library",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Scan",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Studio",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Settings",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Switch to dark mode",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Add a book",
+          "role": null
+        },
+        {
+          "tag": "input",
+          "id": null,
+          "name": "Choose a book file to add",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Open scanner",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Open Studio",
+          "role": null
+        }
+      ],
+      "/library": [
+        {
+          "tag": "a",
+          "id": null,
+          "name": "Skip to main content",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Home",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Library",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Scan",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Studio",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Settings",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Switch to dark mode",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Add a book",
+          "role": null
+        },
+        {
+          "tag": "input",
+          "id": null,
+          "name": "Choose a book file to add",
+          "role": null
+        }
+      ],
+      "/reader": [
+        {
+          "tag": "a",
+          "id": null,
+          "name": "Skip to main content",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Home",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Library",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Scan",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Studio",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Settings",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Switch to dark mode",
+          "role": null
+        },
+        {
+          "tag": "input",
+          "id": "reader-upload",
+          "name": "Choose a book file",
+          "role": null
+        }
+      ],
+      "/studio": [
+        {
+          "tag": "a",
+          "id": null,
+          "name": "Skip to main content",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Home",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Library",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Scan",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Studio",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Settings",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Switch to dark mode",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Show project list",
+          "role": null
+        },
+        {
+          "tag": "input",
+          "id": "studio-project-name",
+          "name": null,
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Create",
+          "role": null
+        }
+      ],
+      "/settings": [
+        {
+          "tag": "a",
+          "id": null,
+          "name": "Skip to main content",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Home",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Library",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Scan",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Studio",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Settings",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Switch to dark mode",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Aurora Ink, light",
+          "role": "radio"
+        },
+        {
+          "tag": "select",
+          "id": null,
+          "name": "AutoCUDA (GPU)CPU",
+          "role": null
+        },
+        {
+          "tag": "select",
+          "id": "voice-select",
+          "name": "BookVoice Natural",
+          "role": null
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "name": "Refresh voices",
+          "role": null
+        },
+        {
+          "tag": "input",
+          "id": null,
+          "name": null,
+          "role": null
+        }
+      ]
+    }
+  }
+}

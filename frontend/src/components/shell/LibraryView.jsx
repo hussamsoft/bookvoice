@@ -6,6 +6,7 @@ import PreparedBookRow from './PreparedBookRow';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
 import { useBookActions } from '../../hooks/useBookActions';
 import { useUserConfig } from '../../hooks/useUserConfig';
+import { usePopoverMenu } from '../../hooks/usePopoverMenu';
 import { activePreparedProfile } from '../../utils/preparedPages';
 import { importPreparedBook } from '../../utils/api';
 
@@ -14,17 +15,18 @@ const BOOK_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
 function BookRowMenu({ book, job, actions }) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef(null);
+    const triggerRef = useRef(null);
+    const menuRef = useRef(null);
     const profileId = activePreparedProfile(book)?.id || null;
     const hasProfile = Boolean(profileId);
 
     const close = () => setOpen(false);
 
-    const onKeyDown = (event) => {
-        if (event.key === 'Escape') {
-            close();
-            rootRef.current?.querySelector('button')?.focus();
-        }
-    };
+    // F-27: shared popover focus contract — opening moves focus into the
+    // popover, arrows cycle, Escape closes and returns focus to the
+    // trigger. The old role="menu"/"menuitem" markup promised the ARIA
+    // menu pattern without delivering any of it; the roles are gone.
+    usePopoverMenu({ open, containerRef: menuRef, triggerRef, onClose: close });
 
     // Listen on `document`, not the menu root: a `mousedown` on the root
     // never reaches a handler bound to the root itself with "outside"
@@ -42,10 +44,10 @@ function BookRowMenu({ book, job, actions }) {
         <div
             className="book-actions"
             ref={rootRef}
-            onKeyDown={onKeyDown}
         >
             <button
                 type="button"
+                ref={triggerRef}
                 className="btn secondary btn-compact book-actions-trigger"
                 onClick={() => setOpen((value) => !value)}
                 aria-expanded={open}
@@ -56,11 +58,10 @@ function BookRowMenu({ book, job, actions }) {
                 <BookOpen size={15} aria-hidden="true" />
             </button>
             {open ? (
-                <div className="book-actions-menu" role="menu" aria-label="Book actions">
+                <div className="book-actions-menu" role="group" aria-label="Book actions" ref={menuRef}>
                     {job ? (
                         <button
                             type="button"
-                            role="menuitem"
                             className="btn secondary btn-compact"
                             onClick={() => {
                                 actions.cancelJob(book);
@@ -74,7 +75,6 @@ function BookRowMenu({ book, job, actions }) {
                     ) : (
                         <button
                             type="button"
-                            role="menuitem"
                             className="btn primary btn-compact"
                             onClick={() => {
                                 actions.prepareBook(book);
@@ -87,10 +87,9 @@ function BookRowMenu({ book, job, actions }) {
                     )}
                     <button
                         type="button"
-                        role="menuitem"
                         className="btn secondary btn-compact"
                         disabled={!hasProfile}
-                        title={hasProfile ? 'Download a portable .bookvoice archive' : 'Prepare the book first'}
+                        title={hasProfile ? 'Download a portable .bookvoice archive' : undefined}
                         onClick={() => {
                             actions.exportArchive(book, profileId);
                             close();
@@ -100,10 +99,9 @@ function BookRowMenu({ book, job, actions }) {
                     </button>
                     <button
                         type="button"
-                        role="menuitem"
                         className="btn secondary btn-compact"
                         disabled={!hasProfile}
-                        title={hasProfile ? 'Render a chaptered M4B audiobook' : 'Prepare the book first'}
+                        title={hasProfile ? 'Render a chaptered M4B audiobook' : undefined}
                         onClick={() => {
                             actions.exportAudiobook(book, profileId);
                             close();
@@ -111,6 +109,14 @@ function BookRowMenu({ book, job, actions }) {
                     >
                         Export audiobook
                     </button>
+                    {/* F-28: the reason lives in visible text now — a
+                        tooltip on a disabled, non-focusable button is
+                        unreachable for keyboard and touch users. */}
+                    {!hasProfile && !job ? (
+                        <p className="book-actions-menu-hint">
+                            Prepare the book first to export it.
+                        </p>
+                    ) : null}
                 </div>
             ) : null}
         </div>
@@ -172,6 +178,7 @@ export default function LibraryView({ onOpenBook, onError }) {
                     type="file"
                     accept={BOOK_ACCEPT}
                     className="file-input"
+                    aria-label="Choose a book file to add"
                     onChange={handleAddBook}
                 />
             </div>
