@@ -184,6 +184,53 @@ describe('Reader', () => {
         expect(screen.getByText('Page 7 of 12')).toBeInTheDocument();
     });
 
+    it('PDF error button is labelled Dismiss (no false "Try again"), and handleDocumentError does not also toast', async () => {
+        // The Reader.jsx wiring changed to a single error surface (the
+        // inline alert) and the retry button became a Dismiss. Since we
+        // cannot deterministically drive react-pdf's onLoadError through
+        // jsdom, assert the static contract: the button label and the
+        // absence of `toast.error` from handleDocumentError.
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const readerSrc = fs.readFileSync(
+            path.resolve(__dirname, './Reader.jsx'),
+            'utf8'
+        );
+        // Reader source must mention "Dismiss" in the .reader-pdf-error block.
+        const dismissMatch = readerSrc.match(/reader-pdf-error[\s\S]{0,400}?(Dismiss|Try again)/);
+        expect(dismissMatch, 'expected a button label inside .reader-pdf-error').toBeTruthy();
+        expect(dismissMatch[1]).toBe('Dismiss');
+        // handleDocumentError must not also fire a toast.
+        const handleMatch = readerSrc.match(/handleDocumentError\s*=\s*\(error\)\s*=>\s*\{([\s\S]*?)\n\s{4}\}/);
+        expect(handleMatch, 'handleDocumentError not found').toBeTruthy();
+        expect(handleMatch[1]).not.toMatch(/toast\.error/);
+    });
+
+    it('shows a loading skeleton mid-load instead of a false empty state', async () => {
+        // Hold the page fetch pending so we can observe the loading path.
+        let resolvePage;
+        api.getBookPage.mockImplementationOnce(
+            () => new Promise((res) => { resolvePage = res; })
+        );
+        render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+
+        // While the fetch is pending the empty-state copy must not appear,
+        // and the loading skeleton should be visible.
+        await waitFor(() => expect(screen.queryByText(/No text for page/i)).not.toBeInTheDocument());
+        expect(screen.getByTestId('reader-page-skeleton')).toBeInTheDocument();
+        // TextStage now takes a loading flag and gates the empty state on
+        // !isLoading — the skeleton is the only thing the user sees.
+        expect(screen.queryByTestId('reader-page-empty')).not.toBeInTheDocument();
+
+        // Resolve and the real content paints, no skeleton.
+        await act(async () => {
+            resolvePage({ page: 1, text: 'First page text.' });
+            await Promise.resolve();
+        });
+        expect(await screen.findByText('First page text.')).toBeInTheDocument();
+    });
+
     it('does not trap navigation on the search hit and does not re-resolve idle', async () => {
         render(<Reader />);
         fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));

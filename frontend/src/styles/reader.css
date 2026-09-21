@@ -135,6 +135,14 @@
   color: var(--ink);
 }
 
+.text-page-column p {
+  margin: 0 0 var(--space-4) 0;
+}
+
+.text-page-column p:last-child {
+  margin-bottom: 0;
+}
+
 .text-page-empty {
   display: flex;
   align-items: center;

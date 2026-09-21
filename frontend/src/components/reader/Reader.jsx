@@ -507,6 +507,11 @@ export default function Reader() {
 
     const handleDocumentError = (error) => {
         const msg = error?.message || String(error);
+        // Record the failure once on the inline alert; the redundant toast
+        // was firing alongside it, so users saw two error messages for one
+        // failure. The button below is now labelled "Dismiss" because the
+        // previous "Try again" only cleared the message — it never re-attempted
+        // the load. To retry, the user closes the alert and re-opens the book.
         setPdfLoadError(
             /password|encrypt/i.test(msg)
                 ? 'This PDF is password-protected and cannot be opened.'
@@ -514,7 +519,6 @@ export default function Reader() {
                     ? 'The PDF could not be loaded. The file may be missing or the server unreachable.'
                     : `Failed to load PDF: ${msg}`
         );
-        toast.error('Failed to open PDF');
     };
 
     const submitSearch = (event) => {
@@ -762,7 +766,7 @@ export default function Reader() {
                         className="btn secondary btn-compact"
                         onClick={() => setPdfLoadError(null)}
                     >
-                        Try again
+                        Dismiss
                     </button>
                 </div>
             )}
@@ -772,6 +776,7 @@ export default function Reader() {
                     pageNumber={pageNumber}
                     numPages={numPages}
                     displayZoom={zoom.displayZoom}
+                    isLoading={lifecycle.isLoading}
                 />
             ) : (
                 <PdfStage
