@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import HomeView from './HomeView';
+import { ToastProvider } from '../Toast';
 
 vi.mock('../../hooks/reader/usePreparedLibrary', () => ({
     usePreparedLibrary: () => ({
@@ -18,13 +19,15 @@ vi.mock('../../utils/api', () => ({
 
 function renderHome(props = {}) {
     return render(
-        <HomeView
-            lastBookId={null}
-            onOpenBook={vi.fn()}
-            onNavigate={vi.fn()}
-            onError={vi.fn()}
-            {...props}
-        />
+        <ToastProvider>
+            <HomeView
+                lastBookId={null}
+                onOpenBook={vi.fn()}
+                onNavigate={vi.fn()}
+                onError={vi.fn()}
+                {...props}
+            />
+        </ToastProvider>
     );
 }
 
@@ -76,6 +79,25 @@ describe('HomeView', () => {
 
         await waitFor(() => expect(onOpenBook).toHaveBeenCalledWith(expect.objectContaining({ id: 'new1' })));
         expect(importMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces an import failure as a toast, not a silent swallow', async () => {
+        importMock.mockRejectedValueOnce(new Error('PDF is corrupt'));
+        const onError = vi.fn();
+        renderHome({ onError });
+
+        const input = document.querySelector('input[type="file"]');
+        const file = new File(['x'], 'corrupt.pdf', { type: 'application/pdf' });
+        fireEvent.change(input, { target: { files: [file] } });
+
+        // The view no longer silently drops the error — it must raise a
+        // toast or otherwise surface the message (status banner in a later
+        // phase). Today the only contract is that the app does not pass
+        // `onError={() => {}}` and the user sees the failure.
+        await waitFor(() => expect(
+            screen.queryByText(/corrupt/i) !== null
+            || document.querySelector('[role="status"]')?.textContent?.includes('corrupt')
+        ).toBe(true));
     });
 
     it('navigates to the scanner and the studio from the quick actions', () => {

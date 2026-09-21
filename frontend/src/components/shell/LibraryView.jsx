@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Download, FolderPlus, Loader2 } from 'lucide-react';
 import Button from '../ui/Button';
 import { useToast } from '../Toast';
@@ -26,16 +26,23 @@ function BookRowMenu({ book, job, actions }) {
         }
     };
 
-    const onOutside = (event) => {
-        if (rootRef.current && !rootRef.current.contains(event.target)) close();
-    };
+    // Listen on `document`, not the menu root: a `mousedown` on the root
+    // never reaches a handler bound to the root itself with "outside"
+    // logic, since every such event's target is inside the root.
+    useEffect(() => {
+        if (!open) return undefined;
+        const onOutside = (event) => {
+            if (rootRef.current && !rootRef.current.contains(event.target)) close();
+        };
+        document.addEventListener('mousedown', onOutside);
+        return () => document.removeEventListener('mousedown', onOutside);
+    }, [open]);
 
     return (
         <div
             className="book-actions"
             ref={rootRef}
             onKeyDown={onKeyDown}
-            onMouseDown={onOutside}
         >
             <button
                 type="button"
@@ -135,7 +142,9 @@ export default function LibraryView({ onOpenBook, onError }) {
             await refresh();
             onOpenBook(book);
         } catch (error) {
-            onError?.(error instanceof Error ? error : new Error(String(error)));
+            const err = error instanceof Error ? error : new Error(String(error));
+            toast.error(`Could not add this book: ${err.message}`);
+            onError?.(err);
         } finally {
             setIsAdding(false);
             if (fileInputRef.current) fileInputRef.current.value = '';

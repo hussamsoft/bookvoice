@@ -87,6 +87,33 @@ describe('LibraryView', () => {
             expect.objectContaining({ id: 'b1' }), 'p1'));
     });
 
+    it('closes the book-actions menu on an outside click', async () => {
+        renderLibrary();
+
+        fireEvent.click(screen.getByRole('button', { name: /Book actions for Alice/i }));
+        expect(screen.getByRole('menu', { name: 'Book actions' })).toBeInTheDocument();
+
+        fireEvent.mouseDown(document.body);
+
+        await waitFor(() => expect(
+            screen.queryByRole('menu', { name: 'Book actions' })
+        ).not.toBeInTheDocument());
+    });
+
+    it('surfaces an add-book failure as a toast', async () => {
+        importMock.mockRejectedValueOnce(new Error('PDF is corrupt'));
+        renderLibrary();
+
+        const input = document.querySelector('input[type="file"]');
+        fireEvent.change(input, {
+            target: { files: [new File(['x'], 'corrupt.pdf', { type: 'application/pdf' })] },
+        });
+
+        await waitFor(() =>
+            expect(screen.getByText(/Could not add this book: PDF is corrupt/)).toBeInTheDocument()
+        );
+    });
+
     it('adds a book and opens it', async () => {
         const onOpenBook = vi.fn();
         importMock.mockResolvedValue({ id: 'b9', title: 'Imported', sourceKind: 'pdf' });

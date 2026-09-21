@@ -4,6 +4,7 @@ import Button from '../ui/Button';
 import PreparedBookRow from './PreparedBookRow';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
 import { importPreparedBook } from '../../utils/api';
+import { useToast } from '../Toast';
 
 const BOOK_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
@@ -13,6 +14,7 @@ const BOOK_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  * opened book leads it.
  */
 export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }) {
+    const toast = useToast();
     const { books, isLoading, refresh } = usePreparedLibrary({ onError });
     const [isAdding, setIsAdding] = useState(false);
     const fileInputRef = useRef(null);
@@ -37,7 +39,9 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
             await refresh();
             onOpenBook(book);
         } catch (error) {
-            onError?.(error instanceof Error ? error : new Error(String(error)));
+            const err = error instanceof Error ? error : new Error(String(error));
+            toast.error(`Could not add this book: ${err.message}`);
+            onError?.(err);
         } finally {
             setIsAdding(false);
             if (fileInputRef.current) fileInputRef.current.value = '';

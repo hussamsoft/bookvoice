@@ -71,6 +71,12 @@ class StaticBundleFreshnessTests(unittest.TestCase):
             path.read_text(encoding="utf-8", errors="replace")
             for path in sorted(STATIC.glob("assets/*.css"))
         )
+        # The pre-paint theme bootstrap may live in index.html OR in the
+        # externalised `theme-boot.js` (post-F-03). Look in both places.
+        theme_boot = STATIC / "theme-boot.js"
+        cls.theme_boot = (
+            theme_boot.read_text(encoding="utf-8") if theme_boot.is_file() else ""
+        )
 
     def test_index_asset_references_exist(self):
         """A half-synced backend/static serves 404s for its own entry chunks."""
@@ -124,7 +130,10 @@ class StaticBundleFreshnessTests(unittest.TestCase):
     def test_pre_paint_script_sets_the_source_theme_attributes(self):
         """A stale inline script flashes the wrong theme before React mounts."""
         expected = _theme_attributes(self.tokens)
+        # The pre-paint script may be inline (legacy) or externalised as
+        # `theme-boot.js` (post-F-03). Scan both.
         applied = set(SET_ATTRIBUTE.findall(self.index))
+        applied |= set(SET_ATTRIBUTE.findall(self.theme_boot))
         # Containment, not equality: the contract is that every attribute the
         # CSS themes on is set before paint. The script is free to set others
         # (a future data-density, say) without that being staleness, and exact

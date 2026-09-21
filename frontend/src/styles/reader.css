@@ -3,6 +3,8 @@
 
 .reader-toolbar-row {
   display: inline-flex;
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
   align-items: center;
   gap: var(--space-2);
 }
@@ -366,10 +368,13 @@
 
 /* Narrow reading widths: the single-line toolbar cannot fit a phone viewport,
  * and nowrap spills its zoom/fit controls past the container's overflow-x
- * clip where they cannot be reached. Wrap into stacked rows instead. */
+ * clip where they cannot be reached. Wrap into stacked rows instead.
+ *
+ * The base rule on `.reader-toolbar-row` already wraps unconditionally; this
+ * block is kept to honour the original rationale at the breakpoint it was
+ * written for, in case a future layout reverses the base rule. */
 @media (max-width: 720px) {
-  .reader-navigation,
-  .reader-nav-primary {
+  .reader-toolbar-row {
     flex-wrap: wrap;
     row-gap: var(--space-1);
   }

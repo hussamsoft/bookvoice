@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Page-level reader orchestrator: browse vs. load, with race-cancel.
@@ -54,6 +54,11 @@ export function useReaderPageLifecycle({
     // Bumped on every browse/load. Async work that resolves with a stale
     // id is dropped on the floor.
     const requestIdRef = useRef(0);
+    // The page whose content is currently resolved and rendered. Lets a
+    // repeated `browsePage` to the same page (e.g. an effect re-firing
+    // because its deps object is unstable) become a no-op instead of a
+    // fresh round trip through `resolveContent`.
+    const currentPageRef = useRef(null);
     // Latest resolveContent in a ref so a change in the source does not
     // abort an in-flight call.
     const resolveContentRef = useRef(resolveContent);
@@ -81,6 +86,12 @@ export function useReaderPageLifecycle({
     const run = useCallback(
         (page, { kind, autoplay }) => {
             const target = clamp(page);
+            // Already showing this page with content resolved: a browse to
+            // the same page is a no-op. (A `load` always re-runs — it drives
+            // narration, which the caller expects to (re)start.)
+            if (kind === 'browse' && target === currentPageRef.current) {
+                return;
+            }
             const requestId = ++requestIdRef.current;
             if (kind === 'load' && onBeforeLoadRef.current) {
                 onBeforeLoadRef.current();
@@ -91,6 +102,7 @@ export function useReaderPageLifecycle({
                 try {
                     const resolved = await resolveContentRef.current(target);
                     if (requestId !== requestIdRef.current) return; // a newer request superseded us
+                    currentPageRef.current = target;
                     if (onContentRef.current) {
                         await onContentRef.current(
                             resolved?.text,
@@ -131,5 +143,8 @@ export function useReaderPageLifecycle({
         requestIdRef.current += 1;
     }, []);
 
-    return { isLoading, browsePage, loadPage };
+    return useMemo(
+        () => ({ isLoading, browsePage, loadPage }),
+        [isLoading, browsePage, loadPage]
+    );
 }

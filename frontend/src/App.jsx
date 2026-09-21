@@ -22,6 +22,7 @@ const VIEW_TITLES = {
     reader: 'Reader',
     scan: 'Scanner',
     studio: 'Voice Studio',
+    settings: 'Settings',
 };
 
 export default function App() {
@@ -138,11 +139,10 @@ export default function App() {
                                     lastBookId={lastBookId}
                                     onOpenBook={openBook}
                                     onNavigate={navigate}
-                                    onError={() => {}}
                                 />
                             )}
                             {displayView === 'library' && (
-                                <LibraryView onOpenBook={openBook} onError={() => {}} />
+                                <LibraryView onOpenBook={openBook} />
                             )}
                             {displayView === 'reader' && reader}
                             {displayView === 'scan' && (

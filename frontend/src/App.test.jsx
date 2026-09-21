@@ -149,6 +149,18 @@ describe('App shell navigation', () => {
         expect(await screen.findByRole('heading', { name: 'Library', level: 1 })).toBeInTheDocument();
     });
 
+    it('shows the Settings top-bar title and exposes a Settings nav button', async () => {
+        renderApp();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+        // The top-bar context title must surface the view's name; without
+        // F-15's fix this resolves to '' (no entry in VIEW_TITLES).
+        expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+        const topBarTitle = document.querySelector('.topbar-title');
+        expect(topBarTitle?.textContent?.trim()).toBe('Settings');
+    });
+
     it('opens the keyboard-shortcuts sheet from the ? key', async () => {
         renderApp();
         fireEvent.keyDown(window, { key: '?' });

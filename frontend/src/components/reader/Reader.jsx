@@ -80,6 +80,9 @@ export default function Reader() {
     const [pageText, setPageText] = useState('');
     const [query, setQuery] = useState('');
     const [lastQuery, setLastQuery] = useState('');
+    // The page a search last landed on, kept independent of `search.result`
+    // (which is reset immediately after the jump — see the effect below).
+    const [foundPage, setFoundPage] = useState(null);
     const [pdfLoadError, setPdfLoadError] = useState(null);
     const [statusHint, setStatusHint] = useState('');
     const [sessionId] = useState(() => createSessionId('reader'));
@@ -333,10 +336,19 @@ export default function Reader() {
     });
 
     // Jump to the page a successful search landed on. `result` only
-    // changes on a newer submit, so the jump fires once per match.
+    // changes on a newer submit, so the jump fires once per match. The
+    // result is consumed exactly once — `search.reset()` clears it right
+    // after the jump so re-renders (narration ticks at ~4Hz) don't keep
+    // re-firing this effect and re-resolving the page. The landed page is
+    // kept in `foundPage` so the "Found … on page N" status survives the
+    // reset and the subsequent navigation.
     useEffect(() => {
-        if (Number.isFinite(search.result)) lifecycle.browsePage(search.result);
-    }, [search.result, lifecycle]);
+        if (Number.isFinite(search.result)) {
+            setFoundPage(search.result);
+            lifecycle.browsePage(search.result);
+            search.reset();
+        }
+    }, [search.result, lifecycle, search]);
 
     // Keep the page-jump input in lockstep with the current page so the
     // field never disagrees with the toolbar's "Page N of M" status.
@@ -510,6 +522,7 @@ export default function Reader() {
         const trimmed = query.trim();
         if (!trimmed) return;
         setLastQuery(trimmed);
+        setFoundPage(null);
         search.submit(trimmed);
     };
 
@@ -519,8 +532,8 @@ export default function Reader() {
     } else if (search.error) {
         searchStatus = `Search failed: ${search.error.message}`;
     } else if (lastQuery) {
-        searchStatus = Number.isFinite(search.result)
-            ? `Found “${lastQuery}” on page ${search.result}.`
+        searchStatus = foundPage != null
+            ? `Found “${lastQuery}” on page ${foundPage}.`
             : `No matches for “${lastQuery}”.`;
     }
 

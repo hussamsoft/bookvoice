@@ -184,6 +184,30 @@ describe('Reader', () => {
         expect(screen.getByText('Page 7 of 12')).toBeInTheDocument();
     });
 
+    it('does not trap navigation on the search hit and does not re-resolve idle', async () => {
+        render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        expect(await screen.findByText(/Server page 1 text/)).toBeInTheDocument();
+
+        fireEvent.change(screen.getByLabelText(/find in book/i), { target: { value: 'page 7' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+        expect(await screen.findByText(/Server page 7 text/)).toBeInTheDocument();
+
+        const callsAfterJump = api.getBookPage.mock.calls.length;
+        // Idle: nothing should re-resolve the page just because the reader
+        // re-rendered (e.g. from a timer tick elsewhere).
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+        expect(api.getBookPage.mock.calls.length).toBe(callsAfterJump);
+
+        // Navigation away from the hit page must work — it must not snap back.
+        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        expect(await screen.findByText(/Server page 8 text/)).toBeInTheDocument();
+        expect(screen.getByText('Page 8 of 12')).toBeInTheDocument();
+
+        // The "Found on page 7" status must still be visible after the jump.
+        expect(screen.getByText(/Found .page 7. on page 7/)).toBeInTheDocument();
+    });
+
     it('reports when a search has no match and stays on the page', async () => {
         render(<Reader />);
         fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));

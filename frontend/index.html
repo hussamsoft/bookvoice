@@ -7,34 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Capture book pages, extract text, translate, and hear them narrated in your own voice." />
     <meta name="theme-color" content="#0d0d17" />
-    <script>
-      // Match the app theme and background before first paint; TitleBar keeps
-      // them in sync after mount. Pulls --bg from tokens.css via
-      // getComputedStyle so the palette table only lives in CSS.
-      (function () {
-        try {
-          var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var palette = 'paper';
-          try {
-            var storedMode = window.localStorage.getItem('bookvoice.mode');
-            if (storedMode !== 'dark' && storedMode !== 'light') {
-              storedMode = window.localStorage.getItem('bookvoice:mode');
-            }
-            if (storedMode !== 'dark' && storedMode !== 'light') {
-              storedMode = window.localStorage.getItem('bookvoice.theme');
-            }
-            if (storedMode === 'dark' || storedMode === 'light') dark = storedMode === 'dark';
-            var storedPalette = window.localStorage.getItem('bookvoice.palette');
-            if (!storedPalette) storedPalette = window.localStorage.getItem('bookvoice:palette');
-            if (storedPalette) palette = storedPalette;
-          } catch (e) { /* storage unavailable; keep system preference */ }
-          document.documentElement.setAttribute('data-palette', palette);
-          document.documentElement.setAttribute('data-mode', dark ? 'dark' : 'light');
-          var bg = window.getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', bg || '#0d0d17');
-        } catch (e) { /* non-browser env */ }
-      })();
-    </script>
+    <script src="/theme-boot.js"></script>
     <title>BookVoice</title>
   </head>
   <body>
