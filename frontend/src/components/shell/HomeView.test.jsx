@@ -6,7 +6,7 @@ import { ToastProvider } from '../Toast';
 vi.mock('../../hooks/reader/usePreparedLibrary', () => ({
     usePreparedLibrary: () => ({
         books: HomeView.__books ?? [],
-        isLoading: false,
+        isLoading: HomeView.__isLoading ?? false,
         refresh: vi.fn(async () => {}),
         setBooks: vi.fn(),
     }),
@@ -98,6 +98,36 @@ describe('HomeView', () => {
             screen.queryByText(/corrupt/i) !== null
             || document.querySelector('[role="status"]')?.textContent?.includes('corrupt')
         ).toBe(true));
+    });
+
+    it('reserves the continue-reading slot with skeletons while loading (F-41)', () => {
+        HomeView.__books = [];
+        HomeView.__isLoading = true;
+        try {
+            renderHome();
+            // Skeletons reserve the slot where the list will land — no
+            // bottom-of-page hint, no layout shift on resolve.
+            expect(document.querySelectorAll('.skeleton--book-row').length).toBeGreaterThan(0);
+            expect(screen.queryByText('Loading your library…')).not.toBeInTheDocument();
+        } finally {
+            HomeView.__isLoading = false;
+        }
+    });
+
+    it('shows Adding… with a spinner instead of the folder icon while importing (F-41)', async () => {
+        HomeView.__books = [];
+        importMock.mockImplementation(() => new Promise(() => {}));
+        renderHome();
+
+        const input = document.querySelector('input[type="file"]');
+        fireEvent.change(input, {
+            target: { files: [new File(['x'], 'book.pdf', { type: 'application/pdf' })] },
+        });
+
+        await waitFor(() => expect(screen.getByRole('button', { name: /Adding…/ })).toBeInTheDocument());
+        // Exactly one icon in the button: the spinner replaced the folder.
+        const button = screen.getByRole('button', { name: /Adding…/ });
+        expect(button.querySelectorAll('svg').length).toBe(1);
     });
 
     it('navigates to the scanner and the studio from the quick actions', () => {

@@ -114,6 +114,20 @@ describe('LibraryView', () => {
         );
     });
 
+    it('shows Adding… with a single spinner icon while importing (F-41)', async () => {
+        importMock.mockImplementation(() => new Promise(() => {}));
+        renderLibrary();
+
+        const input = document.querySelector('input[type="file"]');
+        fireEvent.change(input, {
+            target: { files: [new File(['x'], 'book.pdf', { type: 'application/pdf' })] },
+        });
+
+        await waitFor(() => expect(screen.getByRole('button', { name: /Adding…/ })).toBeInTheDocument());
+        const button = screen.getByRole('button', { name: /Adding…/ });
+        expect(button.querySelectorAll('svg').length).toBe(1);
+    });
+
     it('adds a book and opens it', async () => {
         const onOpenBook = vi.fn();
         importMock.mockResolvedValue({ id: 'b9', title: 'Imported', sourceKind: 'pdf' });

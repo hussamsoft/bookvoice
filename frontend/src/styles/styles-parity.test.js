@@ -16,8 +16,6 @@ const ROOT = join(HERE, '..', '..');
 const STYLE_DIR = join(ROOT, 'src', 'styles');
 
 const ALLOWLIST = new Set([
-    // Bare state modifiers whose rules exist only as compounds elsewhere.
-    'compact',
     // Third-party managed classes.
     'react-pdf__Page',
     'react-pdf__Document',

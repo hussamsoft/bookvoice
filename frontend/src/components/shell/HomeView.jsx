@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { BookOpen, Camera, FolderPlus, Play } from 'lucide-react';
+import { BookOpen, Camera, FolderPlus, Loader2, Play } from 'lucide-react';
 import Button from '../ui/Button';
 import PreparedBookRow from './PreparedBookRow';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
@@ -69,6 +69,19 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                 </section>
             )}
 
+            {isLoading && (
+                /* F-41: reserve the continue-reading slot with the same
+                   skeletons Library uses, so nothing shifts when the
+                   library resolves (was: a bare hint at page bottom). */
+                <section className="home-section" aria-busy="true">
+                    <h2 className="home-section-heading">Continue reading</h2>
+                    <div className="home-continue-list" role="status" aria-label="Loading your library">
+                        <div className="skeleton skeleton--book-row" />
+                        <div className="skeleton skeleton--book-row" />
+                    </div>
+                </section>
+            )}
+
             {!continueBooks.length && startBook && !isLoading && (
                 <section className="home-section" aria-labelledby="home-start-heading">
                     <h2 className="home-section-heading" id="home-start-heading">Pick up a book</h2>
@@ -92,8 +105,11 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                             disabled={isAdding}
                             onClick={() => fileInputRef.current?.click()}
                         >
-                            <FolderPlus size={16} aria-hidden="true" />
-                            Add a book
+                            {/* F-41: swap icon for spinner (not both) and say what's happening. */}
+                            {isAdding
+                                ? <Loader2 className="spinner" size={16} aria-hidden="true" />
+                                : <FolderPlus size={16} aria-hidden="true" />}
+                            {isAdding ? 'Adding…' : 'Add a book'}
                         </Button>
                         <input
                             ref={fileInputRef}
@@ -127,9 +143,6 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                 </div>
             </section>
 
-            {isLoading && (
-                <p className="hint" role="status">Loading your library…</p>
-            )}
         </div>
     );
 }

@@ -70,6 +70,12 @@ export default function SettingsView() {
                     <span>Hosted server mode: local file actions and LAN tunnel options are disabled.</span>
                 </div>
             )}
+            {/* F-41: ONE loading announcement for the whole page. The
+                per-section "Loading settings…" paragraphs each carried
+                role="status" and were announced three times. */}
+            {!config && !serverMode && (
+                <p className="settings-hint" role="status">Loading settings…</p>
+            )}
 
             <section className="settings-card" aria-labelledby="settings-appearance">
                 <h2 className="settings-section-title" id="settings-appearance">Appearance</h2>
@@ -137,9 +143,7 @@ export default function SettingsView() {
                             prepared with.
                         </p>
                     </>
-                ) : (
-                    <p className="settings-hint" role="status">Loading settings…</p>
-                )}
+                ) : null}
             </section>
 
             <section className="settings-card" aria-labelledby="settings-capture">
@@ -154,9 +158,7 @@ export default function SettingsView() {
                             onChange={(e) => handleChange('ocr_use_gpu', e.target.checked)}
                         />
                     </label>
-                ) : (
-                    <p className="settings-hint" role="status">Loading settings…</p>
-                )}
+                ) : null}
             </section>
 
             <section className="settings-card" aria-labelledby="settings-connections">

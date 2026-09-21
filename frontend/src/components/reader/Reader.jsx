@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../Toast';
 import PlaybackControls from '../PlaybackControls';
+import PreparedBookRow from '../shell/PreparedBookRow';
 import {
     getPreparedPage,
     importPreparedBook,
@@ -590,18 +591,15 @@ export default function Reader() {
                     {books.length > 0 && (
                         <div className="reader-open-list" aria-label="Prepared books">
                             {books.map((book) => (
-                                <button
+                                // F-21: one row component, one appearance — the
+                                // Reader used to hand-roll a drifted copy of
+                                // this markup (raw lowercase badge, page count
+                                // instead of the progress line).
+                                <PreparedBookRow
                                     key={book.id}
-                                    type="button"
-                                    className="prepared-book-row"
-                                    onClick={() => openLibraryBook(book)}
-                                >
-                                    <span className="prepared-book-row-heading">
-                                        <span className="source-kind-badge">{book.sourceKind || 'pdf'}</span>
-                                        <strong>{book.title || 'Prepared book'}</strong>
-                                    </span>
-                                    {Number(book.pageCount) > 0 && <span>{book.pageCount} pages</span>}
-                                </button>
+                                    book={book}
+                                    onOpen={openLibraryBook}
+                                />
                             ))}
                         </div>
                     )}

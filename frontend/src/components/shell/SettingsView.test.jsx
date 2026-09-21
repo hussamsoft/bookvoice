@@ -12,9 +12,11 @@ vi.mock('../../utils/api', () => ({
   getServerAddresses: vi.fn(async () => ({ available: false })),
 }));
 
+const DEFAULT_CONFIG = { tts_device: 'auto', ocr_use_gpu: false, voice_id: null, check_for_updates: true };
+let mockConfig = DEFAULT_CONFIG;
 vi.mock('../../hooks/useUserConfig', () => ({
   useUserConfig: () => ({
-    config: { tts_device: 'auto', ocr_use_gpu: false, voice_id: null, check_for_updates: true },
+    config: mockConfig,
     updateConfig,
     saveError: null,
   }),
@@ -40,6 +42,15 @@ describe('SettingsView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockConfig = DEFAULT_CONFIG;
+  });
+
+  it('announces loading exactly once while config is pending (F-41)', () => {
+    mockConfig = null;
+    renderSettings();
+    const statuses = screen.getAllByRole('status');
+    const loading = statuses.filter((el) => /Loading settings/.test(el.textContent));
+    expect(loading.length).toBe(1);
   });
 
   it('labels its sections so scope is obvious', () => {

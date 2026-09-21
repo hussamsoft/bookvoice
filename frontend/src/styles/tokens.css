@@ -450,5 +450,13 @@
   --bp-md: 1024px;
 
   --titlebar-height: 52px;
-  --transport-height: 76px;
+  /* F-20: outer height of the ≤720px bottom nav (sidebar row): item
+     min-height + the bar's vertical padding + the home-indicator inset.
+     Toasts and anything else fixed to the bottom edge offset by this. */
+  --bottom-nav-h: calc(
+    var(--control-h-lg) + (2 * var(--space-2)) + env(safe-area-inset-bottom, 0px)
+  );
+  /* F-10: the old `--transport-height` token (76px) was removed — zero
+     consumers, and it disagreed with the real `--transport-fixed-h`
+     formula in controls.css. */
 }

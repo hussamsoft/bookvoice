@@ -161,9 +161,11 @@ export default function LibraryView({ onOpenBook, onError }) {
                     </p>
                 </div>
                 <Button variant="primary" disabled={isAdding} onClick={() => fileInputRef.current?.click()}>
-                    <FolderPlus size={16} aria-hidden="true" />
-                    {isAdding ? <Loader2 className="spinner" size={16} aria-hidden="true" /> : null}
-                    Add a book
+                    {/* F-41: swap icon for spinner (not both) and say what's happening. */}
+                    {isAdding
+                        ? <Loader2 className="spinner" size={16} aria-hidden="true" />
+                        : <FolderPlus size={16} aria-hidden="true" />}
+                    {isAdding ? 'Adding…' : 'Add a book'}
                 </Button>
                 <input
                     ref={fileInputRef}

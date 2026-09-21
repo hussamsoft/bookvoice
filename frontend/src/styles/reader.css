@@ -192,9 +192,13 @@
   padding-right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
 }
 
-/* Fixed narration transport at <=720px overlays the page; keep content clear. */
+/* Fixed narration transport at <=720px overlays the page; keep content clear.
+ * F-10: both surfaces that host the bar must pad — the Reader root AND the
+ * scan session (BookSession renders the same transport via NarrationPlayback).
+ * Keep these selectors together so the two can never drift apart again. */
 @media (max-width: 720px) {
-  .pdf-viewer-container {
+  .pdf-viewer-container,
+  .book-session {
     padding-bottom: calc(var(--transport-fixed-h, calc(76px + env(safe-area-inset-bottom, 0px))) + var(--space-2));
   }
 }
@@ -1195,6 +1199,9 @@
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
+  /* F-21: the row is a button that opens the book — afford it as clickable. */
+  cursor: pointer;
+  text-align: left;
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
@@ -1207,6 +1214,14 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+}
+
+/* F-21: long titles truncate instead of pushing the row's meta line away. */
+.prepared-book-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
 }
 

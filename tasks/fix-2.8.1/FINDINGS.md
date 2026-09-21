@@ -18,18 +18,18 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-07 | S2 | Reader lost scrubber, time, rate, transcript, bookmark jump, voice/language | `Reader.jsx`, `PlaybackControls.jsx` | 2 | verified |
 | F-08 | S2 | `useWordHighlight`/`pdfHighlight`/`wordPronunciation` fully orphaned | `hooks/useWordHighlight.js` | 2 | deferred (partial) |
 | F-09 | S2 | `lifecycle.isLoading` never consumed; false empty state on every page turn | `Reader.jsx`, `TextStage.jsx:11-13` | 2 | verified |
-| F-10 | S2 | Mobile transport padding applied to the wrong component | `reader.css:186-189,1189` | 3 | open |
+| F-10 | S2 | Mobile transport padding applied to the wrong component | `reader.css:186-189,1189` | 3 | verified |
 | F-11 | S2 | 89 of 421 CSS classes orphaned; parity test guards only one direction | `styles/*.css`, `styles-parity.test.js` | 6 | open |
 | F-12 | S2 | Text books render as one `<p>` — all paragraph structure lost | `TextStage.jsx:22` | 2 | verified |
 | F-13 | S2 | Reader toolbar is a flat undifferentiated row of ~20 controls | `Reader.jsx:570-720` | 2 | verified |
 | F-14 | S2 | All palette swatches render identically; DOM mutation during render | `useTheme.js:31-46`, `SettingsView.jsx:97` | 1 | verified |
 | F-15 | S2 | Settings view has no top-bar title | `App.jsx:19-25` | 1 | verified |
-| F-16 | S2 | Four different touch-target sizes (44/36/32/28); `.compact` alias missed | `controls.css:122,150,673`, `studio.css:643` | 3 | open |
-| F-17 | S2 | `Button` `size` prop inert — size classes live in `base.css`, overridden by `controls.css` | `base.css:184,190` | 3 | open |
-| F-18 | S3 | `backdrop-filter` where nothing passes behind; double blur on modals | `shell.css:27,44`, `controls.css:425,444` | 3 | open |
-| F-19 | S2 | `100vh` on a phone-targeted app | `shell.css:5,20` | 3 | open |
-| F-20 | S2 | Toast region collides with the mobile bottom nav | `shell.css:762-773` | 3 | open |
-| F-21 | S3 | Library visually flat; no covers; `.prepared-book-row` lacks `cursor: pointer`; row markup duplicated and drifted | `reader.css:1146`, `Reader.jsx:549-562` | 3 | open |
+| F-16 | S2 | Four different touch-target sizes (44/36/32/28); `.compact` alias missed | `controls.css:122,150,673`, `studio.css:643` | 3 | verified |
+| F-17 | S2 | `Button` `size` prop inert — size classes live in `base.css`, overridden by `controls.css` | `base.css:184,190` | 3 | verified |
+| F-18 | S3 | `backdrop-filter` where nothing passes behind; double blur on modals | `shell.css:27,44`, `controls.css:425,444` | 3 | verified |
+| F-19 | S2 | `100vh` on a phone-targeted app | `shell.css:5,20` | 3 | verified |
+| F-20 | S2 | Toast region collides with the mobile bottom nav | `shell.css:762-773` | 3 | verified |
+| F-21 | S3 | Library visually flat; no covers; `.prepared-book-row` lacks `cursor: pointer`; row markup duplicated and drifted | `reader.css:1146`, `Reader.jsx:549-562` | 3 | verified |
 | F-22 | S2 | Light-mode contrast failures (5 token pairs below AA) | `tokens.css`, `shell.css`, `controls.css` | 4 | open |
 | F-23 | S2 | Two `banner` landmarks (nested `<header>`) | `App.jsx:121`, `TopBar.jsx:10` | 4 | open |
 | F-24 | S3 | Heading order starts at `h2`; Reader has no `h1` | `TopBar.jsx:11`, `Reader.jsx:527` | 4 | open |
@@ -49,7 +49,7 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-38 | S3 | "Try again" on PDF error retries nothing; double error reporting | `Reader.jsx:735-745` | 2 | verified |
 | F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | open |
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | open |
-| F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | open |
+| F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
 | F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | open |
 | F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | open |
 | F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | open |

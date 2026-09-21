@@ -2,7 +2,10 @@
 
 .app-shell {
   display: flex;
-  height: 100vh;
+  height: 100dvh;
+  /* F-19: prefer the dynamic viewport unit on phone-targeted layouts so
+   * the address bar collapsing on scroll doesn't reveal background. */
+  height: 100vh; /* fallback for browsers without dvh support */
   overflow: hidden;
   /* Aurora wash: two soft corner glows of the palette's aurora hues over
    * the ink stage. Decoration only — chrome and cards stay on tokens. */
@@ -17,7 +20,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
+  height: 100vh; /* F-19: dvh fallback chain */
   overflow: hidden;
 }
 
@@ -25,8 +29,8 @@
   flex: none;
   padding-top: env(safe-area-inset-top);
   background: var(--glass);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+  /* F-18: no backdrop-filter — content scrolls beside/below this bar,
+     never under it. The blur only sampled the static shell gradient. */
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -41,8 +45,7 @@
   padding: var(--space-4) var(--space-3);
   padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
   background: var(--glass);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+  /* F-18: no backdrop-filter — nothing ever scrolls under the rail. */
   border-right: 1px solid var(--hairline);
 }
 
@@ -759,8 +762,9 @@
 
 /* --- Toasts ------------------------------------------------------------ */
 
-.toast-region,
-.toast-region-error {
+/* F-20: `.toast-region-error` was orphaned — Toast.jsx renders exactly one
+   region. Deleted rather than kept as dead surface. */
+.toast-region {
   position: fixed;
   bottom: var(--space-5);
   left: 50%;
@@ -770,6 +774,14 @@
   flex-direction: column;
   gap: var(--space-2);
   width: min(420px, calc(100vw - 32px));
+}
+
+/* F-20: at phone widths the sidebar becomes a fixed bottom bar — lift the
+   toasts clear of it (and the home indicator) so they never cover nav. */
+@media (max-width: 720px) {
+  .toast-region {
+    bottom: calc(var(--bottom-nav-h) + var(--space-2));
+  }
 }
 
 

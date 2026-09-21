@@ -27,7 +27,7 @@ const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
                 <span className="source-kind-badge">
                     {badge}
                 </span>
-                {book.title}
+                <span className="prepared-book-row-title">{book.title}</span>
             </span>
             <small>
                 Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated

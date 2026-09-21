@@ -186,17 +186,9 @@ a {
   border-radius: var(--radius-md);
 }
 
-/* Button primitive sizes (ui/Button.jsx) mapped to control-height tokens. */
-.btn-sm {
-  height: var(--control-h-sm);
-  padding: 0 var(--space-3);
-  font-size: var(--text-xs);
-}
-
-.btn-lg {
-  height: var(--control-h-lg);
-  padding: 0 var(--space-5);
-}
+/* F-17: Button size variants moved to controls.css as `.btn.btn-sm` /
+ * `.btn.btn-lg` compounds — the bare rules here were overridden by `.btn`
+ * (same specificity, later file) and the `size` prop was inert. */
 
 @media (prefers-reduced-motion: reduce) {
   *,

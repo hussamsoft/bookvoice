@@ -57,13 +57,17 @@ function PlaybackControls({
         onSeek(Math.min(Math.max(seconds, 0), duration));
     };
     const canStop = generating || hasMedia || transport.isPlaying;
+    // F-16: the wrapper used to toggle an unstyled `compact` alias that the
+    // parity allowlist masked. No CSS ever consumed it, and no caller passes
+    // compact=true; the prop now only gates the Stop label. If a compact
+    // layout is ever needed, style it explicitly.
     return (
-        <div className={`playback-transport ${compact ? 'compact' : ''}`}>
+        <div className="playback-transport">
             {/* Secondary row (muted): rate, sleep, page-label */}
             <div className="transport-secondary">
                 <button
                     type="button"
-                    className="btn secondary compact transport-stop"
+                    className="btn secondary btn-compact transport-stop"
                     onClick={onStop}
                     disabled={!canStop || !onStop}
                     aria-label="Stop narration"
@@ -74,7 +78,7 @@ function PlaybackControls({
                 </button>
                 <button
                     type="button"
-                    className="btn secondary compact transport-skip"
+                    className="btn secondary btn-compact transport-skip"
                     onClick={() => transport.skipBy(-10)}
                     disabled={!canSeek}
                     aria-label="Skip back 10 seconds"
@@ -85,7 +89,7 @@ function PlaybackControls({
                 </button>
                 <button
                     type="button"
-                    className="btn secondary compact transport-skip"
+                    className="btn secondary btn-compact transport-skip"
                     onClick={() => transport.skipBy(10)}
                     disabled={!canSeek}
                     aria-label="Skip forward 10 seconds"

@@ -100,3 +100,36 @@ Test:      TextStage.test.jsx :: "marks the current narration word with the high
 Changed:   TextStage.jsx (split paragraphs into word spans, currentWord prop); Reader.jsx (passes currentWord={null} — full integration deferred).
 Gate:      see F-07
 Notes:     The audit finding is partially addressed: the rendering contract is in place and verifiable, the hook is still orphaned. A follow-up issue should land the RAF integration with deterministic timings.
+
+## F-10 — Mobile transport padding on wrong component   [phase 3] 2026-09-20
+Test:      styles/transport-clearance.test.js (failed: .book-session absent from the ≤720px padding block; --transport-height still present)
+Changed:   reader.css (media rule now covers .pdf-viewer-container AND .book-session), tokens.css (deleted dead --transport-height)
+
+## F-16 — Touch-target size reconciliation              [phase 3] 2026-09-20
+Test:      styles/touch-targets.test.js + components/PlaybackControls-compact.test.js (failed: no range/checkbox in coarse block; 720px override used --control-h-md; 'compact' in parity allowlist)
+Changed:   PlaybackControls.jsx (.compact → .btn-compact; dropped inert wrapper class), controls.css (coarse block covers range+checkbox; ≤720px compact override raised to 44px), studio.css (documented 32px transcript-chip exception), styles-parity.test.js (allowlist entry removed)
+
+## F-17 — Button size prop inert                        [phase 3] 2026-09-20
+Test:      styles/button-sizes.test.js (failed: bare .btn-sm/.btn-lg only in base.css)
+Changed:   base.css (removed bare rules), controls.css (.btn.btn-sm/.btn.btn-lg compounds with min-height; coarse block includes .btn.btn-sm)
+
+## F-18 — backdrop-filter with nothing behind           [phase 3] 2026-09-20
+Test:      styles/blur-and-toast.test.js (failed: blur on .main-header/.sidebar/.modal-panel)
+Changed:   shell.css (dropped blur on .main-header/.sidebar), controls.css (dropped blur on .modal-panel; overlay keeps it)
+
+## F-19 — 100vh on a phone app                          [phase 3] 2026-09-20
+Test:      styles/viewport-height.test.js (failed: no dvh)
+Changed:   shell.css (.app-shell/.app-column use 100dvh with 100vh fallback)
+
+## F-20 — Toast collides with mobile bottom nav         [phase 3] 2026-09-20
+Test:      styles/blur-and-toast.test.js (failed: no ≤720px offset; .toast-region-error present)
+Changed:   tokens.css (new --bottom-nav-h token), shell.css (toast offset at ≤720px; deleted orphan .toast-region-error)
+
+## F-21 — Library row cursor + drifted duplicate markup [phase 3] 2026-09-20
+Test:      styles/prepared-book-row.test.js (failed: no cursor:pointer)
+Changed:   reader.css (cursor:pointer, text-align:left, .prepared-book-row-title ellipsis), PreparedBookRow.jsx (title span), Reader.jsx (hand-rolled open-a-book rows replaced with <PreparedBookRow>)
+Notes:     cover thumbnails remain deferred per FINDINGS.md
+
+## F-41 — Inconsistent loading treatment                [phase 3] 2026-09-20
+Test:      HomeView.test.jsx (skeleton slot; Adding… button), LibraryView.test.jsx (Adding… button), SettingsView.test.jsx (single loading status) — all failed first
+Changed:   HomeView.jsx (skeletons reserve continue slot; bottom hint removed; unified add button), LibraryView.jsx (icon swapped for spinner + Adding… label), SettingsView.jsx (one page-level role=status; per-section duplicates removed)
