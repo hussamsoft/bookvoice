@@ -51,7 +51,7 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | verified |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
 | F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | verified |
-| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | partial (F-45 log PR) |
+| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | partial (logging = own PR) |
 | F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | verified |
 
 ## Deferred / explicitly out of scope
