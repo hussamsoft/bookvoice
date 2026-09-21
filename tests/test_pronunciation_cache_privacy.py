@@ -28,20 +28,57 @@ if str(BACKEND) not in sys.path:
 
 
 class PronunciationCachePrivacyTests(unittest.TestCase):
+    # The salt env var is read at import time, so these tests must reload
+    # the tts_service submodules — but the reloads REPLACED sys.modules
+    # entries and never restored them: every later test file (notably
+    # test_tts_lifecycle) then ran against duplicate module instances,
+    # splitting singleton state (submit_tts never reaching the mocks, the
+    # fresh model module really attempting a weight load, etc.). The
+    # originals are now snapshotted in setUp and reinstated in tearDown,
+    # so the reload is contained to this file (2.8.1 F-45 bisect).
+    RELOADED = [
+        "services.tts_service.streaming",
+        "services.tts_service.synth",
+        "services.tts_service.model",
+        "services.tts_service.queue",
+        "services.config_service",
+    ]
+
     def setUp(self) -> None:
-        # Reset module-level state so re-imports don't leak.
-        for mod in [
-            "services.tts_service.streaming",
-            "services.tts_service.synth",
-            "services.tts_service.model",
-            "services.tts_service.queue",
-            "services.config_service",
-        ]:
-            if mod in sys.modules:
-                del sys.modules[mod]
+        self._saved_modules = {
+            name: sys.modules[name] for name in self.RELOADED if name in sys.modules
+        }
+
+    def tearDown(self) -> None:
+        # Restore only what existed before this class ran. Modules that this
+        # class's tests imported fresh are left in place fully initialized:
+        # removing them again (attributes or sys.modules entries) breaks
+        # the package's own lazy submodule wiring worse than a duplicate
+        # pristine instance ever did.
+        for name, original in self._saved_modules.items():
+            sys.modules[name] = original
+            parent, _, child = name.rpartition(".")
+            if parent and parent in sys.modules:
+                # importlib also rebinds the parent package attribute on
+                # every import — undo that half of the swap too.
+                setattr(sys.modules[parent], child, original)
 
     def _reload_streaming(self):
-        """Reload the streaming module to pick up env changes."""
+        """Reload the streaming module chain to pick up env changes.
+
+        The original class DELETED these from sys.modules in setUp (never
+        restoring them); reordering reloads here achieve the same fresh
+        import-time env reads without orphaning the instances the rest of
+        the suite imported at collection time.
+        """
+        for name in [
+            "services.config_service",
+            "services.tts_service.queue",
+            "services.tts_service.model",
+            "services.tts_service.synth",
+        ]:
+            if name in sys.modules:
+                importlib.reload(sys.modules[name])
         import services.tts_service.streaming as streaming
 
         return importlib.reload(streaming)

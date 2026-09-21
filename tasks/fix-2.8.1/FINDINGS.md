@@ -60,14 +60,14 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 - Backend `logging` migration (F-43) — touches ~50 call sites; land as its own PR.
 - Content-addressed book ids: re-importing an edited file orphans progress.
   Behaviour is intentional; documented here so it is not "fixed" by accident.
-- F-45 (new, 2026-09-20, found during Phase 4 gating): `python -m pytest tests -q`
-  fails 11 backend tests (test_tts_lifecycle ×10, test_voice_conversion ×1) in
-  full-suite order only — deterministically reproduced in clean worktrees of
-  `766698a` **and** the pre-remediation baseline `4524079`, and green when the
-  two files run in isolation. Root causes: order-dependent state in the TTS
-  suite + missing local model weights on this machine
-  (`backend/services/data/models/en`, untracked, normally installed by the
-  first-run payload). Out of remediation scope (no 2.8.1 phase can or should
-  touch it); the pytest gate for Phases 4–6 is recorded as *no new failures
-  vs baseline*, with the full-suite claim withheld until the suite is fixed
-  on its own ticket.
+- F-45 (new, 2026-09-20, found during Phase 4 gating): **RESOLVED during Phase 6 — see
+  LOG "F-45 resolution".** Originally: `python -m pytest tests -q` failed 11 backend
+  tests (test_tts_lifecycle ×10, test_voice_conversion ×1) in full-suite order only,
+  reproducible even in clean worktrees at the pre-remediation baseline `4524079`.
+  Bisect root cause: `tests/test_pronunciation_cache_privacy.py` deleted
+  `services.tts_service.*` from `sys.modules` in `setUp` and never restored the
+  originals — every later test file ran against duplicate module instances. The
+  "missing local model weights" errors were a symptom of the duplicated state, not a
+  machine defect. Fixed in the test (snapshot + in-place reordering reloads); the full
+  suite is now 478 passed / 0 failed, and the print()→logging migration for F-43 no
+  longer has an environment blocker.
