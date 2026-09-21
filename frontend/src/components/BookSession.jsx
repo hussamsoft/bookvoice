@@ -22,7 +22,7 @@ const STEP_LABELS = {
     playback: 'Listen',
 };
 
-export default function BookSession({ epoch, onDirty, onOpenBook }) {
+export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
     const toast = useToast();
     const [isNarratingUi, setIsNarratingUi] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -177,6 +177,9 @@ export default function BookSession({ epoch, onDirty, onOpenBook }) {
             const file = new File([text], `${title}.txt`, { type: 'text/plain' });
             const book = await importPreparedBook(file);
             toast.success('Saved to your Library.');
+            // F-34: a successful save makes the "unsaved work" guard a lie —
+            // tell App so the dirty flag goes away before the next nav click.
+            onSaved?.();
             onOpenBook?.(book);
         } catch (error) {
             toast.error(error.message || 'Could not save these pages to the Library.');

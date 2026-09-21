@@ -230,7 +230,10 @@ export default function Reader() {
         }, [lifecycle]),
         toast,
     });
-    narrationRef.current = narration;
+    // F-32: sync the bridge ref after commit, not during render.
+    useEffect(() => {
+        narrationRef.current = narration;
+    }, [narration]);
 
     // F-08: word-level highlight plumbing is in place (TextStage accepts
     // `currentWord` and wraps each word in a span), but the full
@@ -245,7 +248,9 @@ export default function Reader() {
         playing: narration.isPlaying,
         onExpire: narration.stopPlayback,
     });
-    sleepRef.current = sleep;
+    useEffect(() => {
+        sleepRef.current = sleep;
+    }, [sleep]);
 
     // Whenever the transport naturally reaches the end of the page
     // (streaming playlist exhausted, last chunk ended), notify the
@@ -318,9 +323,22 @@ export default function Reader() {
         return undefined;
     }, [file, libraryBookId, pageNumber, bookmarks, transport.currentTime, setBooks, toast]);
 
-    // Flush the pending progress save when the tab is hidden or the
-    // reader unmounts, mirroring useReaderProgress's visibility flush.
+    // Unmount flush of the pending progress save.
     useEffect(() => () => flushPreparedProgress(), [libraryBookId]);
+
+    // F-36: the visibility half the old comment always promised and never
+    // delivered, mirroring useReaderProgress.js:99-110 — the leading-edge
+    // throttle can leave the newest snapshot pending for up to 3s, and a
+    // backgrounded or closed tab must not lose it.
+    useEffect(() => {
+        const onHide = () => flushPreparedProgress();
+        window.addEventListener('pagehide', onHide);
+        document.addEventListener('visibilitychange', onHide);
+        return () => {
+            window.removeEventListener('pagehide', onHide);
+            document.removeEventListener('visibilitychange', onHide);
+        };
+    }, []);
 
     // Ctrl/Cmd+wheel zoom over the reading surface. Attached natively
     // (non-passive) because React's synthetic onWheel cannot
@@ -443,10 +461,18 @@ export default function Reader() {
         const requestedId = new URLSearchParams(window.location.search).get('book');
         if (!requestedId) return;
         const target = books.find((book) => book.id === requestedId);
-        if (!target) return;
+        if (!target) {
+            // F-39: the library is loaded and the id is simply not in it —
+            // say so instead of parking the user on an empty reader with no
+            // explanation (the usual cause: a .bookvoice double-click after
+            // the book was removed or imported under a different id).
+            deepLinkOpenedRef.current = true;
+            toast.error(`Could not find the book this link points to (${requestedId}). Open it from the Library to add it.`);
+            return;
+        }
         deepLinkOpenedRef.current = true;
         openLibraryBookRef.current?.(target);
-    }, [books]);
+    }, [books, toast]);
 
     const activateBook = (f, book = null) => {
         if (!f) return;
@@ -494,7 +520,11 @@ export default function Reader() {
             toast.error(error.message || 'Could not open the prepared book.');
         }
     };
-    openLibraryBookRef.current = openLibraryBook;
+    // F-32: this ref exists purely to break the declaration cycle; refreshed
+    // after every commit instead of being written during render.
+    useEffect(() => {
+        openLibraryBookRef.current = openLibraryBook;
+    });
 
     const handleFileChange = async (event) => {
         const selected = event.target.files[0];

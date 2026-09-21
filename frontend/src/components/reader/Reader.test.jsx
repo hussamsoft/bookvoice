@@ -14,10 +14,13 @@ import Reader from './Reader';
 // library `waitFor` polls via real `setTimeout`, which fake timers freeze.
 // Use the synchronous variant when running under fake timers.
 async function findPageText(container, regex) {
+    // 4 s, not the 1 s default: in the full parallel suite run these
+    // async page-resolution polls have measured >1.1 s under load and
+    // flaked; the assertion itself is unchanged.
     await waitFor(() => {
         const text = container.textContent ?? '';
         expect(text).toMatch(regex);
-    });
+    }, { timeout: 4000 });
 }
 
 function assertPageText(container, regex) {
@@ -186,6 +189,46 @@ describe('Reader', () => {
         // Zoom percent is never announced per tick.
         const zoomPct = container.querySelector('.reader-zoom-pct');
         if (zoomPct) expect(zoomPct).not.toHaveAttribute('aria-live');
+    });
+
+    it('flushes pending reading progress the moment the tab hides (F-36)', async () => {
+        const { container } = render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await screen.findByRole('heading', { level: 1, name: /Seed book/ });
+        api.updatePreparedProgress.mockClear();
+
+        // Turn a page: the new snapshot is pending behind the throttle
+        // once page 2 has actually resolved.
+        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        await findPageText(container, /Server page 2 text/);
+        // Hiding the tab must write it immediately — not wait for the 3s
+        // timer, and not wait for an unmount that never comes.
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        expect(api.updatePreparedProgress).toHaveBeenCalledWith(
+            'book-1',
+            expect.objectContaining({ page: 2 }),
+        );
+
+        api.updatePreparedProgress.mockClear();
+        act(() => { window.dispatchEvent(new Event('pagehide')); });
+        // Nothing new was pending after the visibility flush; a second
+        // event must not invent a save. (Guards against double-flush
+        // loops, not against the flush itself.)
+        expect(api.updatePreparedProgress).not.toHaveBeenCalled();
+    });
+
+    it('explains a deep link whose book id is not in the library (F-39)', async () => {
+        window.history.replaceState(null, '', '/?book=ghost-99');
+        try {
+            render(<Reader />);
+            // Books arrive; the id is genuinely absent — the user must be
+            // told, not left on a silent empty reader.
+            await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+                expect.stringContaining('ghost-99')
+            ));
+        } finally {
+            window.history.replaceState(null, '', '/');
+        }
     });
 
     it('More options popover follows the shared keyboard pattern (F-27)', async () => {

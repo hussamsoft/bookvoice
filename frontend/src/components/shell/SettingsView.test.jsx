@@ -71,7 +71,7 @@ describe('SettingsView', () => {
 
     const group = screen.getByRole('radiogroup', { name: 'Color palette and mode' });
     const radios = within(group).getAllByRole('radio');
-    expect(radios).toHaveLength(10); // five palettes x both modes
+    expect(radios).toHaveLength(15); // five palettes × light/dark/system (F-35)
 
     // Explicit accessible names — title-only naming is the last-resort
     // fallback and loses to the aria-hidden swatch contents.
@@ -97,15 +97,31 @@ describe('SettingsView', () => {
 
     fireEvent.keyDown(current, { key: 'ArrowRight' });
     const next = radios[(radios.indexOf(current) + 1) % radios.length];
-    expect(next).toHaveAccessibleName('Ember Dusk, light');
+    // Radio order is palette-major (F-35): after "…, dark" comes the same
+    // palette's "system" option — stored mode system, resolved light here.
+    expect(next).toHaveAccessibleName('Violet Dusk, system');
     expect(next).toHaveAttribute('aria-checked', 'true');
     expect(next).toHaveFocus();
-    expect(document.documentElement).toHaveAttribute('data-palette', 'sand');
+    expect(document.documentElement).toHaveAttribute('data-palette', 'plum');
     expect(document.documentElement).toHaveAttribute('data-mode', 'light');
+    expect(localStorage.getItem('bookvoice.mode')).toBe('system');
 
     fireEvent.keyDown(next, { key: 'ArrowLeft' });
     expect(current).toHaveAttribute('aria-checked', 'true');
     expect(document.documentElement).toHaveAttribute('data-palette', 'plum');
+    expect(document.documentElement).toHaveAttribute('data-mode', 'dark');
+  });
+
+  it('the System option is a first-class choice (F-35)', () => {
+    localStorage.setItem('bookvoice.palette', 'paper');
+    localStorage.setItem('bookvoice.mode', 'system');
+    renderSettings();
+    const group = screen.getByRole('radiogroup', { name: 'Color palette and mode' });
+    const system = within(group).getByRole('radio', { name: 'Aurora Ink, system' });
+    expect(system).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Cobalt Haze, system' }));
+    expect(document.documentElement).toHaveAttribute('data-palette', 'blue');
+    expect(localStorage.getItem('bookvoice.mode')).toBe('system');
   });
 
   it('clicking a palette option still selects it', () => {

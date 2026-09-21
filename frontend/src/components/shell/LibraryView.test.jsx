@@ -23,8 +23,11 @@ vi.mock('../../hooks/reader/usePreparedLibrary', () => ({
     }),
 }));
 
+// The app-wide config the library reads for prepare/export. Made mutable so
+// the F-33 test can render with config still unresolved.
+const configState = vi.hoisted(() => ({ current: { voice_id: 'v1', language_id: 'en' } }));
 vi.mock('../../hooks/useUserConfig', () => ({
-    useUserConfig: () => ({ config: { voice_id: 'v1', language_id: 'en' }, updateConfig: vi.fn() }),
+    useUserConfig: () => ({ config: configState.current, updateConfig: vi.fn() }),
 }));
 
 const prepareMock = vi.fn();
@@ -85,6 +88,22 @@ describe('LibraryView', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Export audiobook' }));
         await waitFor(() => expect(audiobookMock).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'b1' }), 'p1'));
+    });
+
+    it('disables book actions, without crashing, until config has loaded (F-33)', () => {
+        configState.current = null;
+        try {
+            renderLibrary();
+            // Pre-fix: clicking the trigger/prepare with config === null
+            // reached `config.voice_id` in useBookActions and threw a
+            // TypeError. Post-fix the trigger itself is not actionable.
+            const trigger = screen.getByRole('button', { name: /Book actions for Alice/i });
+            expect(trigger).toBeDisabled();
+            fireEvent.click(trigger);
+            expect(screen.queryByRole('group', { name: 'Book actions' })).not.toBeInTheDocument();
+        } finally {
+            configState.current = { voice_id: 'v1', language_id: 'en' };
+        }
     });
 
     it('book-actions popover follows the shared keyboard pattern (F-27)', async () => {

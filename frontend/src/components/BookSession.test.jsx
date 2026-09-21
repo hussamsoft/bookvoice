@@ -76,6 +76,36 @@ describe('BookSession scan wizard', () => {
         expect(h1s[0]).toHaveTextContent('Scan pages');
     });
 
+    it('a successful save clears the dirty guard via onSaved (F-34)', async () => {
+        const onOpenBook = vi.fn();
+        const onSaved = vi.fn();
+        importMock.mockResolvedValue({ id: 'b1', title: 'Scanned pages 2026-09-06' });
+        renderSession({ onOpenBook, onSaved });
+
+        fireEvent.click(screen.getByRole('button', { name: 'mock-capture' }));
+        await screen.findByTestId('editor-text');
+        fireEvent.click(screen.getByRole('button', { name: 'mock-save-text' }));
+        fireEvent.click(await screen.findByRole('button', { name: /Save to Library/i }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+        // Opened the fresh book too — the guard clears before navigation.
+        expect(onOpenBook).toHaveBeenCalled();
+    });
+
+    it('a failed save does NOT clear the dirty guard (F-34)', async () => {
+        const onSaved = vi.fn();
+        importMock.mockRejectedValue(new Error('disk gone'));
+        renderSession({ onSaved });
+
+        fireEvent.click(screen.getByRole('button', { name: 'mock-capture' }));
+        await screen.findByTestId('editor-text');
+        fireEvent.click(screen.getByRole('button', { name: 'mock-save-text' }));
+        fireEvent.click(await screen.findByRole('button', { name: /Save to Library/i }));
+
+        await waitFor(() => expect(screen.getByText(/disk gone/i)).toBeInTheDocument());
+        expect(onSaved).not.toHaveBeenCalled();
+    });
+
     it('keeps a captured page as text and offers Save to Library', async () => {
         const onOpenBook = vi.fn();
         importMock.mockResolvedValue({ id: 'b1', title: 'Scanned pages 2026-09-06' });

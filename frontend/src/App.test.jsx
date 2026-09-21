@@ -11,6 +11,7 @@ vi.mock('./components/BookSession', () => ({
             onClick={() => props.onDirty?.()}
         >
             Book Session Component
+            <button type="button" onClick={(event) => { event.stopPropagation(); props.onSaved?.(); }}>mock-saved</button>
         </div>
     ),
 }));
@@ -147,6 +148,34 @@ describe('App shell navigation', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Library' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Leave without saving' }));
         expect(await screen.findByRole('heading', { name: 'Library', level: 1 })).toBeInTheDocument();
+    });
+
+    it('does not warn about unsaved work after a successful scan save (F-34)', async () => {
+        renderApp();
+        fireEvent.click(screen.getByRole('button', { name: 'Scan' }));
+        const scan = await screen.findByTestId('book-session-mock');
+
+        fireEvent.click(scan);                       // capture -> dirty
+        fireEvent.click(screen.getByRole('button', { name: 'mock-saved' })); // saved -> clean
+
+        fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+        expect(await screen.findByRole('heading', { name: 'Library', level: 1 })).toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Leave the scan session?' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the top-bar title synced to the displayed view during the fade (F-40)', async () => {
+        renderApp();
+        fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+
+        // Mid-fade the stage still shows Home — so must the title.
+        const stage = document.querySelector('.mode-stage');
+        expect(stage.className).toContain('is-transitioning');
+        expect(document.querySelector('.topbar-title').textContent).toBe('Home');
+
+        // The swap rides the CSS fade's transitionend, not a JS timer.
+        fireEvent.transitionEnd(stage, { propertyName: 'opacity' });
+        await screen.findByRole('heading', { level: 1, name: 'Library' });
+        expect(document.querySelector('.topbar-title').textContent).toBe('Library');
     });
 
     it('exposes exactly one banner landmark in every view (F-23)', async () => {

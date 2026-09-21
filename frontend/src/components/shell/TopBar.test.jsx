@@ -6,6 +6,9 @@ import { engineStatusFromTts } from './engineStatus';
 const themeStub = (mode) => ({
     palette: 'paper',
     mode,
+    // F-35: TopBar tracks the mode actually showing; the stub keeps stored
+    // and effective identical (real 'system' flow is covered in useTheme).
+    effectiveMode: mode,
     setPalette: vi.fn(),
     setMode: vi.fn(),
     toggleMode: vi.fn(),

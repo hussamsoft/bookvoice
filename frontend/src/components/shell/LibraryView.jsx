@@ -12,7 +12,7 @@ import { importPreparedBook } from '../../utils/api';
 
 const BOOK_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
-function BookRowMenu({ book, job, actions }) {
+function BookRowMenu({ book, job, actions, ready }) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef(null);
     const triggerRef = useRef(null);
@@ -50,10 +50,11 @@ function BookRowMenu({ book, job, actions }) {
                 ref={triggerRef}
                 className="btn secondary btn-compact book-actions-trigger"
                 onClick={() => setOpen((value) => !value)}
+                disabled={!ready}
                 aria-expanded={open}
                 aria-haspopup="true"
                 aria-label={`Book actions for ${book.title || 'book'}`}
-                title="Prepare, save, or export this book"
+                title={ready ? 'Prepare, save, or export this book' : 'Loading settings…'}
             >
                 <BookOpen size={15} aria-hidden="true" />
             </button>
@@ -133,8 +134,10 @@ export default function LibraryView({ onOpenBook, onError }) {
     const toast = useToast();
     const actions = useBookActions({
         toast,
-        getVoiceId: () => config.voice_id ?? null,
-        getLanguageId: () => config.language_id || 'en',
+        // F-33: config starts null; reading it unguarded here threw the
+        // moment prepare/export ran before the GET settled.
+        getVoiceId: () => config?.voice_id ?? null,
+        getLanguageId: () => config?.language_id || 'en',
     });
     const [isAdding, setIsAdding] = useState(false);
     const fileInputRef = useRef(null);
@@ -208,7 +211,7 @@ export default function LibraryView({ onOpenBook, onError }) {
                     {books.map((book) => (
                         <div className="library-row" key={book.id}>
                             <PreparedBookRow book={book} onOpen={onOpenBook} />
-                            <BookRowMenu book={book} job={actions.jobs[book.id]} actions={actions} />
+                            <BookRowMenu book={book} job={actions.jobs[book.id]} actions={actions} ready={config != null} />
                         </div>
                     ))}
                 </div>

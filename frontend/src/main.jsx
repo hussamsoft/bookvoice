@@ -19,16 +19,20 @@ import './styles/studio.css'
 import App from './App.jsx'
 import AccessGate from './components/AccessGate.jsx'
 import { ToastProvider } from './components/Toast.jsx'
+import { UserConfigProvider } from './hooks/useUserConfig.js'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ToastProvider>
-      <ErrorBoundary>
-        <AccessGate>
-          <App />
-        </AccessGate>
-      </ErrorBoundary>
+      {/* F-33: one config copy, one invalidation path, app-wide. */}
+      <UserConfigProvider>
+        <ErrorBoundary>
+          <AccessGate>
+            <App />
+          </AccessGate>
+        </ErrorBoundary>
+      </UserConfigProvider>
     </ToastProvider>
   </StrictMode>,
 )

@@ -22,7 +22,11 @@ export default function Modal({ open, onClose, title, children, actions }) {
     const panelRef = useRef(null);
     const previouslyFocused = useRef(null);
     const onCloseRef = useRef(onClose);
-    onCloseRef.current = onClose;
+    // F-32: refreshed after commit; the keydown handler reads it on events,
+    // never during render.
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    });
     const [titleId] = useState(() => `modal-title-${++modalTitleId}`);
     const [shown, setShown] = useState(false);
 

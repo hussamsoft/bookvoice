@@ -5,7 +5,9 @@ import { Moon, Sun } from 'lucide-react';
  * and the quick theme toggle. Everything else lives in the Settings view.
  */
 export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
-    const dark = theme.mode === 'dark';
+    // F-35: the icon/label track the mode actually showing (effective),
+    // not the stored choice — which may be 'system'.
+    const dark = theme.effectiveMode === 'dark';
     // F-23/F-24: not a <header> (App already wraps this in the page banner —
     // nested headers both map to role=banner), and the title is a label, not
     // a document heading — each view renders its own h1.

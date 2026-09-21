@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { getUserConfig, saveUserConfig } from '../utils/api';
 
 /**
@@ -11,19 +11,25 @@ import { getUserConfig, saveUserConfig } from '../utils/api';
  *
  * Saves are serialized and coalesced: rapid updates to the same key cannot
  * finish out of order, and a failed save rejects the returned promise and
- * sets `saveError` for the UI/toast layer.
+ * sets `saveError` for the UI/toast layer. A failed LOAD sets `loadError`
+ * (F-33) so the UI can say so instead of silently serving defaults.
+ *
+ * F-33: the whole app runs under <UserConfigProvider> (App.jsx), so there is
+ * exactly one copy of the config and one invalidation path — a save in
+ * Settings is visible in every mounted consumer immediately. Outside a
+ * provider (unit tests, isolated mounts) `useUserConfig` falls back to a
+ * per-instance copy; concurrent instances coalesce their initial GET via a
+ * shared in-flight promise, cleared on settle.
  */
-// Shared in-flight loader so several components mounting together trigger a
-// single GET; cleared on settle so later mounts always read fresh data.
-// Note: a second mount after the first resolves gets `null` and skips loading
-// (intentional — config is stable until the next explicit save).
 let configRequest = null;
 
+const UserConfigContext = createContext(null);
 
-export function useUserConfig() {
+function useUserConfigInstance(enabled) {
     const [config, setConfig] = useState(null);
     const [version, setVersion] = useState('');
     const [saveError, setSaveError] = useState(null);
+    const [loadError, setLoadError] = useState(null);
 
     // Coalesce keys that arrive while a PUT is in flight.
     const pendingRef = useRef({});
@@ -33,6 +39,7 @@ export function useUserConfig() {
     const committedRef = useRef({});
 
     useEffect(() => {
+        if (!enabled) return undefined;
         let cancelled = false;
         configRequest ??= getUserConfig().finally(() => {
             configRequest = null;
@@ -45,18 +52,20 @@ export function useUserConfig() {
                     committedRef.current = cfg;
                     setConfig(cfg);
                     setVersion(data.version || '');
+                    setLoadError(null);
                 }
-            } catch {
+            } catch (e) {
                 if (!cancelled) {
                     committedRef.current = {};
                     setConfig({});
+                    setLoadError(e && e.message ? e.message : 'Could not load settings');
                 }
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [enabled]);
 
     const updateConfig = useCallback((partial) => {
         if (!partial || typeof partial !== 'object') {
@@ -110,5 +119,21 @@ export function useUserConfig() {
         return next;
     }, []);
 
-    return { config, version, updateConfig, saveError };
+    return { config, version, updateConfig, saveError, loadError };
+}
+
+export function UserConfigProvider({ children }) {
+    const value = useUserConfigInstance(true);
+    // createElement (not JSX): this file is .js, which the build does not
+    // run through the JSX transform.
+    return createElement(UserConfigContext.Provider, { value }, children);
+}
+
+export function useUserConfig() {
+    const shared = useContext(UserConfigContext);
+    // The provider owns the app-wide copy; a standalone mount keeps its own.
+    // The hook order is stable per call site because provider presence never
+    // changes underneath a mounted tree.
+    const local = useUserConfigInstance(shared === null);
+    return shared ?? local;
 }

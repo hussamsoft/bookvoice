@@ -40,15 +40,15 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-29 | S3 | Palette buttons have no accessible name but `title`; should be a radiogroup | `SettingsView.jsx:84-101` | 4 | verified |
 | F-30 | S2 | Reduced motion removes all loading feedback | `base.css:196-202`, `controls.css:722-780` | 4 | verified |
 | F-31 | S3 | `:focus-visible` rewrites element `border-radius`; no `forced-colors` support | `base.css:88-93` | 4 | verified |
-| F-32 | S3 | Refs written during render | `Reader.jsx:229,237,412`, `Modal.jsx:70` | 5 | open |
-| F-33 | S2 | `useUserConfig` per-instance with no shared invalidation; null-config crash path | `useUserConfig.js`, `LibraryView.jsx:123` | 5 | open |
-| F-34 | S2 | False data-loss warning after a successful scan save | `App.jsx`, `BookSession.jsx:169-185` | 5 | open |
-| F-35 | S2 | Theme: no follow-system, no `matchMedia` listener, no palette validation | `useTheme.js`, `index.html` | 5 | open |
-| F-36 | S3 | Progress visibility flush documented but not implemented | `Reader.jsx:305-306` | 5 | open |
+| F-32 | S3 | Refs written during render | `Reader.jsx:229,237,412`, `Modal.jsx:70` | 5 | verified |
+| F-33 | S2 | `useUserConfig` per-instance with no shared invalidation; null-config crash path | `useUserConfig.js`, `LibraryView.jsx:123` | 5 | verified |
+| F-34 | S2 | False data-loss warning after a successful scan save | `App.jsx`, `BookSession.jsx:169-185` | 5 | verified |
+| F-35 | S2 | Theme: no follow-system, no `matchMedia` listener, no palette validation | `useTheme.js`, `index.html` | 5 | verified |
+| F-36 | S3 | Progress visibility flush documented but not implemented | `Reader.jsx:305-306` | 5 | verified |
 | F-37 | S3 | Vestigial `userTouched*` refs; five stale comments referencing deleted code | `Reader.jsx:94-95` and others | 6 | open |
 | F-38 | S3 | "Try again" on PDF error retries nothing; double error reporting | `Reader.jsx:735-745` | 2 | verified |
-| F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | open |
-| F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | open |
+| F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | verified |
+| F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | verified |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
 | F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | verified |
 | F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | open |

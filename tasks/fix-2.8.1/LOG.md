@@ -233,3 +233,57 @@ App-layer findings the fixed audit caught that the review missed: unlabeled `.fi
 `python -m pytest tests -q` currently fails 11 tests (test_tts_lifecycle ×10, test_voice_conversion ×1) IN THE FULL-SUITE RUN, deterministically. Proven pre-existing and unrelated to 2.8.1: a clean worktree of 766698a AND of 4524079 (the pre-remediation baseline the whole plan was written against) reproduces the identical 11 failures; the same files pass in isolation (71 passed). Cause: order-dependent state in the TTS suite plus missing local model weights on this machine (`backend/services/data/models/en` is untracked/gitignored and absent; README: weights are installed by the first-run payload). LOG entries for phases 1–3 claim "pytest OK" for partial runs only — the full-suite gate was green on a different machine state.
 ACTION: 2.8.1 phases 4-6 proceed with the pytest gate recorded as "no new failures vs baseline (463 passed / 11 pre-existing failures / 1 skipped)"; the suite-hygiene failure is deferred as F-45 (see FINDINGS.md Deferred).
 
+---
+
+Phase 5 (state, theme, architecture) — 2026-09-20. All seven findings written failing-first in the normal order.
+
+## F-32 — Refs written during render                      [phase 5] 2026-09-20
+Test:      frontend/src/hooks/ref-hygiene.test.js :: "component files never assign `*Ref.current` at render-body indent" (scans every .jsx under src/)
+Failed as: listed exactly the four sites the finding names (Reader narrationRef/sleepRef/openLibraryBookRef, Modal onCloseRef) PLUS two the review did not enumerate: Transcript.jsx:71-72 currentWordValueRef/interactionRef — same pattern, same file-level acceptance.
+Changed:   each moved into a useEffect (deps where meaningful, commit-order refresh for the cycle-bridging refs). Declaration cycles kept (restructuring narration↔lifecycle was beyond a hygiene fix; the finding allows the effect form).
+Gate:      lint OK / vitest OK(537) / build OK / static-sync OK / pytest no-new-failures (464 passed, same 11)
+Notes:     StrictMode was already on (main.jsx) — no double-invocation artefacts after the move; the whole-suite vitest ran under StrictMode unchanged.
+
+## F-33 — useUserConfig: one copy, null-safe              [phase 5] 2026-09-20
+Test:      hooks/useUserConfig.shared.test.jsx (3 tests) + LibraryView.test "disables book actions, without crashing, until config has loaded (F-33)"
+Failed as: UserConfigProvider did not exist (import undefined → render threw); LibraryView trigger was enabled with config null and getVoiceId threw `config.voice_id` on activation.
+Changed:   UserConfigProvider added and mounted in main.jsx beside ToastProvider; useUserConfig() returns the shared value under a provider and keeps a per-instance fallback for standalone mounts (same escape-hatch shape as Toast's). loadError state added and surfaced in SettingsView as a warning banner. LibraryView: config?.voice_id / config?.language_id + menu trigger disabled until config resolves (title explains 'Loading settings…'). Stale comment (lines 15-19) rewritten to describe the provider contract.
+Gate:      see F-32
+Notes:     Pre-existing useUserConfig.test.js (direct-hook fallback path) untouched and green.
+
+## F-34 — False data-loss warning after a successful save [phase 5] 2026-09-20
+Test:      BookSession.test.jsx :: "a successful save clears the dirty guard via onSaved (F-34)" and "a failed save does NOT clear the dirty guard (F-34)"; App.test.jsx :: "does not warn about unsaved work after a successful scan save (F-34)"
+Failed as: onSaved prop never invoked (import succeeded but the callback did not exist); App-level test: the Leave-scan dialog still appeared after a successful save.
+Changed:   BookSession calls onSaved?.() after a successful importPreparedBook (failure path untouched); App wires it to setScanDirty(false). openBook decision documented under F-39.
+Gate:      see F-32
+
+## F-35 — Follow-system theme, live OS updates, self-healing validation [phase 5] 2026-09-20
+Test:      useTheme.test.js :: "theme: system mode and validation (F-35)" (7 tests: fresh install follows OS without persisting; system tracks OS changes; explicit choice survives OS changes; toggle converts system→explicit; corrupt values self-heal AND rewrite storage; legacy colon keys migrate; system swatches exist); SettingsView.test :: "the System option is a first-class choice (F-35)" (+ F-29 tests updated to the 15-radio contract — superseded premise); tests/test_theme_bootstrap_externalized.py :: test_theme_boot_validates_stored_values_and_supports_system
+Failed as: mode had no 'system' value at all (fresh install computed the OS value and the mount effect PERSISTED it, killing follow-system); no matchMedia listener existed (OS switches never propagated — the tracking test proved the absence: listener list empty); garbage storage ('not-a-palette'/'chartreuse') was written straight to data-* attributes with no validation; getByRole('radio', {name:'Aurora Ink, system'}) found nothing.
+Changed:   useTheme.js rewritten: mode ∈ {system,light,dark}, default system, effectiveMode derived, matchMedia subscription in system mode, choice-driven persistence (defaults never written; sanitization rewrites once at mount), resolveStoredTheme exported. PALETTES gain a gradient `system` accent. theme-boot.js rewritten with the same whitelist + 'system' semantics + unified legacy key order (paper/blue/sage/plum/sand; mode keys bookvoice.mode → bookvoice:mode → bookvoice.theme on both sides). SettingsView adds the System column (15 radios). TopBar switches to effectiveMode for icon/label.
+Gate:      see F-32
+Notes:     The plan's two MANUAL exit-gate items (toggle OS theme live; corrupt storage reload) are covered by the automated F-35 tests (setSystemDark dispatch + corrupt-value mount) rather than a manual pass — recorded here honestly: no real-OS flip was performed.
+Notes:     jsdom in this project has NO window.matchMedia (the guards in useTheme predate this); the tests define/delete it explicitly.
+
+## F-36 — Progress visibility flush missing               [phase 5] 2026-09-20
+Test:      Reader.test.jsx :: "flushes pending reading progress the moment the tab hides (F-36)"
+Failed as: dispatchEvent(visibilitychange) left updatePreparedProgress uncalled with the pending page-2 snapshot (the comment promised a flush that was never written).
+Changed:   Reader.jsx — pagehide + visibilitychange listeners mirroring useReaderProgress.js:99-110 (both events, same reasoning: iOS Safari vs desktop tab-close).
+Gate:      see F-32
+
+## F-39 — Silent deep-link miss                           [phase 5] 2026-09-20
+Test:      Reader.test.jsx :: "explains a deep link whose book id is not in the library (F-39)"
+Failed as: ?book=ghost-99 with a loaded library produced zero feedback (toast.error never called; silent empty reader).
+Changed:   Reader toasts the miss once, naming the id. openBook: documented decision NOT to persist 'reader' (appSession rejects it by design; ?book= URL + Home's continue-card already own restore; a persisted bare reader would reopen an empty shell).
+Gate:      see F-32
+
+## F-40 — View transition timing + title/content desync   [phase 5] 2026-09-20
+Test:      App.test.jsx :: "keeps the top-bar title synced to the displayed view during the fade (F-40)"
+Failed as: mid-fade the title read 'Library' while the stage still rendered Home (title derived from `view`); swap depended on a JS timer duplicating the CSS 200ms.
+Changed:   App.jsx — the swap is driven by transitionend (opacity, stage-targeted) with a 600ms safety-net for the case where no event ever fires; reduced motion needs no special case because base.css forces 0.01ms durations → the event arrives immediately; contextTitle derived from displayView. The hardcoded 200 duplicate is gone.
+Gate:      see F-32
+Notes:     Load flakes: the 84-file parallel run once failed `jumps to a typed page number` (1.1s against the 1s default waitFor poll budget under 84-file load); the shared findPageText helper got a 4s budget — assertion unchanged. Both suspect tests pass in-file and in full-suite reruns.
+
+## Phase 5 exit gate
+F-32..F-36, F-39, F-40 verified in FINDINGS.md. Regression tests F-33 + F-34 present (plan minimum) plus per-finding tests for the rest. Manual items (OS-theme flip, corrupt-storage reload) covered by automated equivalents — see F-35 notes; visual focus/forced-colors spot checks remain un-run in this environment. Full suite: lint 0/0, vitest 84 files / 537 tests green, build OK (entry 341.9 KiB ≤ 350 budget), static-sync OK, pytest at baseline parity (464 passed / same 11 pre-existing failures / 1 skipped, +1 new bootstrap validation test green). axe: 0 violations, 5 routes × 2 modes.
+

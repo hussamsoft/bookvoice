@@ -15,7 +15,7 @@ import VoiceSettings from '../VoiceSettings';
  */
 export default function SettingsView() {
     const toast = useToast();
-    const { config, updateConfig, saveError } = useUserConfig();
+    const { config, updateConfig, saveError, loadError } = useUserConfig();
     const theme = useTheme();
     const { serverMode } = useCapabilities();
     const [saving, setSaving] = useState(false);
@@ -58,7 +58,7 @@ export default function SettingsView() {
     // follows focus), not ten aria-pressed buttons that each promise an
     // independent toggle.
     const paletteOptions = PALETTES.flatMap((palette) =>
-        ['light', 'dark'].map((mode) => ({ palette: palette.id, name: palette.name, mode })),
+        ['light', 'dark', 'system'].map((mode) => ({ palette: palette.id, name: palette.name, mode })),
     );
     const paletteGroupRef = useRef(null);
     const pendingFocusRef = useRef(null);
@@ -115,6 +115,13 @@ export default function SettingsView() {
                     <span>Could not save settings: {saveError}</span>
                 </div>
             )}
+            {/* F-33: a failed load used to be silent — defaults were served
+                with no hint that nothing would persist from this session. */}
+            {loadError && (
+                <div className="status-banner warning" role="status">
+                    <span>Could not load your saved settings ({loadError}). Changes on this page may not stick.</span>
+                </div>
+            )}
             {serverMode && (
                 <div className="status-banner loading" role="status">
                     <span>Hosted server mode: local file actions and LAN tunnel options are disabled.</span>
@@ -140,7 +147,8 @@ export default function SettingsView() {
                         <div key={palette.id} className="appearance-palette">
                             <span className="appearance-palette-name">{palette.name}</span>
                             <div className="appearance-palette-modes">
-                                {['light', 'dark'].map((mode) => {
+                                {/* F-35: System is a first-class third choice. */}
+                                {['light', 'dark', 'system'].map((mode) => {
                                     const active = theme.palette === palette.id && theme.mode === mode;
                                     return (
                                         <button

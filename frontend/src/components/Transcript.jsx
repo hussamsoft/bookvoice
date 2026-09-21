@@ -68,8 +68,13 @@ export default React.memo(function Transcript({
     const currentWordValueRef = useRef(currentWord);
     const interactionRef = useRef({ onWordActivate, isPlaying, isPaused });
     const wordsContainerRef = useRef(null);
-    currentWordValueRef.current = currentWord;
-    interactionRef.current = { onWordActivate, isPlaying, isPaused };
+    // F-32: the latest-props sync refs are refreshed after commit (effect
+    // order guarantees readers — the RAF/scroll effects below — see them
+    // before they run on the same pass).
+    useEffect(() => {
+        currentWordValueRef.current = currentWord;
+        interactionRef.current = { onWordActivate, isPlaying, isPaused };
+    }, [currentWord, onWordActivate, isPlaying, isPaused]);
 
 
     const handleWordActivate = useCallback(async (index, word) => {

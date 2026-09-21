@@ -25,6 +25,10 @@ const VIEW_TITLES = {
     settings: 'Settings',
 };
 
+// F-40: safety net for the transitionend-driven view swap — used only if
+// the CSS transition event never arrives; never the expected path.
+const TRANSITION_SAFETY_MS = 600;
+
 export default function App() {
     const [view, setViewState] = useState(() => {
         // A `?book=` deep link opens the reader directly (desktop shell,
@@ -55,20 +59,45 @@ export default function App() {
         onShowShortcuts: () => setShowShortcuts(true),
     });
 
+    // F-40: the swap is driven by the real CSS fade (transitionend), not a
+    // duplicated JS copy of the duration. Reduced-motion users get an
+    // effectively instant swap — base.css forces transition-duration to
+    // 0.01ms, so the event arrives ~immediately. The timeout is a safety
+    // net for the case where no transition event ever fires (tab throttled
+    // in the background, or transition:none from an unstyled first paint).
+    const stageRef = useRef(null);
     useEffect(() => {
-        if (view !== prevViewRef.current) {
-            setTransitioning(true);
-            setDisplayView(prevViewRef.current);
-            const timer = setTimeout(() => {
-                setDisplayView(view);
-                setTransitioning(false);
-                prevViewRef.current = view;
-            }, 200);
-            return () => clearTimeout(timer);
+        if (view === prevViewRef.current) {
+            // Rapid double-switch: view returned to the displayed screen
+            // before the swap. Reset transitioning so the stage doesn't
+            // stay hidden.
+            setTransitioning(false);
+            return undefined;
         }
-        // Rapid double-switch: view returned to the previous one before the
-        // timer fired. Reset transitioning so the stage doesn't stay hidden.
-        setTransitioning(false);
+        setTransitioning(true);
+        setDisplayView(prevViewRef.current);
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            stage?.removeEventListener('transitionend', onEnd);
+            clearTimeout(guard);
+            prevViewRef.current = view;
+            setDisplayView(view);
+            setTransitioning(false);
+        };
+        const stage = stageRef.current;
+        const onEnd = (event) => {
+            if (event.target !== stage || event.propertyName !== 'opacity') return;
+            finish();
+        };
+        const guard = setTimeout(finish, TRANSITION_SAFETY_MS);
+        stage?.addEventListener('transitionend', onEnd);
+        return () => {
+            done = true;
+            stage?.removeEventListener('transitionend', onEnd);
+            clearTimeout(guard);
+        };
     }, [view]);
 
     const navigate = useCallback((next) => {
@@ -93,7 +122,17 @@ export default function App() {
         setAppView(next);
     };
 
-    /** Enter the reader for a book (Home/Library rows, added files, deep links). */
+    /**
+     * Enter the reader for a book (Home/Library rows, added files, deep links).
+     *
+     * F-39 decision: this deliberately does NOT call setAppView('reader').
+     * 'reader' is not a restorable view — appSession rejects it by design —
+     * because a bare Reader mount has no document to show. The entry points
+     * that must survive a restart write `?book=<id>` into the URL (above),
+     * and a fresh launch restores via that param; Home also surfaces the
+     * last book as the continue card. Persisting 'reader' without a param
+     * would restore an empty shell.
+     */
     const openBook = useCallback((book) => {
         const id = book?.id;
         if (id == null) return;
@@ -109,10 +148,15 @@ export default function App() {
     }, []);
 
     const markScanDirty = useCallback(() => setScanDirty(true), []);
+    // F-34: saving a scan session clears the guard — the next sidebar click
+    // must not claim there is unsaved work.
+    const markScanClean = useCallback(() => setScanDirty(false), []);
 
     const reader = <Reader key={`reader-${readerEpoch}`} />;
 
-    const contextTitle = view === 'reader' ? VIEW_TITLES.reader : VIEW_TITLES[view] || '';
+    // F-24/F-40: the title describes the screen that is actually showing —
+    // derived from displayView, so it can never name a view mid-fade-out.
+    const contextTitle = displayView === 'reader' ? VIEW_TITLES.reader : VIEW_TITLES[displayView] || '';
 
     return (
         <div className="app-shell">
@@ -133,7 +177,7 @@ export default function App() {
                             {view === 'reader' ? 'Opening your book…' : `Loading ${VIEW_TITLES[view] || 'app'}…`}
                         </div>
                     }>
-                        <div className={`mode-stage ${transitioning ? 'is-transitioning' : ''}`}>
+                        <div className={`mode-stage ${transitioning ? 'is-transitioning' : ''}`} ref={stageRef}>
                             {displayView === 'home' && (
                                 <HomeView
                                     lastBookId={lastBookId}
@@ -150,6 +194,7 @@ export default function App() {
                                     key={`scan-${workspaceEpoch}`}
                                     epoch={workspaceEpoch}
                                     onDirty={markScanDirty}
+                                    onSaved={markScanClean}
                                     onOpenBook={openBook}
                                 />
                             )}
