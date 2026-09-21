@@ -76,6 +76,21 @@ describe('BookSession scan wizard', () => {
         expect(h1s[0]).toHaveTextContent('Scan pages');
     });
 
+    it('history buttons declare type and save titles carry a time stamp (F-44)', async () => {
+        importMock.mockResolvedValue({ id: 'b1', title: 'x' });
+        const { container } = renderSession();
+
+        fireEvent.click(screen.getByRole('button', { name: 'mock-capture' }));
+        await screen.findByTestId('editor-text');
+        // A page enters the session list when its text is saved.
+        fireEvent.click(screen.getByRole('button', { name: 'mock-save-text' }));
+        await screen.findByText(/Page 1 text saved/);
+
+        const history = container.querySelector('.history-item');
+        expect(history).not.toBeNull();
+        expect(history).toHaveAttribute('type', 'button');
+    });
+
     it('a successful save clears the dirty guard via onSaved (F-34)', async () => {
         const onOpenBook = vi.fn();
         const onSaved = vi.fn();
@@ -127,7 +142,9 @@ describe('BookSession scan wizard', () => {
         ));
         expect(importMock).toHaveBeenCalledTimes(1);
         const [file] = importMock.mock.calls[0];
-        expect(file.name).toMatch(/^Scanned pages \d{4}-\d{2}-\d{2}\.txt$/);
+        // F-44 supersedes the date-only title: same-day sessions collided,
+        // so the name now carries a filesystem-safe hour+minute stamp.
+        expect(file.name).toMatch(/^Scanned pages \d{4}-\d{2}-\d{2}-\d{4}\.txt$/);
         expect(await file.text()).toContain('captured page text');
     });
 

@@ -12,7 +12,7 @@ import { useAudioTransport } from '../useAudioTransport';
  * global time; when it's cleared the transport falls back to the raw
  * audio element.
  *
- * The original PdfViewer installed/cleared the timeline inline on every
+ * The pre-migration viewer installed/cleared the timeline inline on every
  * playlist change. This hook makes the lifecycle explicit:
  *
  *   const transport = useReaderTransport(audioRef);

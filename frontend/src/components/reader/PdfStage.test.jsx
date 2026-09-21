@@ -55,4 +55,40 @@ describe('PdfStage', () => {
         expect(page).toHaveAttribute('data-annotation-layer', 'false');
         expect(onDocumentLoad).toHaveBeenCalledWith({ numPages: 3 });
     });
+
+    it('coalesces resize bursts into a single pending measure per frame (F-44)', () => {
+        let observerCallback = null;
+        globalThis.ResizeObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+        const pending = new Map();
+        let nextHandle = 0;
+        const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((fn) => {
+            nextHandle += 1;
+            pending.set(nextHandle, fn);
+            return nextHandle;
+        });
+        const cafSpy = vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((handle) => {
+            pending.delete(handle);
+        });
+        try {
+            render(<PdfStage file={{ name: 'book.pdf' }} pageNumber={1} displayZoom={1} />);
+            expect(observerCallback).toBeTruthy();
+            // Dragging a window edge fires a burst of observations; the old
+            // wiring measured (and re-rendered the page) synchronously per
+            // one. Now at most ONE measure may be in flight per frame.
+            for (let i = 0; i < 5; i += 1) observerCallback([]);
+            expect(pending.size).toBe(1);
+            for (const fn of pending.values()) fn();
+        } finally {
+            rafSpy.mockRestore();
+            cafSpy.mockRestore();
+            globalThis.ResizeObserver = class {
+                observe() {}
+                disconnect() {}
+            };
+        }
+    });
 });

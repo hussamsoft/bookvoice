@@ -90,6 +90,20 @@ describe('LibraryView', () => {
             expect.objectContaining({ id: 'b1' }), 'p1'));
     });
 
+    it('renders rows without a placeholder-fraction when the total is unknown (F-44)', () => {
+        const savedPageCount = books[0].pageCount;
+        books[0].pageCount = 0;
+        try {
+            const { container } = renderLibrary();
+            const row = container.querySelector('.prepared-book-row');
+            expect(row).not.toBeNull();
+            expect(row).toHaveTextContent(/3 narrated/);
+            expect(row.textContent).not.toMatch(/—/);
+        } finally {
+            books[0].pageCount = savedPageCount;
+        }
+    });
+
     it('disables book actions, without crashing, until config has loaded (F-33)', () => {
         configState.current = null;
         try {

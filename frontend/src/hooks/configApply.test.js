@@ -2,7 +2,7 @@
  * Regression: saved config is applied once; a user interaction before a late
  * config response must not be overwritten.
  *
- * Mirrors the configAppliedRef pattern used by BookSession and PdfViewer.
+ * Mirrors the configAppliedRef pattern used by BookSession and Reader.
  */
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useEffect, useRef, useState } from 'react';

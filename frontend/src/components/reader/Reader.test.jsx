@@ -14,13 +14,10 @@ import Reader from './Reader';
 // library `waitFor` polls via real `setTimeout`, which fake timers freeze.
 // Use the synchronous variant when running under fake timers.
 async function findPageText(container, regex) {
-    // 4 s, not the 1 s default: in the full parallel suite run these
-    // async page-resolution polls have measured >1.1 s under load and
-    // flaked; the assertion itself is unchanged.
     await waitFor(() => {
         const text = container.textContent ?? '';
         expect(text).toMatch(regex);
-    }, { timeout: 4000 });
+    });
 }
 
 function assertPageText(container, regex) {
@@ -653,8 +650,8 @@ describe('Reader', () => {
         window.history.replaceState(null, '', '/?book=book-1');
         const { container } = render(<Reader />);
         // Page 1 of the text book appears without the user clicking the
-        // library row — same auto-open shape PdfViewer relies on for
-        // desktop deep links and `.bookvoice` double-click.
+        // library row — the auto-open shape desktop deep links and
+        // `.bookvoice` double-click rely on.
         await findPageText(container, /Server page 1 text/)
         expect(api.preparedBookSource).not.toHaveBeenCalled();
     });

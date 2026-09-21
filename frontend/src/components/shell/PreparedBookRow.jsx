@@ -30,7 +30,12 @@ const PreparedBookRow = React.memo(function PreparedBookRow({ book, onOpen }) {
                 <span className="prepared-book-row-title">{book.title}</span>
             </span>
             <small>
-                Continue page {details.resumePage} · {details.preparedPages}/{details.pageCount || '—'} narrated
+                Continue page {details.resumePage} ·{' '}
+                {details.pageCount
+                    // F-44: the unknown-page-count case used to read
+                    // "12/— narrated"; with an unknown total, say less.
+                    ? `${details.preparedPages}/${details.pageCount} narrated`
+                    : `${details.preparedPages} narrated`}
                 {details.bookmarks.length ? ` · Bookmarks ${details.bookmarks.join(', ')}` : ''}
             </small>
         </button>

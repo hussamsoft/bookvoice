@@ -19,7 +19,7 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-08 | S2 | `useWordHighlight`/`pdfHighlight`/`wordPronunciation` fully orphaned | `hooks/useWordHighlight.js` | 2 | deferred (partial) |
 | F-09 | S2 | `lifecycle.isLoading` never consumed; false empty state on every page turn | `Reader.jsx`, `TextStage.jsx:11-13` | 2 | verified |
 | F-10 | S2 | Mobile transport padding applied to the wrong component | `reader.css:186-189,1189` | 3 | verified |
-| F-11 | S2 | 89 of 421 CSS classes orphaned; parity test guards only one direction | `styles/*.css`, `styles-parity.test.js` | 6 | open |
+| F-11 | S2 | 89 of 421 CSS classes orphaned; parity test guards only one direction | `styles/*.css`, `styles-parity.test.js` | 6 | verified |
 | F-12 | S2 | Text books render as one `<p>` — all paragraph structure lost | `TextStage.jsx:22` | 2 | verified |
 | F-13 | S2 | Reader toolbar is a flat undifferentiated row of ~20 controls | `Reader.jsx:570-720` | 2 | verified |
 | F-14 | S2 | All palette swatches render identically; DOM mutation during render | `useTheme.js:31-46`, `SettingsView.jsx:97` | 1 | verified |
@@ -45,14 +45,14 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-34 | S2 | False data-loss warning after a successful scan save | `App.jsx`, `BookSession.jsx:169-185` | 5 | verified |
 | F-35 | S2 | Theme: no follow-system, no `matchMedia` listener, no palette validation | `useTheme.js`, `index.html` | 5 | verified |
 | F-36 | S3 | Progress visibility flush documented but not implemented | `Reader.jsx:305-306` | 5 | verified |
-| F-37 | S3 | Vestigial `userTouched*` refs; five stale comments referencing deleted code | `Reader.jsx:94-95` and others | 6 | open |
+| F-37 | S3 | Vestigial `userTouched*` refs; five stale comments referencing deleted code | `Reader.jsx:94-95` and others | 6 | verified |
 | F-38 | S3 | "Try again" on PDF error retries nothing; double error reporting | `Reader.jsx:735-745` | 2 | verified |
 | F-39 | S3 | Silent deep-link miss; `openBook` never persists the view | `Reader.jsx:398`, `App.jsx:96-108` | 5 | verified |
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | verified |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
 | F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | verified |
-| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | open |
-| F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | open |
+| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | partial (F-45 log PR) |
+| F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | verified |
 
 ## Deferred / explicitly out of scope
 

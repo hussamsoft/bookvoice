@@ -173,7 +173,10 @@ export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
         if (!text) return;
         setIsSaving(true);
         try {
-            const title = `Scanned pages ${new Date().toISOString().slice(0, 10)}`;
+            // F-44: date-only titles collided for every session on the same
+            // day; the stamp now carries the time (filesystem-safe).
+            const stamp = new Date().toISOString().replace('T', '-').slice(0, 16).replace(':', '');
+            const title = `Scanned pages ${stamp}`;
             const file = new File([text], `${title}.txt`, { type: 'text/plain' });
             const book = await importPreparedBook(file);
             toast.success('Saved to your Library.');
@@ -346,6 +349,7 @@ export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
                             p ? (
                                 <button
                                     key={i}
+                                    type="button"
                                     className={`history-item ${
                                         i === currentPageIndex ? 'active' : ''
                                     }`}

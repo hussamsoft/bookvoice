@@ -395,7 +395,6 @@
   --radius-md: 12px;
   --radius-lg: 18px;
   --radius-pill: 999px;
-  --radius-full: 999px;
 
   --shadow-overlay: 0 18px 48px color-mix(in srgb, var(--ink) 22%, transparent),
     0 0 0 1px var(--hairline);

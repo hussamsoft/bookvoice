@@ -10,10 +10,10 @@ const DEFAULT_DISPLAY_DEBOUNCE_MS = 80;
  * PDF zoom state with debounced display value, wheel handler, and
  * fit / in / out / set actions.
  *
- * The original PdfViewer keeps two state slots: `zoom` (the value the
- * rest of the app reads) and `displayZoom` (the value applied to the
- * CSS `transform`, lagged by ~80 ms to avoid layout thrash on rapid
- * wheel ticks). This hook preserves that split so the consumer can pass
+ * The reader keeps two state slots: `zoom` (the value the rest of the app
+ * reads) and `displayZoom` (the value applied to the CSS `zoom`/transform,
+ * lagged by ~80 ms to avoid layout thrash on rapid wheel ticks — a split
+ * inherited from the pre-migration viewer). The consumer passes
  * `displayZoom` to `<Page style={{ zoom: displayZoom }}>` (or a transform)
  * without re-rendering on every wheel tick.
  *
@@ -52,7 +52,7 @@ export function useReaderZoom({
 } = {}) {
     const clamp = useCallback(
         (value) => {
-            // Match the original PdfViewer behavior: round to 2 decimals so
+            // Preserve the pre-migration behavior: round to 2 decimals so
             // accumulated float math doesn't display "1.2000000000000002".
             // Use `??` rather than `||` so `set(0)` clamps to the lower
             // bound instead of falling back to 1.

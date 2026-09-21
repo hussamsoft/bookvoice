@@ -112,8 +112,8 @@ describe('App shell navigation', () => {
     });
 
     it('mounts the new Reader behind ?reader=new (legacy flag is ignored)', async () => {
-        // The legacy ?reader=old flag used to switch to PdfViewer; after
-        // deleting PdfViewer.jsx, the flag is no longer recognized and
+        // The legacy ?reader=old flag used to switch to the pre-migration
+        // viewer; after deleting it, the flag is no longer recognized and
         // the new Reader mounts unconditionally.
         window.history.replaceState(null, '', '/?reader=old&book=b1');
         renderApp();

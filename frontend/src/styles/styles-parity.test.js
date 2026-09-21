@@ -94,6 +94,52 @@ describe('styles parity', () => {
         ).toBe('');
     }, 15000);
 
+    // F-11 — the inverse guard. The forward direction above exists because a
+    // design swap orphaned JSX classes; the same failure mode runs the other
+    // way (the deleted pre-migration viewer left ~89 dead selectors behind,
+    // unseen).
+    // Every class named in src/styles/*.css must appear somewhere in app
+    // source or the shipped HTML. Dynamic third-party hooks and names that
+    // only ever appear inside template-literal expressions are allowlisted
+    // explicitly — adding a name here requires a reason.
+    const INVERSE_ALLOWLIST = new Map([
+        // react-pdf generates these at runtime.
+        ['react-pdf__Page', 'third-party (react-pdf runtime)'],
+        ['react-pdf__Document', 'third-party (react-pdf runtime)'],
+        ['react-pdf__Page__canvas', 'third-party (react-pdf runtime)'],
+        ['react-pdf__Page__textContent', 'third-party (react-pdf runtime)'],
+        ['react-pdf__Page__annotations', 'third-party (react-pdf runtime)'],
+        // Toast.jsx composes `toast-${type}` — invisible to static scanning.
+        ['toast-success', 'template-literal composition'],
+        ['toast-error', 'template-literal composition'],
+        ['toast-warning', 'template-literal composition'],
+        ['toast-info', 'template-literal composition'],
+    ]);
+
+    it('every CSS class selector is referenced from app source (F-11 inverse)', () => {
+        const sources = [
+            ...walk(ROOT).map((file) => readFileSync(file, 'utf8')),
+            readFileSync(join(ROOT, 'index.html'), 'utf8'),
+        ].join('\n');
+
+        const orphans = [];
+        for (const file of readdirSync(STYLE_DIR)) {
+            if (!file.endsWith('.css')) continue;
+            // Comments must not count: a class named only in prose is dead.
+            const css = readFileSync(join(STYLE_DIR, file), 'utf8')
+                .replace(/\/\*[\s\S]*?\*\//g, '');
+            for (const match of css.matchAll(/\.([a-zA-Z][\w-]*)/g)) {
+                const name = match[1];
+                if (INVERSE_ALLOWLIST.has(name)) continue;
+                if (!sources.includes(name)) orphans.push(`${name} (${file})`);
+            }
+        }
+
+        expect(
+            Array.from(new Set(orphans)).sort().join('\n')
+        ).toBe('');
+    }, 15000);
+
     it('defines the theme contract tokens both themes rely on', () => {
         const tokens = readFileSync(join(STYLE_DIR, 'tokens.css'), 'utf8');
         const count = (needle) => tokens.split(needle).length - 1;

@@ -22,7 +22,7 @@ export default function PreparationProgress({ preparation, onCancel, cancelling 
                 style={{
                     width: '100%',
                     height: '8px',
-                    borderRadius: 'var(--radius-full)',
+                    borderRadius: 'var(--radius-pill)',
                     background: 'var(--surface-raised)',
                     accentColor: 'var(--signal)',
                     overflow: 'hidden',

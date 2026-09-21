@@ -4,7 +4,7 @@ import { listPreparedBooks } from '../../utils/api';
 /**
  * Prepared-book library state.
  *
- * The original PdfViewer owned `libraryBooks`, `libraryPending`, the
+ * The pre-migration viewer owned `libraryBooks`, `libraryPending`, the
  * `useEffect` that loads the list on mount, and the polling-style
  * `updatePreparedProgress` side effect. This hook lifts the *list* out
  * (refresh, isLoading, setList) and leaves the per-book progress sync

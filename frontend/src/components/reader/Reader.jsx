@@ -64,7 +64,7 @@ const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  * `useSleepTimer` and only fires on natural page ends (not user
  * stops) so Stop mid-page does not prematurely end the sleep arm.
  *
- * The legacy `?reader=old` fallback to PdfViewer.jsx was removed in
+ * The legacy `?reader=old` fallback to the pre-migration viewer was removed in
  * 2.8.0. This reader is the only option.
  */
 export default function Reader() {
@@ -87,15 +87,14 @@ export default function Reader() {
     const [moreOpen, setMoreOpen] = useState(false);
     const [sessionId] = useState(() => createSessionId('reader'));
     const { modelReady } = useTtsStatus();
-    // Saved user voice/language. Apply-once so a user selection before the
-    // config fetch settles wins over the stored value (mirrors
-    // BookSession/PdfViewer + configApply.test.js).
+    // Saved user voice/language, applied exactly once when the config
+    // settles. F-37: the old "user touch wins" refs were vestigial — the
+    // Reader exposes no voice/language picker, so nothing ever set them
+    // (that pattern belongs to BookSession, where it is real).
     const { config } = useUserConfig();
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
     const configAppliedRef = useRef(false);
-    const userTouchedVoiceRef = useRef(false);
-    const userTouchedLanguageRef = useRef(false);
 
     // Refs mirror the values the async paths (content resolution, search,
     // shortcuts) read: a freshly activated book must resolve against its
@@ -130,15 +129,13 @@ export default function Reader() {
     };
     // The narration hook is created below the lifecycle (its fresh-page
     // escape hatch needs it), but the lifecycle's onContent needs the
-    // hook — the ref bridges the cycle the same way PdfViewer bridges
-    // handlePlay.
+    // hook — the ref bridges the declaration cycle.
     const narrationRef = useRef(null);
     // The prepared-page record from the latest content resolution; the
     // lifecycle passes only (text, source, ctx) to onContent.
     const preparedRef = useRef(null);
     // Auto-open guard for the `?book=<id>` deep link (desktop shell,
-    // .bookvoice double-click, addresses card). PdfViewer holds the
-    // same flag (PdfViewer.jsx:239).
+    // .bookvoice double-click, addresses card): open at most once.
     const deepLinkOpenedRef = useRef(false);
     // Sleep-timer handle. The page-ended signal lives in the narration
     // hook; the reader only needs to fire it on `transportState ===
@@ -267,17 +264,12 @@ export default function Reader() {
         }
     }, [narration, sleep]);
 
-    // Apply-once the saved voice/language from useUserConfig. A user
-    // touch before config arrives wins (see configApply.test.js).
+    // Apply-once the saved voice/language from useUserConfig.
     useEffect(() => {
         if (!config || configAppliedRef.current) return;
         configAppliedRef.current = true;
-        if (!userTouchedVoiceRef.current && config.voice_id) {
-            setActiveVoiceId(config.voice_id);
-        }
-        if (!userTouchedLanguageRef.current && config.language_id) {
-            setTargetLanguage(config.language_id);
-        }
+        if (config.voice_id) setActiveVoiceId(config.voice_id);
+        if (config.language_id) setTargetLanguage(config.language_id);
     }, [config]);
 
     useReaderProgress({
@@ -448,12 +440,11 @@ export default function Reader() {
     });
 
     // `?book=<id>` deep link: open the prepared book whose id matches,
-    // once the library list is loaded. Mirrors PdfViewer.jsx:237-242 so
-    // desktop deep links and `.bookvoice` double-click work with the
-    // new reader at default. Books from Library/Home are opened through
-    // `openLibraryBook`, so the URL is already in sync. The ref bridges
-    // to the function (defined below) so the effect doesn't need it in
-    // its deps and re-fire on every render.
+    // once the library list is loaded — this is what makes desktop deep
+    // links and `.bookvoice` double-click work. Books opened from
+    // Library/Home go through `openLibraryBook`, so the URL is already in
+    // sync. The ref bridges to the function (defined below) so the effect
+    // doesn't need it in its deps and re-fire on every render.
     const openLibraryBookRef = useRef(null);
     useEffect(() => {
         if (deepLinkOpenedRef.current) return;

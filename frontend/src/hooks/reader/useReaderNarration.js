@@ -15,7 +15,7 @@ import { waitForAudioMetadata } from '../../utils/media';
  * chunk advance, prepared single-audio playback, a small page-audio
  * cache, cancel-on-navigate, and the one-shot resume seek.
  *
- * This is the A.8.2 port of PdfViewer's playback core. Word highlighting,
+ * This is the A.8.2 port of the pre-migration viewer's playback core. Word highlighting,
  * pause-pronunciation, prefetch, voice pickers, and translation are later
  * slices: cache entries carry empty timing arrays (timingMode
  * 'estimate'), which keeps the entry shape a highlighting slice can fill
@@ -56,9 +56,9 @@ export function useReaderNarration({
     const [audioPage, setAudioPage] = useState(null);
     const [muted, setMutedState] = useState(false);
 
-    // Playlist state (see PdfViewer's streaming port): the collected
-    // chunk events, the playing position inside them, and the intent
-    // flags that decide what "ended" means mid-generation.
+    // Playlist state: the collected chunk events, the playing position
+    // inside them, and the intent flags that decide what "ended" means
+    // mid-generation.
     const playlistRef = useRef([]);
     const playlistIndexRef = useRef(0);
     const playlistExpectedTotalRef = useRef(0);
@@ -456,7 +456,7 @@ export function useReaderNarration({
     }, [audioRef, setTransport]);
 
     // Unmount: abort any in-flight generation and stop the player
-    // (PdfViewer leaks this; the port closes the gap).
+    // (the pre-migration viewer leaked this; this port closes the gap).
     useEffect(() => () => {
         streamAbortRef.current?.abort();
         cancelGeneration();

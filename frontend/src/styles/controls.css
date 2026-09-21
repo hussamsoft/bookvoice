@@ -141,17 +141,6 @@ button:disabled {
   min-height: var(--control-h-sm);
   font-size: var(--text-xs);
 }
-.btn.btn-large {
-  padding: var(--space-2) var(--space-4);
-  min-height: var(--control-h-lg);
-  font-size: var(--text-md);
-  font-weight: 600;
-}
-
-.btn.btn-large svg {
-  width: 20px;
-  height: 20px;
-}
 
 /* Touch devices: every interactive control meets the 44px target that iOS
  * HIG and Material set (WCAG 2.5.8's AA floor is 24px). Pointer-specific so
@@ -219,34 +208,6 @@ button:disabled {
   color: var(--live);
 }
 
-.control-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 6px 10px;
-  font-size: var(--text-xs);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--hairline-strong);
-  background: var(--surface-raised);
-  color: var(--ink-secondary);
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
-    transform var(--dur-instant) var(--ease-out);
-}
-
-.control-btn:hover:not(:disabled) {
-  color: var(--ink);
-}
-
-.control-btn:not(:disabled):active {
-  transform: scale(0.97);
-}
-
-.control-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-ring);
-  color: var(--accent);
-}
-
 /* --- Fields -------------------------------------------------------------- */
 
 input[type="text"],
@@ -280,11 +241,6 @@ label {
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--ink-secondary);
-}
-
-.field-label {
-  display: block;
-  margin-bottom: var(--space-1);
 }
 
 input[type="range"] {
@@ -333,26 +289,6 @@ input[type="checkbox"] {
   accent-color: var(--accent);
   width: 16px;
   height: 16px;
-}
-
-/* --- Voice creation (non-compact VoiceSettings) ------------------------- */
-
-.voice-creation {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--hairline);
-}
-
-.voice-creation h4 {
-  font-size: var(--text-sm);
-}
-
-.creation-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
 }
 
 /* --- Status banner -------------------------------------------------------- */
@@ -529,9 +465,8 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 480px) {
-  .modal-panel .shortcuts-grid {
-    grid-template-columns: 1fr;
-  }
+  /* F-11: the .shortcuts-grid override here was a no-op (base is already
+     1fr); the .shortcut-row collapse is the real work. */
   .modal-panel .shortcut-row {
     grid-template-columns: 1fr;
     gap: var(--space-1);
@@ -579,6 +514,10 @@ input[type="checkbox"] {
 .transport-scrubber {
   /* Fill progress is set inline from JSX as --scrub-fill (%). */
   --scrub-fill: 0%;
+  /* F-44: thumb/track geometry derives from these two, so the webkit
+     thumb-centering offset below can never drift from the sizes above. */
+  --scrub-track-h: 2px;
+  --scrub-thumb-size: calc(var(--control-h-sm) * 0.5);
   flex: 1 1 140px;
   min-width: 96px;
   height: var(--control-h-sm);
@@ -589,8 +528,8 @@ input[type="checkbox"] {
 }
 
 .transport-scrubber::-webkit-slider-runnable-track {
-  height: 2px;
-  border-radius: 1px;
+  height: var(--scrub-track-h);
+  border-radius: calc(var(--scrub-track-h) / 2);
   background: linear-gradient(
     to right,
     var(--accent) var(--scrub-fill),
@@ -599,8 +538,8 @@ input[type="checkbox"] {
 }
 
 .transport-scrubber::-moz-range-track {
-  height: 2px;
-  border-radius: 1px;
+  height: var(--scrub-track-h);
+  border-radius: calc(var(--scrub-track-h) / 2);
   background: linear-gradient(
     to right,
     var(--accent) var(--scrub-fill),
@@ -609,16 +548,17 @@ input[type="checkbox"] {
 }
 
 .transport-scrubber::-moz-range-progress {
-  height: 2px;
-  border-radius: 1px;
+  height: var(--scrub-track-h);
+  border-radius: calc(var(--scrub-track-h) / 2);
   background: var(--accent);
 }
 
 .transport-scrubber::-webkit-slider-thumb {
   appearance: none;
-  width: calc(var(--control-h-sm) * 0.5);
-  height: calc(var(--control-h-sm) * 0.5);
-  margin-top: -7px; /* center 14px thumb on the 2px track */
+  width: var(--scrub-thumb-size);
+  height: var(--scrub-thumb-size);
+  /* F-44: derived centering — (track − thumb) / 2, was a hardcoded -7px. */
+  margin-top: calc((var(--scrub-track-h) - var(--scrub-thumb-size)) / 2);
   border: none;
   border-radius: 50%;
   background: var(--accent);
@@ -627,8 +567,8 @@ input[type="checkbox"] {
 }
 
 .transport-scrubber::-moz-range-thumb {
-  width: calc(var(--control-h-sm) * 0.5);
-  height: calc(var(--control-h-sm) * 0.5);
+  width: var(--scrub-thumb-size);
+  height: var(--scrub-thumb-size);
   border: none;
   border-radius: 50%;
   background: var(--accent);
@@ -681,8 +621,12 @@ input[type="checkbox"] {
     flex-basis: 100%;
   }
 
-  /* Thumb-zone bar: primary controls + full-width scrubber. Secondary
-     actions stay reachable via media keys / the transport's other hosts. */
+  /* Thumb-zone bar: primary controls + full-width scrubber. At phone
+     widths the ±10 s and rate affordances are dropped from this bar —
+     their shortcuts (←/→ , .) remain on keyboards with hardware keys —
+     and the scrubber + page nav cover the common case without them.
+     (F-37: this replaces the old "media keys / other hosts" claim,
+     which was never true on a phone.) */
   .playback-transport .transport-skip,
   .playback-transport .transport-rate-control {
     display: none;
@@ -775,37 +719,11 @@ input[type="checkbox"] {
   50% { transform: scaleY(1); }
 }
 
-/* Thin indeterminate progress bar for audio-loading / page-prep. */
-.loading-progress {
-  width: 100%;
-  max-width: 240px;
-  height: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--hairline-strong);
-  overflow: hidden;
-  position: relative;
-}
-
-.loading-progress::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 40%;
-  background: var(--signal);
-  border-radius: inherit;
-  animation: bv-progress 1.4s var(--ease-in-out) infinite;
-}
-
-@keyframes bv-progress {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(350%); }
-}
-
-/* F-30: the blanket kill switch in base.css deletes this whole loading
-   vocabulary for reduced-motion users — waveforms freeze at scaleY(0.3)
-   and the progress bar's ::after freezes off-screen (invisible). Each
-   indicator gets a static fallback so every loading state stays
-   perceivable without motion. */
+/* F-30: the blanket kill switch in base.css deletes this loading vocabulary
+   for reduced-motion users — waveforms freeze at scaleY(0.3). Each live
+   indicator gets a static fallback so every loading state stays perceivable
+   without motion. (`.loading-progress` also had a fallback until F-11 proved
+   the bar itself was never rendered — swept.) */
 @media (prefers-reduced-motion: reduce) {
   .spinner,
   .spin {
@@ -815,11 +733,6 @@ input[type="checkbox"] {
   .loading-waveform span {
     animation: none;
     transform: scaleY(1);
-  }
-
-  .loading-progress::after {
-    animation: none;
-    width: 45%;
   }
 }
 

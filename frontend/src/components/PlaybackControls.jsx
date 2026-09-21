@@ -49,7 +49,7 @@ function PlaybackControls({
     const canSeek = transport.duration > 0;
     const playDisabled = disabled && !transport.isPlaying;
     // Scrubber appears only when the consumer provides both a playlist-global
-    // duration and a seek callback (see PdfViewer wiring).
+    // duration and a seek callback.
     const showScrubber = Number.isFinite(duration) && duration > 0 && typeof onSeek === 'function';
     const elapsed = Math.min(Math.max(Number(transport.currentTime) || 0, 0), duration);
     const handleSeek = (event) => {

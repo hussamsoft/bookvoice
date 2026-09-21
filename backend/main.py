@@ -30,13 +30,10 @@ from services.security import is_allowed_browser_origin, public_origins
 from services.tts_service import TtsPriority, preload_model, submit_tts
 
 
-# Seed default voices on startup (paths resolved from env at call time).
-try:
-    voices.seed_default_voices()
-except Exception as _seed_err:
-    print(f"[main] voice seed skipped: {_seed_err}")
-
-
+# F-43: default voices are seeded inside `lifespan` (below), like every
+# other startup side effect — an import-time seed ran under `import` (and
+# under every test that imports this module) with its error swallowed to a
+# print.
 
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("application/javascript", ".js")
@@ -69,6 +66,11 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Seed default voices on startup (paths resolved from env at call time).
+    try:
+        voices.seed_default_voices()
+    except Exception as _seed_err:
+        print(f"[main] voice seed skipped: {_seed_err}")
     try:
         removed = studio_service.purge_expired_recordings()
         if removed:
@@ -134,6 +136,10 @@ async def protect_local_api(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    # F-43: `style-src 'unsafe-inline'` is deliberate and unavoidable here —
+    # React sets inline `style` attributes (progress fills, zoom) and
+    # react-pdf injects stylesheets; none of it is remotely fetched. Do not
+    # "fix" this to 'self' — it silently breaks the reader layout.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
         "style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; "
@@ -163,7 +169,10 @@ async def health_check():
 
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 
-STATIC_DIR = Path("static").resolve()
+# F-43: resolve against APP_DIR (the bundled app root), not the process
+# CWD — launched from elsewhere, a CWD-relative "static" silently degraded
+# to the "Frontend not built" JSON root even though the bundle was present.
+STATIC_DIR = (Path(APP_DIR) / "static").resolve()
 
 
 if STATIC_DIR.is_dir():

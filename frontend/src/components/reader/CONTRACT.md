@@ -4,6 +4,13 @@
 > This document is the source of truth for what `Reader` exposes, what its
 > callers (`App.jsx`, tests) can rely on, and what gaps must close before
 > slice 0.5 deletes `PdfViewer.jsx`.
+>
+> **Superseded note (2.8.1, F-37).** `PdfViewer.jsx` was deleted in the
+> 2.7.x migration — every `PdfViewer` mention below is historical
+> ("the pre-migration viewer"), and two rows have since changed: the
+> `?book=` deep link now toasts when the id matches no library book
+> (F-39), and `useUserConfig` is consumed by the Reader and shared
+> app-wide through `UserConfigProvider` (F-33).
 
 ## 1. Export shape
 
@@ -133,7 +140,7 @@ The shortcut hook relies on these existing:
 | `lucide-react` icons | Toolbar icons |
 | `useToast` (shared) | Notification surface |
 | `useTtsStatus` (shared) | TTS model readiness |
-| `useUserConfig` (shared) | **Not yet consumed** — see gaps above |
+| `useUserConfig` (shared) | Saved voice/language, applied once (shipped in the migration; app-wide single copy via `UserConfigProvider`, 2.8.1 F-33) |
 | `usePreparedLibrary`, `usePdfDocument`, `useServerPageText` | Data fetch |
 | API helpers in `utils/api.js` | `importPreparedBook`, `preparedBookSource`, `getPreparedPage`, `savePreparedPage`, `updatePreparedProgress` |
 | `utils/bookFiles.js` (`libraryBookFile`, `sourceKindFromName`) | Library row → file |

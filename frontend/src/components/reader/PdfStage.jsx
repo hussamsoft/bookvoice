@@ -1,9 +1,8 @@
 /**
  * PdfStage — the PDF rendering surface for the migrated reader.
  *
- * Wraps the react-pdf Document/Page pair with the same wiring the
- * production PdfViewer uses: the bundled pdf.js worker, the text layer
- * on (the future highlight target), the annotation layer off, and zoom
+ * Wraps the react-pdf Document/Page pair: the bundled pdf.js worker, the
+ * text layer on (the highlight target), the annotation layer off, and zoom
  * applied as CSS `zoom` on the page wrapper over a fit-to-viewport page
  * width. The parent owns orchestration — adopting the loaded proxy,
  * learning the page count, and resolving page text — through
@@ -28,9 +27,9 @@ export default function PdfStage({
     const [pageWidth, setPageWidth] = useState(null);
 
     // Fit the page to the viewport width; the CSS `zoom` on the wrapper
-    // then scales that fit width up or down (the same split PdfViewer
-    // uses, so `useReaderZoom`'s displayZoom debounce avoids layout
-    // thrash on rapid wheel ticks).
+    // then scales that fit width up or down — the same split that lets
+    // useReaderZoom's displayZoom debounce avoid layout thrash on rapid
+    // wheel ticks.
     useEffect(() => {
         const el = scrollRef.current;
         if (!el) return undefined;
@@ -38,9 +37,18 @@ export default function PdfStage({
         measure();
         // ResizeObserver may not exist in jsdom tests.
         if (typeof ResizeObserver === 'undefined') return undefined;
-        const observer = new ResizeObserver(measure);
+        // F-44: coalesce resize bursts into one setState per frame — dragging
+        // a window edge used to re-render the whole PDF page per observation.
+        let frame = 0;
+        const observer = new ResizeObserver(() => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(measure);
+        });
         observer.observe(el);
-        return () => observer.disconnect();
+        return () => {
+            cancelAnimationFrame(frame);
+            observer.disconnect();
+        };
     }, [file]);
 
     return (

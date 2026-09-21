@@ -47,7 +47,7 @@ describe('reader toolbar layout (F-04)', () => {
         // The 2.8.0 stylesheet carried a `@media (max-width: 720px) { … }`
         // block targeting the dead `.reader-navigation` and `.reader-nav-primary`
         // classes. Even though the rule itself was a no-op (those classes
-        // vanished with PdfViewer.jsx), it has now been retargeted to the
+        // vanished with the pre-migration viewer), it has now been retargeted to the
         // live `.reader-toolbar-row` selector. Make sure the media-query
         // block mentions the live selector and not just dead ones.
         const mediaBlocks = [...READER_CSS.matchAll(/@media[^{]+\{([\s\S]*?)\n\}/g)];

@@ -41,10 +41,12 @@ describe('reduced-motion loading fallbacks (F-30)', () => {
         expect(BASE_CSS).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
     });
 
-    it('.loading-progress keeps a visible static bar', () => {
-        // The moving ::after must be replaced by a static indicator, never
-        // merely frozen off-screen.
-        expect(reduced).toMatch(/\.loading-progress[\s\S]*?(animation:\s*none|display:\s*none|width:\s*4\d%)/);
+    it('no fallback survives for a swept class (F-11 consistency)', () => {
+        // .loading-progress was deleted by the F-11 orphan sweep because the
+        // bar is never rendered; a reduced-motion fallback for dead CSS would
+        // be dead CSS too. If this fails while the class has no JSX user,
+        // the sweep regressed.
+        expect(CONTROLS_CSS + BASE_CSS).not.toMatch(/\.loading-progress/);
     });
 
     it('.loading-waveform bars render static full-height', () => {

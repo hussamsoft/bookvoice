@@ -159,12 +159,6 @@ a {
   }
 }
 
-.skeleton--line {
-  width: 100%;
-  height: calc(var(--text-md) * var(--leading-normal));
-  border-radius: var(--radius-sm);
-}
-
 .skeleton--block {
   min-height: 96px;
   border-radius: var(--radius-md);

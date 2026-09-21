@@ -5,7 +5,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 /**
  * Reader-level keyboard shortcuts.
  *
- * The original PdfViewer wired only Space (play/pause) and ←/→ (10 s
+ * The pre-migration viewer wired only Space (play/pause) and ←/→ (10 s
  * skip). The plan's §2.3.8 extends that to the Apple-grade reader set:
  *
  *   Space         play / pause

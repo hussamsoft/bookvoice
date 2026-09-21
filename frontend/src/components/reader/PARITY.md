@@ -6,6 +6,10 @@
 > **deferred** (with a rationale and a CHANGELOG "Known limitation"
 > entry). The matrix is signed off slice-by-slice; deletion is gated on
 > every row being closed.
+>
+> **Superseded note (2.8.1, F-37).** Slice 0.5 shipped: `PdfViewer.jsx`
+> is deleted. All `PdfViewer` references below are historical
+> ("the pre-migration viewer").
 
 ## Conventions
 
