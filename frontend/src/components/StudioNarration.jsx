@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { PencilLine, Sparkles } from 'lucide-react';
+import { Mic2, PencilLine, Sparkles, X } from 'lucide-react';
 import { createStudioNarration, createStudioRepair } from '../utils/api';
 import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
 import * as studioSession from '../utils/studioSession';
@@ -8,6 +8,11 @@ import StudioOutputs from './StudioOutputs';
 import StudioSettings from './StudioSettings';
 import StudioVoiceCloner from './StudioVoiceCloner';
 
+const SAMPLE_PROMPTS = [
+    { label: 'Audiobook intro', text: 'The mist had crept over the valley before anyone noticed the lanterns going out in the old watchtower.' },
+    { label: 'Podcast snippet', text: 'Welcome back to the studio. Today we are exploring something truly fascinating that changes how we listen.' },
+    { label: 'Dramatic quote', text: 'I never promised that the path would be easy. I only promised that every single step would matter.' },
+];
 
 // Long narrations produce tens of thousands of timed words; rendering every
 // correction button at once stalls low-end phones. Only a window around the
@@ -23,20 +28,21 @@ const TranscriptWord = React.memo(function TranscriptWord({ timing, index, onSel
         </button>
     );
 });
-export default function StudioNarration({ project, voices, onPatch, onRunJob, disabled }) {
+
+export default function StudioNarration({ project, voices, onPatch, onRunJob, disabled, ttsStatus }) {
     // The draft is this device's own: typing on a phone must not overwrite
     // what is on screen at the desk. It falls back to the project's last
     // generated script the first time a device opens it.
     const [script, setScript] = useState(
         () => studioSession.getScript(project.id) ?? project.script ?? '',
     );
+    const [showCloner, setShowCloner] = useState(false);
     const [correction, setCorrection] = useState(null);
     const [transcriptRange, setTranscriptRange] = useState({ from: 0, to: WORD_WINDOW * 2 });
     const settings = useMemo(() => ({ ...DEFAULT_STUDIO_SETTINGS, ...(project.generationSettings || {}) }), [project.generationSettings]);
     const handleVoiceChange = useCallback((voiceId) => onPatch({ voiceId }), [onPatch]);
     const handleLanguageChange = useCallback((languageId) => onPatch({ languageId }), [onPatch]);
     const handleSettingsChange = useCallback((generationSettings) => onPatch({ generationSettings }), [onPatch]);
-
 
     useEffect(() => {
         setScript(studioSession.getScript(project.id) ?? project.script ?? '');
@@ -59,12 +65,30 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
     }, [latestId]);
     const selectedVoice = voices.find((voice) => voice.id === project.voiceId) || null;
 
+    const wordCount = useMemo(() => {
+        const trimmed = script.trim();
+        return trimmed ? trimmed.split(/\s+/).length : 0;
+    }, [script]);
+    const estimatedSeconds = Math.round((wordCount / 140) * 60);
+    const readTimeLabel = estimatedSeconds < 60
+        ? `${estimatedSeconds}s read`
+        : `${Math.floor(estimatedSeconds / 60)}m ${estimatedSeconds % 60}s read`;
+
     const generate = () => onRunJob('Generating narration', () => createStudioNarration(project.id, {
         text: script,
         languageId: project.languageId || 'en',
         voiceId: project.voiceId || null,
         generationSettings: settings,
     }));
+
+    const onKeyDownTextarea = (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            if (!disabled && script.trim()) {
+                generate();
+            }
+        }
+    };
 
     const selectWord = useCallback((timing, index) => {
         const segment = (latest.segments || []).find(
@@ -108,125 +132,182 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
         if (success) setCorrection(null);
     };
 
-
     return (
-        <div className="studio-workflow">
-            <StudioVoiceCloner
-                project={project}
-                voices={voices}
-                onPatch={onPatch}
-                onRunJob={onRunJob}
-                disabled={disabled}
-            />
-
-            <StudioSettings
-                voices={voices}
-                voiceId={project.voiceId}
-                languageId={project.languageId}
-                settings={settings}
-                onVoiceChange={handleVoiceChange}
-                onLanguageChange={handleLanguageChange}
-                onSettingsChange={handleSettingsChange}
-                disabled={disabled}
-            />
-
-
-            <section className="studio-editor" aria-labelledby="studio-script-heading">
-                <div className="studio-section-heading">
-                    <div>
-                        <span className="studio-kicker">Step 2 · Write directly in BookVoice</span>
-                        <h2 id="studio-script-heading">Narration script</h2>
-                    </div>
-                    <span className="studio-autosave">Saved locally</span>
-                </div>
-                <label className="sr-only" htmlFor="studio-script">Narration script</label>
-                <textarea
-                    id="studio-script"
-                    value={script}
-                    onChange={(event) => setScript(event.target.value)}
-                    onBlur={() => studioSession.setScript(project.id, script)}
-                    placeholder="Write the words you want this voice to narrate…"
-                    dir={(project.languageId || 'en') === 'ar' ? 'rtl' : 'ltr'}
-                    maxLength={200000}
+        <div className="studio-workflow studio-workspace-grid">
+            <aside className="studio-inspector" aria-label="Voice and delivery settings">
+                <StudioSettings
+                    voices={voices}
+                    voiceId={project.voiceId}
+                    languageId={project.languageId}
+                    settings={settings}
+                    onVoiceChange={handleVoiceChange}
+                    onLanguageChange={handleLanguageChange}
+                    onSettingsChange={handleSettingsChange}
+                    onOpenCloner={() => setShowCloner(true)}
                     disabled={disabled}
                 />
-                <div className="studio-editor-footer">
-                    <span>{script.length.toLocaleString()} characters</span>
-                    <button className="btn primary" onClick={generate} disabled={disabled || !script.trim()}>
-                        <Sparkles size={16} /> {selectedVoice ? `Narrate with ${selectedVoice.name}` : 'Generate narration'}
-                    </button>
-                </div>
-            </section>
 
-            {latest && (
-                <section className="studio-latest" aria-labelledby="studio-latest-heading">
+                <div className="studio-inspector-takes">
+                    <StudioOutputs
+                        outputs={project.outputs || []}
+                    />
+                </div>
+            </aside>
+
+            <main className="studio-stage" aria-label="Narration canvas and monitor">
+                <section className="studio-editor" aria-labelledby="studio-script-heading">
                     <div className="studio-section-heading">
                         <div>
-                            <span className="studio-kicker">Latest performance</span>
-                            <h3 id="studio-latest-heading">Listen and correct</h3>
+                            <span className="studio-kicker">Write directly in BookVoice</span>
+                            <h2 id="studio-script-heading">Narration script</h2>
+                        </div>
+                        <div className="studio-editor-meta">
+                            {wordCount > 0 && <span className="studio-read-time">{readTimeLabel}</span>}
+                            <span className="studio-autosave">Saved locally</span>
                         </div>
                     </div>
-                    <AudioPlayer src={latest.contentUrl} label="the narration" />
-                    {wordTimings.length > 0 && (
-                        <div className="studio-transcript" aria-label="Select a word to correct" role="group">
-                            {transcriptWindowed && transcriptRange.from > 0 && (
 
-                                <button
-                                    type="button"
+                    <div className="studio-sample-prompts" role="group" aria-label="Sample test prompts">
+                        <span className="studio-sample-prompts-label">Try a prompt:</span>
+                        {SAMPLE_PROMPTS.map((prompt) => (
+                            <button
+                                key={prompt.label}
+                                type="button"
+                                className="studio-prompt-chip"
+                                onClick={() => setScript(prompt.text)}
+                                disabled={disabled}
+                            >
+                                {prompt.label}
+                            </button>
+                        ))}
+                    </div>
 
-                                    className="studio-transcript-more"
-                                    aria-label={`Show ${transcriptRange.from.toLocaleString()} earlier words`}
-                                    onClick={() => setTranscriptRange((current) => ({
-                                        ...current,
-                                        from: Math.max(0, current.from - WORD_CHUNK),
-                                    }))}
-                                >
-                                    …
-                                </button>
-                            )}
-                            {visibleTimings.map((timing, offset) => (
-                                <TranscriptWord
-                                    key={`${timing.word}-${transcriptRange.from + offset}`}
-                                    timing={timing}
-                                    index={transcriptRange.from + offset}
-                                    onSelect={selectWord}
-                                />
-                            ))}
-                            {transcriptWindowed && transcriptRange.to < wordTimings.length && (
-                                <button
-                                    type="button"
-                                    className="studio-transcript-more"
-                                    aria-label={`Show ${(wordTimings.length - transcriptRange.to).toLocaleString()} more words`}
-                                    onClick={() => setTranscriptRange((current) => ({
-                                        ...current,
-                                        to: Math.min(wordTimings.length, current.to + WORD_CHUNK),
-                                    }))}
-                                >
-                                    …
-                                </button>
-                            )}
+                    <label className="sr-only" htmlFor="studio-script">Narration script</label>
+                    <textarea
+                        id="studio-script"
+                        value={script}
+                        onChange={(event) => setScript(event.target.value)}
+                        onBlur={() => studioSession.setScript(project.id, script)}
+                        onKeyDown={onKeyDownTextarea}
+                        placeholder="Write the words you want this voice to narrate… (Ctrl+Enter to generate)"
+                        dir={(project.languageId || 'en') === 'ar' ? 'rtl' : 'ltr'}
+                        maxLength={200000}
+                        disabled={disabled}
+                    />
+                    <div className="studio-editor-footer">
+                        <div className="studio-editor-counts">
+                            <span>{script.length.toLocaleString()} characters</span>
+                            <span className="studio-count-bullet">•</span>
+                            <span>{wordCount.toLocaleString()} words</span>
                         </div>
-                    )}
-                    {correction && (
-                        <div className="studio-correction">
-                            <PencilLine size={18} />
-                            <label>
-                                <span>Edit the sentence containing “{correction.word}”</span>
-                                <textarea value={correction.text} onChange={(e) => setCorrection({ ...correction, text: e.target.value })} rows={3} />
-                            </label>
+                        <div className="studio-editor-actions">
+                            <span className="studio-shortcut-hint">Ctrl+Enter to generate</span>
+                            <button className="btn primary" onClick={generate} disabled={disabled || !script.trim()}>
+                                <Sparkles size={16} /> {selectedVoice ? `Narrate with ${selectedVoice.name}` : 'Generate narration'}
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                {latest && (
+                    <section className="studio-latest" aria-labelledby="studio-latest-heading">
+                        <div className="studio-section-heading">
                             <div>
-                                <button className="btn text" onClick={() => setCorrection(null)}>Cancel</button>
-                                <button className="btn primary" onClick={repairSentence} disabled={!correction.text.trim() || disabled}>Create corrected version</button>
+                                <span className="studio-kicker">Latest performance</span>
+                                <h3 id="studio-latest-heading">Listen and correct</h3>
                             </div>
                         </div>
-                    )}
-                </section>
+                        <AudioPlayer src={latest.contentUrl} label="the narration" />
+                        {wordTimings.length > 0 && (
+                            <div className="studio-transcript" aria-label="Select a word to correct" role="group">
+                                {transcriptWindowed && transcriptRange.from > 0 && (
+
+                                    <button
+                                        type="button"
+
+                                        className="studio-transcript-more"
+                                        aria-label={`Show ${transcriptRange.from.toLocaleString()} earlier words`}
+                                        onClick={() => setTranscriptRange((current) => ({
+                                            ...current,
+                                            from: Math.max(0, current.from - WORD_CHUNK),
+                                        }))}
+                                    >
+                                        …
+                                    </button>
+                                )}
+                                {visibleTimings.map((timing, offset) => (
+                                    <TranscriptWord
+                                        key={`${timing.word}-${transcriptRange.from + offset}`}
+                                        timing={timing}
+                                        index={transcriptRange.from + offset}
+                                        onSelect={selectWord}
+                                    />
+                                ))}
+                                {transcriptWindowed && transcriptRange.to < wordTimings.length && (
+                                    <button
+                                        type="button"
+                                        className="studio-transcript-more"
+                                        aria-label={`Show ${(wordTimings.length - transcriptRange.to).toLocaleString()} more words`}
+                                        onClick={() => setTranscriptRange((current) => ({
+                                            ...current,
+                                            to: Math.min(wordTimings.length, current.to + WORD_CHUNK),
+                                        }))}
+                                    >
+                                        …
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                        {correction && (
+                            <div className="studio-correction">
+                                <PencilLine size={18} />
+                                <label>
+                                    <span>Edit the sentence containing “{correction.word}”</span>
+                                    <textarea value={correction.text} onChange={(e) => setCorrection({ ...correction, text: e.target.value })} rows={3} />
+                                </label>
+                                <div>
+                                    <button className="btn text" onClick={() => setCorrection(null)}>Cancel</button>
+                                    <button className="btn primary" onClick={repairSentence} disabled={!correction.text.trim() || disabled}>Create corrected version</button>
+                                </div>
+                            </div>
+                        )}
+                    </section>
+                )}
+            </main>
+
+            {showCloner && (
+                <div
+                    className="studio-modal-backdrop"
+                    onClick={() => setShowCloner(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Voice Cloner"
+                >
+                    <div className="studio-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="studio-modal-header">
+                            <span className="studio-kicker">Voice Cloner</span>
+                            <button
+                                type="button"
+                                className="btn text studio-modal-close"
+                                onClick={() => setShowCloner(false)}
+                                aria-label="Close cloner"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <StudioVoiceCloner
+                            project={project}
+                            voices={voices}
+                            onPatch={(patch) => {
+                                onPatch(patch);
+                                setShowCloner(false);
+                            }}
+                            onRunJob={onRunJob}
+                            disabled={disabled}
+                        />
+                    </div>
+                </div>
             )}
-
-            <StudioOutputs
-                outputs={project.outputs || []}
-            />
-
         </div>
     );
 }

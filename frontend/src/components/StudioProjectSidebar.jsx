@@ -26,6 +26,7 @@ export default function StudioProjectSidebar({
     disabled,
 }) {
     const [name, setName] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [expanded, setExpanded] = useState(false);
     const { localFileActions } = useCapabilities();
 
@@ -36,6 +37,12 @@ export default function StudioProjectSidebar({
     };
 
     const activeName = useMemo(() => projects.find((item) => item.id === activeId)?.name || 'No project', [projects, activeId]);
+
+    const filteredProjects = useMemo(() => {
+        if (!searchQuery.trim()) return projects;
+        const q = searchQuery.trim().toLowerCase();
+        return projects.filter((p) => (p.name || '').toLowerCase().includes(q));
+    }, [projects, searchQuery]);
 
     return (
         <aside className={`studio-sidebar ${expanded ? 'is-expanded' : ''}`} aria-label="Voice Studio projects">
@@ -103,6 +110,20 @@ export default function StudioProjectSidebar({
                     </button>
                 </form>
 
+                {projects.length > 3 && (
+                    <div className="studio-project-search">
+                        <label className="sr-only" htmlFor="studio-search-projects">Search projects</label>
+                        <input
+                            id="studio-search-projects"
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Filter projects…"
+                            className="studio-search-input"
+                        />
+                    </div>
+                )}
+
                 {/* axe (Phase 4 exit gate): role="list" may not contain a
                     role="status" child — the empty state renders outside
                     the list instead of inside it. */}
@@ -114,7 +135,7 @@ export default function StudioProjectSidebar({
                     </div>
                 ) : (
                     <div className="studio-project-list" role="list">
-                        {projects.map((project) => (
+                        {filteredProjects.map((project) => (
                     <article
                         className={`studio-project-row ${project.id === activeId ? 'is-active' : ''}`}
                         key={project.id}

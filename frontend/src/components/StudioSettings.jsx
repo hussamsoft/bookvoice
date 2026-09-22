@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, memo } from 'react';
+import { Mic2 } from 'lucide-react';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
 
 
@@ -71,6 +72,12 @@ function temperatureLabel(value) {
     return 'Warm';
 }
 
+export const STUDIO_DELIVERY_PRESETS = [
+    { id: 'natural', label: 'Natural', pace: 1.0, expression: 0.5, temperature: 0.8, hint: 'Balanced reading' },
+    { id: 'expressive', label: 'Expressive', pace: 0.95, expression: 0.75, temperature: 0.9, hint: 'Story & dramatic tone' },
+    { id: 'fast', label: 'Fast & Crisp', pace: 1.15, expression: 0.35, temperature: 0.6, hint: 'Podcast & news tempo' },
+];
+
 export default function StudioSettings({
     voices,
     voiceId,
@@ -79,10 +86,29 @@ export default function StudioSettings({
     onVoiceChange,
     onLanguageChange,
     onSettingsChange,
+    onOpenCloner,
     disabled,
 }) {
-    const [showAdvanced, setShowAdvanced] = useState(true);
-    const [showVariation, setShowVariation] = useState(true);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showVariation, setShowVariation] = useState(false);
+
+    const activePreset = useMemo(() => {
+        const match = STUDIO_DELIVERY_PRESETS.find((p) =>
+            Math.abs(p.pace - settings.pace) < 0.02 &&
+            Math.abs(p.expression - settings.expression) < 0.02 &&
+            Math.abs(p.temperature - settings.temperature) < 0.02
+        );
+        return match ? match.id : 'custom';
+    }, [settings.pace, settings.expression, settings.temperature]);
+
+    const applyPreset = useCallback((preset) => {
+        onSettingsChange({
+            ...settings,
+            pace: preset.pace,
+            expression: preset.expression,
+            temperature: preset.temperature,
+        });
+    }, [settings, onSettingsChange]);
 
     const handlePaceChange = useCallback((value) => {
         const newSettings = { ...settings, pace: value };
@@ -124,7 +150,20 @@ export default function StudioSettings({
 
                 <div className="studio-settings-grid">
                     <div className="studio-setting-item">
-                        <label className="studio-setting-label" htmlFor="studio-voice-select">Voice</label>
+                        <div className="studio-voice-header-row">
+                            <label className="studio-setting-label" htmlFor="studio-voice-select">Voice</label>
+                            {onOpenCloner && (
+                                <button
+                                    type="button"
+                                    className="btn text studio-clone-trigger"
+                                    onClick={onOpenCloner}
+                                    disabled={disabled}
+                                    title="Clone a new voice"
+                                >
+                                    <Mic2 size={13} /> Clone voice
+                                </button>
+                            )}
+                        </div>
                         <select
                             id="studio-voice-select"
                             value={voiceId}
@@ -151,6 +190,32 @@ export default function StudioSettings({
                                 <option key={lang.code} value={lang.code}>{lang.name}</option>
                             ))}
                         </select>
+                    </div>
+                </div>
+
+                <div className="studio-presets-row">
+                    <span className="studio-presets-label">Delivery style:</span>
+                    <div className="studio-presets-group" role="group" aria-label="Delivery style presets">
+                        {STUDIO_DELIVERY_PRESETS.map((p) => (
+                            <button
+                                key={p.id}
+                                type="button"
+                                className={`studio-preset-btn ${activePreset === p.id ? 'is-active' : ''}`}
+                                onClick={() => applyPreset(p)}
+                                disabled={disabled}
+                                title={p.hint}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            className={`studio-preset-btn ${activePreset === 'custom' ? 'is-active' : ''}`}
+                            onClick={() => setShowAdvanced((prev) => !prev)}
+                            disabled={disabled}
+                        >
+                            {showAdvanced ? 'Hide sliders' : 'Custom sliders…'}
+                        </button>
                     </div>
                 </div>
             </section>

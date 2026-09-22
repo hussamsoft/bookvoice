@@ -362,6 +362,38 @@ def _load_local_mtl(ckpt_dir, device):
     return ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device, conds=conds)
 
 
+def _warmup_model(model, device: str, target_type: str = "en") -> None:
+    """Run a tiny dummy forward pass so CUDA kernels, JIT caches, and memory pools initialize."""
+    if model is None:
+        return
+    # Skip warmup during unit tests if model is a mock or missing required attributes
+    if not hasattr(model, "t3") or not hasattr(model, "s3gen"):
+        return
+    # If no speaker conditionals are attached, check if a default prompt exists
+    if getattr(model, "conds", None) is None:
+        try:
+            _, voices_dir, _ = _data_dirs()
+            default_prompt = Path(voices_dir) / "Aria.wav"
+            if not default_prompt.is_file():
+                default_prompt = Path("voices") / "Aria.wav"
+            if default_prompt.is_file():
+                _prepare_voice_conditionals(model, str(default_prompt))
+        except Exception:
+            pass
+    if getattr(model, "conds", None) is None:
+        return
+
+    try:
+        t0 = time.perf_counter()
+        _log(f"Warming up TTS model ({target_type}) on {device}...")
+        _model_state["detail"] = f"Warming up AI engine ({device.upper()})..."
+        from . import synth as _synth
+        _synth._generate_chunk(model, "Hi.", target_type, {"cfg_weight": 0.4})
+        _log(f"TTS model warmup complete in {time.perf_counter() - t0:.2f}s.")
+    except Exception as exc:
+        _log(f"TTS model warmup skipped: {exc}")
+
+
 def get_model(language_id="en"):
     global _model, _model_type
     from services.path_utils import validate_language_id
@@ -438,6 +470,8 @@ def get_model(language_id="en"):
                     raise FileNotFoundError(error_msg)
 
                 _model_type = target_type
+                if device == "cuda" or os.environ.get("TTS_WARMUP", "1").strip().lower() in ("1", "true", "yes", "on"):
+                    _warmup_model(_model, device, target_type)
                 _model_state["status"] = "ready"
                 _model_state["loading_started"] = None
                 dev_label = device.upper()

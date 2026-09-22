@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
+import { Activity, AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
 import {
     cancelStudioJob,
     claimLegacyStudioProjects,
@@ -15,6 +15,7 @@ import {
     waitForStudioJob,
 } from '../utils/api';
 import { useToast } from './Toast';
+import { useTtsStatus } from '../hooks/useTtsStatus';
 import ConfirmDialog from './ui/ConfirmDialog';
 import StudioConversion from './StudioConversion';
 import StudioNarration from './StudioNarration';
@@ -26,6 +27,8 @@ const WORKFLOW_ORDER = ['NARRATION', 'CONVERSION', 'REPAIR'];
 
 export default function VoiceStudio() {
     const toast = useToast();
+    const ttsStatus = useTtsStatus({ toast });
+    const { modelReady, modelError, modelStatusDetail, deviceInfo, retryLoad } = ttsStatus;
     const mountedRef = useRef(true);
     const pollControllerRef = useRef(null);
     const [projects, setProjects] = useState([]);
@@ -316,6 +319,23 @@ export default function VoiceStudio() {
                                 Write narration in a cloned voice, or re-voice a recording you already have.
                                 Stay on this device.
                             </p>
+                            <div
+                                className={`studio-engine-pill ${modelReady ? 'is-ready' : modelError ? 'is-error' : 'is-loading'}`}
+                                role="status"
+                                aria-live="polite"
+                                title={modelError ? `Engine error: ${modelError}. Click to retry.` : (modelStatusDetail || 'Voice AI engine status')}
+                                onClick={modelError ? retryLoad : undefined}
+                                style={{ alignSelf: 'flex-start', marginTop: 'var(--space-2)' }}
+                            >
+                                <span className="studio-engine-dot" aria-hidden="true" />
+                                <span className="studio-engine-text">
+                                    {modelReady
+                                        ? `AI Engine: ${deviceInfo ? deviceInfo.toUpperCase() : 'Ready'}`
+                                        : modelError
+                                            ? 'AI Engine Error (Click to retry)'
+                                            : (modelStatusDetail || 'Warming up engine…')}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 ) : <>
@@ -336,6 +356,22 @@ export default function VoiceStudio() {
                             />
                         </div>
                         <div className="studio-project-header-actions">
+                            <div
+                                className={`studio-engine-pill ${modelReady ? 'is-ready' : modelError ? 'is-error' : 'is-loading'}`}
+                                role="status"
+                                aria-live="polite"
+                                title={modelError ? `Engine error: ${modelError}. Click to retry.` : (modelStatusDetail || 'Voice AI engine status')}
+                                onClick={modelError ? retryLoad : undefined}
+                            >
+                                <span className="studio-engine-dot" aria-hidden="true" />
+                                <span className="studio-engine-text">
+                                    {modelReady
+                                        ? `AI Engine: ${deviceInfo ? deviceInfo.toUpperCase() : 'Ready'}`
+                                        : modelError
+                                            ? 'AI Engine Error (Click to retry)'
+                                            : (modelStatusDetail || 'Warming up engine…')}
+                                </span>
+                            </div>
                             <button
                                 className="btn text"
                                 type="button"
@@ -426,13 +462,13 @@ export default function VoiceStudio() {
                     )}
 
                     {workflow === 'REPAIR' && (
-                        <StudioRepair project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
+                        <StudioRepair project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
                     )}
                     {workflow === 'CONVERSION' && (
-                        <StudioConversion project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
+                        <StudioConversion project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
                     )}
                     {!['REPAIR', 'CONVERSION'].includes(workflow) && (
-                        <StudioNarration project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} />
+                        <StudioNarration project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
                     )}
                 </>}
             </section>

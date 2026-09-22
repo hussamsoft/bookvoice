@@ -336,7 +336,10 @@ async def create_narration(project_id: str, request: NarrationCreate):
         _error("INVALID_NARRATION", str(exc))
 
     def work(*, job_id, cancel_event):
-        studio.update_job_progress(project_id, job_id, 0.1, "Preparing narration")
+        from services.tts_service import state_snapshot
+        current_snap = state_snapshot()
+        msg = current_snap.get("detail") if current_snap.get("status") == "loading" else "Preparing narration"
+        studio.update_job_progress(project_id, job_id, 0.1, msg)
         output = studio.create_narration(
             project_id,
             request.text,
