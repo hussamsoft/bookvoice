@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -82,14 +83,43 @@ def write_runtime_manifest(dist: Path, version: str) -> dict[str, object]:
     return manifest
 
 
+def _force_rmtree(root: Path) -> None:
+    """rmtree that survives Windows read-only / busy files.
+
+    The embedded Python in `base_runtime` ships read-only DLLs; if the
+    build is interrupted, a plain `shutil.rmtree` fails with PermissionError
+    on those entries and leaves the destination partially present, so the
+    subsequent `copytree` (which defaults to `dirs_exist_ok=False`) blows
+    up on `os.makedirs(dst)`. Best-effort unlink then check.
+    """
+    def _onerror(function, path, exc_info):
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+        try:
+            function(path)
+        except OSError:
+            pass
+
+    if root.exists():
+        shutil.rmtree(root, onerror=_onerror)
+        if root.exists():
+            # last resort: cmd rmdir on Windows
+            if os.name == "nt":
+                subprocess.run(
+                    ["cmd", "/c", "rd", "/s", "/q", str(root)],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+
 def _copy_runtime(source: Path, base_runtime: Path, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
-        if destination.exists():
-            raise SystemExit(f"Failed to clean stale runtime destination: {destination}")
+    _force_rmtree(destination)
     if not destination.exists():
         destination.mkdir(parents=True)
-    shutil.copytree(base_runtime, destination)
+    shutil.copytree(base_runtime, destination, dirs_exist_ok=True)
     shutil.copytree(
         source / "Lib" / "site-packages",
         destination / "Lib" / "site-packages",

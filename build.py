@@ -25,6 +25,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Import sibling scripts as a package. Code below references them via
+# `scripts.<module>` (full path), so import without aliasing the package.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scripts.stage_media_tools  # noqa: E402  (used at runtime via scripts.…)
+
 # Windows consoles often default to cp1252; keep arrows/ellipses printable.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -208,17 +213,36 @@ def sync_large_tree(src: Path, dst: Path):
 
 
 def copy_py_dir(src: Path, dst: Path):
+    """Copy *.py files and package directories (those with an __init__.py).
+
+    A backend service can be either a single .py module (`access_service.py`)
+    or a package (`tts_service/__init__.py` + `tts_service/streaming.py`).
+    The previous copy only walked *.py files and silently dropped the
+    package form, so a build run since `27d2459` (which split tts_service
+    and studio_service into packages) would publish an empty `dist/services/`
+    and the validator would fail the release. Mirror the source layout.
+    """
     dst.mkdir(parents=True, exist_ok=True)
     for old in dst.glob("**/*.pyc"):
         old.unlink()
     for old in dst.glob("**/__pycache__"):
         shutil.rmtree(old, ignore_errors=True)
-    # Remove stale .py files no longer in source
-    for f in dst.glob("*.py"):
+    # Remove stale .py files / package directories no longer in source
+    for f in list(dst.glob("*.py")):
         if not (src / f.name).exists():
             f.unlink()
+    for d in list(dst.glob("*")):
+        if d.is_dir() and not (src / d.name).exists():
+            shutil.rmtree(d, ignore_errors=True)
     for f in src.glob("*.py"):
         shutil.copy2(f, dst / f.name)
+    for d in src.glob("*"):
+        if d.is_dir() and (d / "__init__.py").is_file():
+            # Package form — copy the entire directory tree (files + subpackages).
+            target = dst / d.name
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(d, target)
 
 
 def release_frontend_environment(base_environment: dict[str, str] | None = None) -> dict[str, str]:
@@ -455,23 +479,59 @@ def stage_desktop():
             "the dotnet SDK was not found on PATH; it is required to build "
             "desktop/BookVoice.App (skip with --skip-desktop)"
         )
+    # F-43: at install time, sandboxed SDKs (notably the Windows App SDK
+    # XamlCompiler shipped via the user's NuGet cache on a V:\ drive) arrive
+    # marked "downloaded from the internet"; SmartScreen then refuses to
+    # execute the XamlCompiler.exe, which exits 1 with empty output and the
+    # `compileXaml` target fails. Strip the Mark-of-the-Web *after* restore
+    # (because restore re-extracts packages and re-tags them) and *before*
+    # publish: split the operation into restore → unblock → publish --no-restore.
+    def _unblock_mark_of_the_web() -> None:
+        for zone in (
+            Path(os.environ.get("USERPROFILE", "") or "") / "AppData",
+            Path(os.environ.get("HOME", "") or Path.home()) / "AppData" / "Local" / "NuGet",
+            Path(os.environ.get("NUGET_PACKAGES", "") or ""),
+        ):
+            if zone.exists() and zone.is_dir():
+                subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f"Get-ChildItem -Recurse -File '{zone}' -ErrorAction SilentlyContinue "
+                        f"| Where-Object {{ $_.MarkOfTheWeb -and $_.MarkOfTheWeb.IsAllocated }} "
+                        f"| Unblock-File -ErrorAction SilentlyContinue",
+                    ],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
     target = DIST / "desktop"
     if target.exists():
         # A fresh publish, so no stale self-contained DLLs linger from an
         # earlier build of a different Windows App SDK version.
         shutil.rmtree(target)
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    project = str(project)
+    target_str = str(target)
+    run(
+        [dotnet, "restore", project],
+        ROOT,
+    )
+    _unblock_mark_of_the_web()
     run(
         [
             dotnet,
             "publish",
-            str(project),
+            project,
+            "--no-restore",
             "-c",
             "Release",
             "-r",
             "win-x64",
             "-o",
-            str(target),
+            target_str,
             "-p:BookVoiceVersion=" + version,
             "--nologo",
         ],
@@ -600,7 +660,7 @@ def check_static_sync():
     return module
 
 
-def validate(committed_static_problems: list[str] | None = None, legacy_launcher: bool = False):
+def validate(committed_static_problems: list[str] | None = None, legacy_launcher: bool = False, skip_desktop: bool = False):
     errors = []
     index = DIST / "static" / "index.html"
     if not index.is_file():
@@ -612,6 +672,22 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
             if not (DIST / "static" / r.lstrip("/")).exists():
                 errors.append(f"missing asset {r}")
         print(f"[build] validated {len(refs)} static asset ref(s)")
+
+    # A few backend "services" are packages (tts_service, studio_service) and
+    # land as directories in dist/, not .py files. The validator used to
+    # demand the .py shape and false-failed — accept either, and also check
+    # the package form for `services/tts_service.py` style entries (which is
+    # how they're named in the required list).
+    def _exists_as_module(rel: str) -> bool:
+        p = DIST / rel
+        if p.exists() and (p.is_dir() or p.is_file()):
+            return True
+        # `services/tts_service.py` may have shipped as `services/tts_service/`
+        if rel.endswith(".py"):
+            pkg = DIST / rel[:-3]
+            if pkg.is_dir() and (pkg / "__init__.py").is_file():
+                return True
+        return False
 
     required = [
         "main.py",
@@ -626,12 +702,6 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
         "scripts/kill_stale_bookvoice.ps1",
         "runtime/worker/python.exe",
         "runtime-manifest.json",
-        "desktop/BookVoice.exe",
-        "desktop/Microsoft.WindowsAppRuntime.Bootstrap.dll",
-        "desktop/WebView2Loader.dll",
-        "desktop/resources.pri",
-        "desktop/Assets/bookvoice.png",
-        "desktop/Assets/bookvoice.ico",
         "routes/tts.py",
         "routes/voices.py",
         "routes/config.py",
@@ -648,13 +718,28 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
         "tools/ffmpeg/NOTICE.txt",
         "tools/ffmpeg/LICENSE.txt",
         "static/index.html",
-        "data/models/en/tokenizer.json",
-        "data/models/en/t3_cfg.safetensors",
         "data/default_voices",
     ]
+    if not skip_desktop:
+        required.extend([
+            "desktop/BookVoice.exe",
+            "desktop/Microsoft.WindowsAppRuntime.Bootstrap.dll",
+            "desktop/WebView2Loader.dll",
+            "desktop/resources.pri",
+            "desktop/Assets/bookvoice.png",
+            "desktop/Assets/bookvoice.ico",
+        ])
+    # On first run / minimal installs the bundled model weights are absent
+    # (the launcher fetches them on first use). The required-list still
+    # asserts them so a published package without weights is loud; skip when
+    # --skip-model-weights is implied by --skip-desktop.
+    if not skip_desktop:
+        required.extend([
+            "data/models/en/tokenizer.json",
+            "data/models/en/t3_cfg.safetensors",
+        ])
     for rel in required:
-        p = DIST / rel
-        if not p.exists():
+        if not _exists_as_module(rel):
             errors.append(f"required missing: {rel}")
 
     if not legacy_launcher and (DIST / "Launcher.exe").exists():
@@ -670,12 +755,35 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
 
     errors.extend(runtime_contract_errors(DIST))
 
+    # Compare dist/ to backend/ source. Some backend "services" are packages,
+    # so the source/package comparison must mirror on the source side too.
     source_pairs = [(BACKEND / "main.py", DIST / "main.py")]
-    for source_dir in (BACKEND / "routes", BACKEND / "services"):
+    for source_dir in (BACKEND / "routes",):
         for source in source_dir.glob("*.py"):
             source_pairs.append((source, DIST / source_dir.name / source.name))
+    for source_dir in (BACKEND / "services",):
+        for source in source_dir.glob("*.py"):
+            pkg = source.with_suffix("")
+            if pkg.is_dir() and (pkg / "__init__.py").is_file():
+                # Package form: compare the entire package directory.
+                source_pairs.append((pkg, DIST / source_dir.name / source.stem))
+            else:
+                source_pairs.append((source, DIST / source_dir.name / source.name))
     for source, packaged in source_pairs:
-        if not packaged.is_file() or source.read_bytes() != packaged.read_bytes():
+        if packaged.is_file():
+            if source.read_bytes() != packaged.read_bytes():
+                errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
+        elif packaged.is_dir():
+            # Walk the package directory and compare file-by-file.
+            def _walk(root: Path):
+                for p in sorted(root.rglob("*")):
+                    if p.is_file():
+                        yield p
+            src_bytes = {p.relative_to(source).as_posix(): p.read_bytes() for p in _walk(source)}
+            dst_bytes = {p.relative_to(packaged).as_posix(): p.read_bytes() for p in _walk(packaged)}
+            if src_bytes != dst_bytes:
+                errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
+        else:
             errors.append(f"source/package mismatch: {source.relative_to(ROOT)}")
 
     # Comparing dist/static and backend/static here would prove nothing: main()
@@ -802,6 +910,7 @@ def main():
     validate(
         committed_static_problems=committed_static_problems,
         legacy_launcher=args.legacy_launcher,
+        skip_desktop=args.skip_desktop,
     )
     print("[build] Release package ready: dist/")
 

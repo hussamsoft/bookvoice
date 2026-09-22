@@ -1,3 +1,92 @@
+## 2.8.1 - 2026-09-21
+
+A six-phase audit-driven remediation that finishes the reader the v2.8.0 audit
+flagged as "the least finished surface in the app." 44 findings across six
+phases; every finding closed in a separate commit with a failing-first
+regression test. Plus a build-pipeline fix that had been silently broken
+since `tts_service` was split into a package in 2.4.x (`27d2459`).
+
+### Fixed
+
+- **Critical (Phase 1, F-01…F-06, F-14, F-15):** eight correctness defects
+  that shipped in 2.8.0: find-in-book traps the reader on the hit page; the
+  library book-actions menu never closed on outside click; CSP blocked the
+  inline theme bootstrap and flashed the wrong theme on first paint; the
+  reader toolbar was unreachable below ~1225 px because the existing fix
+  targeted CSS classes the new reader doesn't render; Home/Library errors
+  were silently swallowed by `onError={() => {}}`; modal scrim inverted
+  (brightened) in dark mode; every palette swatch rendered identically with
+  DOM mutation during render; Settings had no top-bar title.
+- **Reader restoration (Phase 2, F-07, F-09, F-12, F-13, F-38):** the Reader
+  regains the scrubber, time, rate, transcript, bookmark jump, and
+  voice/language controls the deleted PdfViewer had, plus `PlaybackControls`
+  mounted in production, grouped toolbar, paragraphs in text books, real
+  consumed loading state, and a "Try again" that actually retries the
+  underlying load. `useWordHighlight`/`pdfHighlight`/`wordPronunciation` stay
+  deferred — they're orphaned hooks waiting on a real audio path that the
+  shipped Reader does not yet have.
+- **Responsive & touch (Phase 3, F-10, F-16…F-21, F-41):** touch targets
+  normalized to 44 px on `pointer: coarse`; `Button` `size` prop is no longer
+  inert; `100vh` retired on a phone-targeted app; toast region no longer
+  collides with the mobile bottom nav; library rows show covers, are
+  clickable, and have a unified markup; loading states consistent across
+  Home / Library / Settings; `backdrop-filter` only where something passes
+  behind.
+- **Accessibility (Phase 4, F-22…F-31, F-42):** five light-mode contrast
+  pairs brought to WCAG AA; one `banner` landmark instead of two nested
+  `<header>`s; headings start at `h1`; transcript words are `role="button"`
+  with Enter/Space activation; live regions consolidated; toasts inserted
+  empty and announced reliably; menu keyboard pattern wired; palette buttons
+  are an ARIA radiogroup with arrow-key navigation; loading feedback
+  survives reduced motion; `:focus-visible` no longer rewrites
+  `border-radius` and works in forced-colors.
+- **State & theme (Phase 5, F-32…F-36, F-39, F-40):** refs no longer written
+  during render; shared `useUserConfig` with cross-instance invalidation and
+  no null-config crash path; the false data-loss warning after a successful
+  scan save is gone; theme honours `prefers-color-scheme` with a `matchMedia`
+  listener and validates palettes; progress is flushed on `visibilitychange`
+  instead of polling; deep links to an unknown book say so; view transitions
+  use the actual content change instead of a 200 ms timer.
+- **Cleanup & guardrails (Phase 6, F-11, F-37, F-43 build, F-44):** 89 orphaned
+  CSS classes removed after the parity test confirmed which ones survived the
+  reader migration; `userTouched*` vestigial refs deleted; misc
+  `type="button"` / undebounced resize / no-op 480px rule / hardcoded
+  scrubber offset all addressed.
+- **F-43 build half:** the desktop publish was silently broken since
+  `tts_service` and `studio_service` were split into packages in `27d2459` —
+  `build.copy_py_dir` only copied `.py` files, so package directories were
+  dropped on the way to `dist/services/` and the validator would false-fail
+  any release build. The staging helper now copies package directories whole
+  and prunes stale siblings in both directions; the validator's
+  `_exists_as_module` recognises the package form for `services/<name>.py`
+  entries. The `Mark-of-the-Web` unblock loop restores NuGet packages
+  downloaded by sandboxed SDKs (notably the Windows App SDK XamlCompiler on a
+  `V:\` NuGet cache) by stripping the MoW between `dotnet restore` and
+  `dotnet publish --no-restore`, and `--skip-desktop` is now first-class so
+  the required-list stops demanding `desktop/BookVoice.exe` and bundled
+  model weights for a config that builds without them. Backend `print()`
+  → `logging` migration (the other half of F-43) is deferred — ~50 call
+  sites, lands as its own PR. The runtime staging helper now survives
+  read-only / busy files in the embedded Python DLLs (`_force_rmtree`).
+- **F-45 (resolved during Phase 4 gating):** `tests/test_pronunciation_cache_privacy.py`
+  deleted `services.tts_service.*` from `sys.modules` in `setUp` and never
+  restored the originals — every later test file ran against duplicate
+  module instances and 11 tests across `test_tts_lifecycle` and
+  `test_voice_conversion` false-failed in full-suite order only. Fixed with
+  snapshot-and-reorder; the suite is now 478+ passed / 0 failed.
+
+### Test results
+
+- Frontend unit: 543/543 passing (85 files)
+- Frontend lint: 0 diagnostics
+- Backend pytest: 479 passed (28 subtests passed)
+- `scripts/check_static_sync.py`: `backend/static` matches a fresh `frontend/dist`
+- Build: initial entry 330.11 KiB against the 350 KiB budget; `python build.py
+  --skip-desktop` validates the release package (the desktop shell cannot be
+  built on a host without the Windows SDK 10.0.19041 installed — the
+  `XamlCompiler.exe` step fails on the absent TPV Facade winmd — and is
+  unchanged from 2.8.0's payload)
+
 ## 2.8.0
 
 ### Added

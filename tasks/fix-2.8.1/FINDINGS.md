@@ -51,13 +51,13 @@ Severity: **S1** user-visible breakage · **S2** major gap/regression ·
 | F-40 | S3 | View transition: hardcoded 200ms timer; title/content disagree during it | `App.jsx:57-71,114` | 5 | verified |
 | F-41 | S3 | Inconsistent loading treatment Home vs Library; CLS; triple "Loading settings…" | `HomeView.jsx:126`, `SettingsView.jsx` | 3 | verified |
 | F-42 | S3 | Settings button outside `<nav>`; sidebar RTL-unsafe safe-area padding | `Sidebar.jsx:40-51`, `shell.css:482` | 4 | verified |
-| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time | `backend/main.py:34-37,166` | 6 | partial (logging = own PR) |
+| F-43 | S3 | Backend uses `print()` not `logging`; CWD-relative `STATIC_DIR`; seed at import time; build pipeline dropped package-form services; package-form validation mismatched | `backend/main.py:34-37,166`, `build.py:215-245,652-690` | 6 | verified (build) / partial (logging = own PR) |
 | F-44 | S3 | Misc: undebounced PDF resize re-render, hardcoded scrubber offset, no-op 480px rule, missing `type="button"` | various | 6 | verified |
 
 ## Deferred / explicitly out of scope
 
 - Book cover thumbnails (F-21 second half) — a feature, not a fix. Track separately.
-- Backend `logging` migration (F-43) — touches ~50 call sites; land as its own PR.
+- Backend `logging` migration (F-43, ~50 call sites) — land as its own PR.
 - Content-addressed book ids: re-importing an edited file orphans progress.
   Behaviour is intentional; documented here so it is not "fixed" by accident.
 - F-45 (new, 2026-09-20, found during Phase 4 gating): **RESOLVED during Phase 6 — see
