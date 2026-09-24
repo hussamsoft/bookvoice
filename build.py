@@ -26,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Import sibling scripts as a package. Code below references them via
@@ -701,38 +702,61 @@ def build_launcher(launcher_backup: Path | None):
 
 
 def payload_import_errors(dist: Path, worker: Path | None = None) -> list[str]:
-    """Import payload entry modules with the bundled worker interpreter.
-
-    This catches repository helpers imported through a runtime sys.path
-    insertion but not copied into the release payload. The entry modules are
-    import-safe: their server/CLI work is guarded by ``__main__``.
-    """
+    """Import bundled entry modules without mutating the payload or profile."""
     worker = worker or (dist / "runtime" / "worker" / "python.exe")
     if not worker.is_file():
         return []
+
     modules = ("serve_bookvoice", "launch", "main", "tunnel", "system_tray")
-    code = (
-        "import importlib, os, sys; "
-        "root=os.getcwd(); "
-        "sys.path[:0]=[root, os.path.join(root, 'scripts')]; "
-        "[importlib.import_module(name) for name in "
-        + repr(modules)
-        + "]"
-    )
-    try:
-        result = subprocess.run(
-            [str(worker), "-c", code],
-            cwd=dist,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+    with tempfile.TemporaryDirectory(prefix="bookvoice-import-") as temp_dir:
+        probe_root = Path(temp_dir)
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        env.update(
+            {
+                "APP_DIR": str(dist.resolve()),
+                "DATA_DIR": str(probe_root / "data"),
+                "DEFAULT_VOICES_DIR": str(probe_root / "default_voices"),
+                "LOCALAPPDATA": str(probe_root / "localappdata"),
+                "APPDATA": str(probe_root / "appdata"),
+                "TEMP": str(probe_root / "tmp"),
+                "TMP": str(probe_root / "tmp"),
+                "HOME": str(probe_root / "home"),
+                "USERPROFILE": str(probe_root / "home"),
+                "MODEL_DIR": str((dist / "data" / "models").resolve()),
+                "VOICE_DATA_DIR": str(probe_root / "voices"),
+                "BOOKVOICE_PORTABLE": "1",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+            }
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [f"payload entry import check failed: {exc}"]
-    if result.returncode:
-        detail = (result.stderr or result.stdout or "unknown import failure").strip()
-        return [f"payload entry import check failed: {detail}"]
+        for name in ("data", "default_voices", "localappdata", "appdata", "tmp", "voices", "home"):
+            (probe_root / name).mkdir(parents=True, exist_ok=True)
+
+        code = (
+            "import importlib, os, sys; "
+            "sys.dont_write_bytecode = True; "
+            f"root={str(dist.resolve())!r}; "
+            "sys.path[:0]=[root, os.path.join(root, 'scripts')]; "
+            "[importlib.import_module(name) for name in "
+            + repr(modules)
+            + "]"
+        )
+        try:
+            result = subprocess.run(
+                [str(worker), "-c", code],
+                cwd=probe_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return [f"payload entry import check failed: {exc}"]
+        if result.returncode:
+            detail = (result.stderr or result.stdout or "unknown import failure").strip()
+            return [f"payload entry import check failed: {detail}"]
     return []
 
 

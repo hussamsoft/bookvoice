@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
@@ -164,6 +165,29 @@ class ReleaseManifestTests(unittest.TestCase):
                 (dist / f"{module}.py").write_text("import port_state\n", encoding="utf-8")
             errors = build.payload_import_errors(dist, worker=Path(sys.executable))
         self.assertEqual(errors, [])
+
+    def test_payload_import_check_isolated_from_payload_and_profile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dist = root / "dist"
+            (dist / "runtime/worker").mkdir(parents=True)
+            (dist / "scripts").mkdir()
+            (dist / "scripts/port_state.py").write_text("VALUE = 1\n", encoding="utf-8")
+            marker_name = f"bookvoice-import-{uuid.uuid4().hex}.txt"
+            module_code = (
+                "from pathlib import Path\n"
+                "import os\n"
+                "Path('data/voices').mkdir(parents=True, exist_ok=True)\n"
+                f"(Path(os.environ['LOCALAPPDATA']) / {marker_name!r}).write_text('probe')\n"
+            )
+            for module in ("serve_bookvoice", "launch", "main", "tunnel", "system_tray"):
+                (dist / f"{module}.py").write_text(module_code, encoding="utf-8")
+            real_local = Path(os.environ.get("LOCALAPPDATA", ""))
+            errors = build.payload_import_errors(dist, worker=Path(sys.executable))
+            self.assertEqual(errors, [])
+            self.assertFalse((dist / "data").exists())
+            if str(real_local):
+                self.assertFalse((real_local / marker_name).exists())
 
 
 class BundleBaselineTests(unittest.TestCase):
