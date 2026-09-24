@@ -270,6 +270,11 @@ def audit_route(page, route: str, mode: str) -> dict:
     payload = _load_vendored_axe()
     page.evaluate(_build_inject_script(payload))
     page.evaluate(f"() => {{ document.documentElement.dataset.mode = '{mode}'; }}")
+    # Color and surface transitions are part of the redesign. Axe must inspect
+    # the settled mode, not a frame halfway between Paper and Night.
+    page.evaluate(
+        "() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})))"
+    )
     # Wait for axe to be defined; the inline injection above awaits it.
     has_axe = page.evaluate("() => typeof window.axe === 'object'")
     if not has_axe:

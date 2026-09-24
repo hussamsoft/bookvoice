@@ -61,6 +61,8 @@ describe('WCAG AA contrast for semantic text pairs (F-22)', () => {
     for (const { palette, mode, vars } of all) {
         const label = `${palette}/${mode}`;
         const surface = vars.surface;
+        const raised = vars['surface-raised'];
+        const accentSoft = mix(vars.accent, raised, mode === 'dark' ? 0.14 : 0.10);
 
         it(`${label}: success text on surface ≥ 4.5`, () => {
             expect(ratio(vars.success, surface)).toBeGreaterThanOrEqual(4.5);
@@ -76,11 +78,19 @@ describe('WCAG AA contrast for semantic text pairs (F-22)', () => {
         it(`${label}: accent-on text on live ≥ 4.5 (destructive primary button)`, () => {
             expect(ratio(vars['accent-on'], vars.live)).toBeGreaterThanOrEqual(4.5);
         });
-        it(`${label}: ink-muted on surface ≥ 4.5`, () => {
+        it(`${label}: ink-muted on background and surfaces ≥ 4.5`, () => {
+            expect(ratio(vars['ink-muted'], vars.bg)).toBeGreaterThanOrEqual(4.5);
             expect(ratio(vars['ink-muted'], surface)).toBeGreaterThanOrEqual(4.5);
+            expect(ratio(vars['ink-muted'], raised)).toBeGreaterThanOrEqual(4.5);
+            expect(ratio(vars['ink-muted'], accentSoft)).toBeGreaterThanOrEqual(4.5);
         });
-        it(`${label}: ink-secondary on surface ≥ 4.5`, () => {
+        it(`${label}: sidebar secondary text on surface and selected fill ≥ 4.5`, () => {
             expect(ratio(vars['ink-secondary'], surface)).toBeGreaterThanOrEqual(4.5);
+            expect(ratio(vars.accent, accentSoft)).toBeGreaterThanOrEqual(4.5);
+        });
+        it(`${label}: ink on raised and selected fill ≥ 4.5`, () => {
+            expect(ratio(vars.ink, raised)).toBeGreaterThanOrEqual(4.5);
+            expect(ratio(vars.ink, accentSoft)).toBeGreaterThanOrEqual(4.5);
         });
     }
 });

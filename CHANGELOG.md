@@ -28,6 +28,14 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 - `UpdateBanner` is mounted app-wide while preserving its support, opt-in,
   availability, dismissal, and restart-confirmation behavior.
 
+### Fixed
+
+- Restored WCAG AA contrast for quiet Paper and Night labels, navigation,
+  mode descriptions, and Voice Studio project summaries; the accessibility
+  gate now audits settled theme transitions instead of transient colors.
+- Voice Studio now waits for conversion prerequisites before submission and
+  flushes an edited local draft when switching projects before autosave.
+
 ### Packaging
 
 - Refreshed `dist/VERSION`, `dist/release-manifest.json`, and `backend/static/`
@@ -37,6 +45,8 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 - Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
   to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
   root `Launcher.exe`.
+- Fixed the WinUI 3 desktop shell compile blockers: an invalid XML comment in `MainWindow.xaml`, missing interop namespace/accessibility on generated `LibraryImport` methods, and WebView2 new-window URI handling.
+- `build.py` desktop staging now discovers a Visual Studio MSBuild instance with the AppxPackage PRI tools, then runs restore, Mark-of-the-Web removal, and publish through that toolchain.
 
 ## Unreleased
 
