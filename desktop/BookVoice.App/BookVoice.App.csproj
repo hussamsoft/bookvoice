@@ -12,7 +12,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseRidGraph>true</UseRidGraph>
     <UseWinUI>true</UseWinUI>
-    <EnableMsixTooling>false</EnableMsixTooling>
+    <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
