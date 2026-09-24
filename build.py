@@ -541,7 +541,7 @@ def stage_desktop():
     # The verified desktop build blockers are missing VS MSBuild PRI tasks and
     # source defects. Narrowly unblock only restored package directories as a
     # defensive measure for caches tagged as downloaded.
-    target = DIST / "desktop"
+    target = (DIST / "desktop").resolve()
     if target.exists():
         shutil.rmtree(target)
 
