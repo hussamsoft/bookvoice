@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Import sibling scripts as a package. Code below references them via
@@ -708,6 +709,8 @@ def payload_import_errors(dist: Path, worker: Path | None = None) -> list[str]:
         return []
 
     modules = ("serve_bookvoice", "launch", "main", "tunnel", "system_tray")
+    timeout_seconds = 300
+    started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="bookvoice-import-") as temp_dir:
         probe_root = Path(temp_dir)
         env = os.environ.copy()
@@ -749,14 +752,21 @@ def payload_import_errors(dist: Path, worker: Path | None = None) -> list[str]:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=timeout_seconds,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired:
+            return [
+                "payload entry import check timed out after "
+                f"{timeout_seconds} s while importing {', '.join(modules)}"
+            ]
+        except OSError as exc:
             return [f"payload entry import check failed: {exc}"]
         if result.returncode:
             detail = (result.stderr or result.stdout or "unknown import failure").strip()
             return [f"payload entry import check failed: {detail}"]
+    elapsed = time.perf_counter() - started
+    print(f"[build] payload import check OK in {elapsed:.1f} s")
     return []
 
 
