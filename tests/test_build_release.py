@@ -223,10 +223,15 @@ class MsiConfigTests(unittest.TestCase):
             dist.mkdir()
             (dist / "main.py").write_text("print('ok')", encoding="utf-8")
             (dist / "bookvoice.ico").write_bytes(b"ico")
+            (dist / "desktop").mkdir()
+            (dist / "desktop" / "BookVoice.exe").write_bytes(b"MZ")
             original_dist = build_msi.DIST
             build_msi.DIST = dist
             try:
-                wxs = build_msi.build_wxs([("main.py", dist / "main.py")], build_msi.PRODUCTS["user"])
+                wxs = build_msi.build_wxs(
+                    [("main.py", dist / "main.py"), ("desktop/BookVoice.exe", dist / "desktop" / "BookVoice.exe")],
+                    build_msi.PRODUCTS["user"],
+                )
                 xml = ET.tostring(wxs, encoding="unicode")
             finally:
                 build_msi.DIST = original_dist
@@ -237,7 +242,35 @@ class MsiConfigTests(unittest.TestCase):
         self.assertIn("DesktopShortcut", xml)
         self.assertIn("Software\\Classes\\.bookvoice", xml)
         self.assertIn("BookVoice.PreparedBook", xml)
-        self.assertIn('&quot;[INSTALLDIR]Launcher.exe&quot; &quot;%1&quot;', xml)
+        self.assertIn('&quot;[INSTALLDIR]desktop\\BookVoice.exe&quot; &quot;%1&quot;', xml)
+
+    def test_wxs_entrypoints_resolve_to_default_desktop_payload(self):
+        payload = {"main.py", "desktop/BookVoice.exe"}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir) / "dist"
+            (dist / "desktop").mkdir(parents=True)
+            (dist / "main.py").write_text("print('ok')", encoding="utf-8")
+            (dist / "desktop" / "BookVoice.exe").write_bytes(b"MZ")
+            original_dist = build_msi.DIST
+            build_msi.DIST = dist
+            try:
+                wxs = build_msi.build_wxs(
+                    [(rel, dist / rel) for rel in payload], build_msi.PRODUCTS["user"]
+                )
+            finally:
+                build_msi.DIST = original_dist
+
+        for shortcut in wxs.iter("Shortcut"):
+            target = shortcut.attrib["Target"]
+            self.assertTrue(target.startswith("[INSTALLDIR]"))
+            self.assertIn(target[len("[INSTALLDIR]"):].replace("\\", "/"), payload)
+        command = next(
+            value.attrib["Value"]
+            for value in wxs.iter("RegistryValue")
+            if value.attrib.get("Key", "").endswith("shell\\open\\command")
+        )
+        executable = command.split('"')[1].replace("[INSTALLDIR]", "", 1).replace("\\", "/")
+        self.assertIn(executable, payload)
 
     def test_build_wxs_machine_targets_64_bit_program_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

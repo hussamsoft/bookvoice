@@ -34,6 +34,9 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   from this source tree. The complete payload and MSI installers still require
   a Windows build host with WiX (`tools/wix`) and Windows SDK 10.0.19041; the
   gitignored `installer/` follow-up is not included in this repository commit.
+- Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
+  to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
+  root `Launcher.exe`.
 
 ## Unreleased
 

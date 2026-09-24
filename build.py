@@ -8,7 +8,10 @@ Produces the release package in dist/ (same payload as both MSI variants):
   - Immutable Python worker runtime → dist/runtime/worker
   - runtime manifest, requirements provenance, launch.py
   - default voices + bundled English model weights
-  - Launcher.exe (rebuilt from launch.py via PyInstaller)
+  - WinUI desktop shell → dist/desktop/BookVoice.exe
+
+The standalone downloader is built separately by the release-asset script.
+The old pywebview Launcher.exe is available only with the explicit legacy flag.
 
 Run from the repo root:  python build.py
 Full release:  python build.py --msi --per-user

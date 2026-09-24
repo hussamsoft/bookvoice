@@ -29,6 +29,7 @@ WIX_BIN = ROOT / "tools" / "wix"
 MACHINE_UPGRADE_CODE = "{E3B3C1A2-1C2D-4F0E-9A1B-1234567890AB}"
 USER_UPGRADE_CODE = "{F4C4D2B3-2D3E-5F1F-0B2C-234567890ABC}"
 PRODUCT_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+DESKTOP_EXE_REL = r"desktop\BookVoice.exe"
 
 NS = "http://schemas.microsoft.com/wix/2006/wi"
 ET.register_namespace("", NS)
@@ -167,7 +168,7 @@ def build_wxs(files, product: MsiProduct):
         "Id": "StartMenuShortcut",
         "Name": "BookVoice",
         "Description": "Narrate your books",
-        "Target": "[INSTALLDIR]Launcher.exe",
+        "Target": "[INSTALLDIR]" + DESKTOP_EXE_REL,
         "WorkingDirectory": "INSTALLDIR",
         "Icon": "bookvoice.ico",
         "IconIndex": "0",
@@ -192,7 +193,7 @@ def build_wxs(files, product: MsiProduct):
     ET.SubElement(feature, "ComponentRef", {"Id": "StartMenuShortcut"})
 
     # First-class discovery anchor for the standalone BookVoice-Launcher.exe:
-    # it reads this value to find the installed Launcher.exe without probing.
+    # it reads this value to find the installed desktop shell and payload.
     install_root = "HKCU" if product.install_scope == "perUser" else "HKLM"
     anchor = ET.SubElement(instdir, "Component", {"Id": "InstallPathAnchor", "Guid": "*", "Win64": "yes"})
     ET.SubElement(anchor, "RegistryValue", {
@@ -230,7 +231,7 @@ def build_wxs(files, product: MsiProduct):
         "Root": association_root,
         "Key": "Software\\Classes\\BookVoice.PreparedBook\\shell\\open\\command",
         "Type": "string",
-        "Value": '\"[INSTALLDIR]Launcher.exe\" \"%1\"',
+        "Value": f'"[INSTALLDIR]{DESKTOP_EXE_REL}" "%1"',
     })
     ET.SubElement(feature, "ComponentRef", {"Id": "PreparedBookAssociation"})
 
@@ -266,7 +267,7 @@ def build_wxs(files, product: MsiProduct):
             "Id": "DesktopShortcut",
             "Name": "BookVoice",
             "Description": "Narrate your books",
-            "Target": "[INSTALLDIR]Launcher.exe",
+            "Target": "[INSTALLDIR]" + DESKTOP_EXE_REL,
             "WorkingDirectory": "INSTALLDIR",
             "Icon": "bookvoice.ico",
             "IconIndex": "0",

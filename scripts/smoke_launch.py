@@ -28,6 +28,7 @@ def check_payload(app_dir: Path) -> list[str]:
         "runtime/worker/python.exe",
         "runtime-manifest.json",
         "launch.py",
+        "desktop/BookVoice.exe",
         "scripts/kill_stale_bookvoice.ps1",
         "tools/ffmpeg/ffmpeg.exe",
         "tools/ffmpeg/ffprobe.exe",
@@ -36,7 +37,7 @@ def check_payload(app_dir: Path) -> list[str]:
         "data/default_voices",
     ):
         path = app_dir / rel
-        if rel.endswith(("python.exe", "launch.py", "ffmpeg.exe", "ffprobe.exe",
+        if rel.endswith(("python.exe", "BookVoice.exe", "launch.py", "ffmpeg.exe", "ffprobe.exe",
                           "NOTICE.txt", "LICENSE.txt", "kill_stale_bookvoice.ps1",
                           "runtime-manifest.json")):
             if not path.is_file():

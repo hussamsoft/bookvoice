@@ -3,18 +3,18 @@
 packaging. Runs the packaged app the way an installed user does:
 
   1. Payload validation (launch.validate_package) + required files,
-     including Launcher.exe.
+     including the WinUI desktop shell.
   2. Bundle freshness: dist/static must serve the same frontend build as
      backend/static (the committed one) — catches a stale dist.
   3. Packaged-worker server boot on an isolated runtime, then API checks:
      health, config capabilities, voice seeding, book import round-trip,
      prepared-library listing, studio project scope.
-  4. --launcher: also spawn Launcher.exe, wait for its backend URL from the
-     server log, health-check it, and shut the process tree down cleanly.
+  4. --launcher: also spawn desktop/BookVoice.exe, wait for its backend URL
+     from the server log, health-check it, and shut the process tree down cleanly.
 
 Usage:
   python scripts/smoke_exe.py            # payload + backend + UI checks
-  python scripts/smoke_exe.py --launcher # additionally test Launcher.exe
+  python scripts/smoke_exe.py --launcher # additionally test desktop/BookVoice.exe
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def check_payload(app_dir: Path) -> list[str]:
         "main.py",
         "launch.py",
         "VERSION",
-        "Launcher.exe",
+        "desktop/BookVoice.exe",
         "static/index.html",
         "runtime/worker/python.exe",
         "data/default_voices",
@@ -220,13 +220,12 @@ def find_url_in_log(log_text: str) -> str | None:
 
 
 def test_launcher(app_dir: Path, runtime_dir: Path) -> list[str]:
-    """Spawn the real Launcher.exe and verify it brings the backend up."""
+    """Spawn the real desktop shell and verify it brings the backend up."""
     errors: list[str] = []
     env = launch.build_env(str(app_dir), str(runtime_dir))
     env["BOOKVOICE_PORTABLE"] = "1"
-    exe = app_dir / "Launcher.exe"
+    exe = app_dir / "desktop" / "BookVoice.exe"
     proc = subprocess.Popen([str(exe)], cwd=str(app_dir), env=env)
-    url = None
     deadline = time.time() + 180
     server_log = Path(runtime_dir) / "bookvoice_server.log"
     while time.time() < deadline and url is None:
@@ -235,15 +234,15 @@ def test_launcher(app_dir: Path, runtime_dir: Path) -> list[str]:
         if url is None:
             time.sleep(2)
     if url is None:
-        errors.append("Launcher.exe started but no backend URL appeared in its server log")
+        errors.append("desktop/BookVoice.exe started but no backend URL appeared in its server log")
     elif not wait_for_health(url, timeout_s=90):
-        errors.append(f"Launcher.exe backend never became healthy at {url}")
+        errors.append(f"desktop/BookVoice.exe backend never became healthy at {url}")
     else:
         status, body = request(url, "GET", "/api/config/")
         if status != 200:
-            errors.append(f"Launcher.exe /api/config/ failed: {status} {body}")
+            errors.append(f"desktop/BookVoice.exe /api/config/ failed: {status} {body}")
         else:
-            print(f"[ok]   Launcher.exe backend healthy at {url}")
+            print(f"[ok]   desktop/BookVoice.exe backend healthy at {url}")
     if proc.poll() is None:
         subprocess.run(
             ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
@@ -255,7 +254,7 @@ def test_launcher(app_dir: Path, runtime_dir: Path) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke-test the packaged dist/ payload before MSI packaging")
     parser.add_argument("--app-dir", type=Path, default=ROOT / "dist", help="packaged payload directory (default: dist/)")
-    parser.add_argument("--launcher", action="store_true", help="also spawn and verify Launcher.exe")
+    parser.add_argument("--launcher", action="store_true", help="also spawn and verify desktop/BookVoice.exe")
     args = parser.parse_args()
     app_dir = args.app_dir.resolve()
     failures = 0
@@ -305,7 +304,7 @@ def main() -> int:
                     if not failures:
                         print("[ok]   API + functional round-trips")
                 if args.launcher:
-                    print("[smoke] launching Launcher.exe (a window may appear briefly)…")
+                    print("[smoke] launching desktop/BookVoice.exe (a window may appear briefly)…")
                     for err in test_launcher(app_dir, smoke_runtime):
                         print(f"[fail] {err}")
                         failures += 1

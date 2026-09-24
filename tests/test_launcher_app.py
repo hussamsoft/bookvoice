@@ -31,7 +31,8 @@ prepare_release_assets = _load(
 def _make_install_layout(root: Path) -> Path:
     install = root / "BookVoice" / "App"
     (install / "static").mkdir(parents=True)
-    (install / "Launcher.exe").write_bytes(b"MZ")
+    (install / "desktop").mkdir()
+    (install / "desktop" / "BookVoice.exe").write_bytes(b"MZ")
     (install / "main.py").write_text("print('app')", encoding="utf-8")
     (install / "static" / "index.html").write_text("<html></html>", encoding="utf-8")
     return install
@@ -66,13 +67,13 @@ class SplitArgsTests(unittest.TestCase):
 
 
 class DiscoveryTests(unittest.TestCase):
-    def test_looks_like_install_requires_launcher_and_payload(self):
+    def test_looks_like_install_requires_desktop_shell_and_payload(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             install = _make_install_layout(root)
             self.assertTrue(launcher_app.looks_like_install(install))
 
-            (install / "Launcher.exe").unlink()
+            (install / "desktop" / "BookVoice.exe").unlink()
             self.assertFalse(launcher_app.looks_like_install(install))
 
     def test_discover_install_prefers_registry_anchor(self):
@@ -106,12 +107,14 @@ class DiscoveryTests(unittest.TestCase):
     def test_association_command_parsing_regex(self):
         import re
 
-        command = '"C:\\Program Files\\BookVoice\\Launcher.exe" "%1"'
-        pattern = r'"([^"]+)' + re.escape(launcher_app.LAUNCHER_EXE) + r'"'
-        match = re.search(pattern, command)
+        command = '"C:\\Program Files\\BookVoice\\desktop\\BookVoice.exe" "%1"'
+        pattern = r'"([^"]+\\BookVoice\.exe)"'
+        match = re.search(pattern, command, re.IGNORECASE)
         self.assertIsNotNone(match)
-        directory = Path(f"{match.group(1)}{launcher_app.LAUNCHER_EXE}").parent
-        self.assertEqual(directory, Path("C:\\Program Files\\BookVoice"))
+        self.assertEqual(
+            Path(match.group(1)).parent.parent,
+            Path("C:\\Program Files\\BookVoice"),
+        )
 
 
 class FakeBootstrapper:

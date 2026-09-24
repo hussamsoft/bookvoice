@@ -5,7 +5,7 @@ REM Double-click launcher for a Narrator source checkout.
 REM The packaged desktop executable is the supported runtime entry point.
 cd /d "%~dp0"
 
-set "BOOKVOICE_EXE=%CD%\dist\Launcher.exe"
+set "BOOKVOICE_EXE=%CD%\dist\desktop\BookVoice.exe"
 if not exist "%BOOKVOICE_EXE%" (
   echo ERROR: The packaged BookVoice app has not been built.
   echo.

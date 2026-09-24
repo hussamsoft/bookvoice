@@ -148,7 +148,8 @@ npm run dev
 - Frontend → `dist/static`
 - Backend → `dist/main.py`, `routes/`, `services/`
 - Portable Python 3.10 worker and locked packages → `dist/runtime/worker`
-- Bundled English models, default voices, `launch.py`, `Launcher.exe`
+- Bundled English models, default voices, and `launch.py`
+- WinUI desktop shell → `dist/desktop/BookVoice.exe`
 - Pinned FFmpeg/FFprobe 8.1.1 and license notices → `dist/tools/ffmpeg`
 
 ```bash
@@ -193,11 +194,11 @@ and logs are created under `%LocalAppData%\BookVoice\installs\<install-id>\`.
 python build.py --msi --per-user
 ```
 
-On first launch, `Launcher.exe` verifies and starts the bundled worker. It never
+The Start-menu and per-user desktop shortcuts, `.bookvoice` association, and
+`BookVoice-Launcher.exe` all use `desktop\BookVoice.exe` from the installed
+payload. Its working directory is the install root, where the backend payload
+lives. On first launch, the desktop shell starts the bundled worker; it never
 creates a venv or invokes pip, and no system Python on PATH is required.
-The native launcher also owns a Windows notification-area icon: minimizing the
-window hides it from the taskbar without stopping the backend or configured
-Cloudflare tunnel, and the icon restores or fully quits BookVoice.
 
 ### Updates
 

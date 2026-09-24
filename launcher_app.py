@@ -7,7 +7,7 @@ first downloads and installs the release, then starts the app. No console
 window, no batch files, and no separate setup program.
 
 Behavior:
-  * Installed      -> spawn the installed ``Launcher.exe`` detached and exit;
+  * Installed      -> spawn the installed ``desktop\\BookVoice.exe`` detached and exit;
                       nothing is ever shown on this fast path.
   * Not installed  -> show a compact progress window, fetch the checksummed
                       release manifest, download the offline cabinets, run the
@@ -17,7 +17,7 @@ Behavior:
   * ``--quiet``    -> run Windows Installer silently where possible.
 
 All other arguments (``--browser``, ``--tunnel``, ``--port``, ``--host``, a
-``.bookvoice`` path, ...) are forwarded to the installed launcher untouched.
+``.bookvoice`` path, ...) are forwarded to the installed app untouched.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ import webbrowser
 from pathlib import Path
 
 APP_NAME = "BookVoice"
-LAUNCHER_EXE = "Launcher.exe"
+APP_EXE_REL = Path("desktop") / "BookVoice.exe"
 REPOSITORY_URL = "https://github.com/hussamsoft/bookvoice/releases"
 
 INSTALL_KEY = r"Software\BookVoice\Install"
@@ -96,9 +96,8 @@ def split_args(argv: list[str]) -> tuple[dict[str, str | bool], list[str]]:
 
 
 def looks_like_install(directory: Path) -> bool:
-    """Cheap payload check mirroring launch.py's own validation."""
-    exe = directory / LAUNCHER_EXE
-    if not exe.is_file():
+    """Cheap payload check for the default WinUI shell layout."""
+    if not (directory / APP_EXE_REL).is_file():
         return False
     for candidate in (directory, directory.parent):
         if (candidate / "main.py").is_file() and (candidate / "static" / "index.html").is_file():
@@ -136,14 +135,17 @@ def candidate_from_association(root_name: str) -> Path | None:
             command, _type = winreg.QueryValueEx(key, "")
     except OSError:
         return None
-    match = re.search(r'"([^"]+)' + re.escape(LAUNCHER_EXE) + r'"', str(command))
+    match = re.search(r'"([^"]+\\BookVoice\.exe)"', str(command), re.IGNORECASE)
     if not match:
         return None
-    # group(1) ends right before "Launcher.exe", often including the final
-    # path separator; rebuild the executable path instead of taking .parent
-    # of a directory-looking string.
-    directory = Path(f"{match.group(1)}{LAUNCHER_EXE}").parent
-    return directory if looks_like_install(directory) else None
+    exe_path = Path(match.group(1))
+    # The MSI writes ``<install>\\desktop\\BookVoice.exe`` while the Python
+    # payload remains at the install root. Normalize both the exe directory and
+    # its parent so discovery always returns the install root used by spawn_app.
+    for directory in (exe_path.parent, exe_path.parent.parent):
+        if looks_like_install(directory):
+            return directory
+    return None
 
 
 def default_candidates() -> list[Path]:
@@ -171,7 +173,7 @@ def discover_install() -> Path | None:
 
 
 def spawn_app(install_dir: Path, forwarded: list[str]) -> None:
-    exe = install_dir / LAUNCHER_EXE
+    exe = install_dir / APP_EXE_REL
     log(f"starting {exe} args={forwarded}")
     subprocess.Popen(
         [str(exe), *forwarded],
