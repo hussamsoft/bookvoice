@@ -173,6 +173,48 @@ def _exe(name: str) -> str:
                 return candidate
     return name
 
+def _visual_studio_msbuild() -> str | None:
+    """Find a VS instance with the AppxPackage PRI task required by WinUI."""
+    vswhere = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return None
+    result = subprocess.run(
+        [str(vswhere), "-products", "*", "-requires", "Microsoft.Component.MSBuild", "-format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        instances = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    # vswhere may list multiple instances (including a newer incomplete one).
+    # Select only an instance that has both the matching MSBuild executable and
+    # the AppxPackage PRI task used by MrtCore.PriGen.targets.
+    for instance in sorted(instances, key=lambda item: item.get("installationVersion", ""), reverse=True):
+        install = Path(instance.get("installationPath", ""))
+        msbuild = install / "MSBuild" / "Current" / "Bin" / "MSBuild.exe"
+        if not msbuild.is_file():
+            continue
+        for task_dir in sorted((install / "MSBuild" / "Microsoft" / "VisualStudio").glob("v*.0/AppxPackage"), reverse=True):
+            if (task_dir / "Microsoft.Build.Packaging.Pri.Tasks.dll").is_file():
+                return str(msbuild)
+    return None
+
+
+def _require_visual_studio_msbuild() -> str:
+    msbuild = _visual_studio_msbuild()
+    if not msbuild:
+        raise SystemExit(
+            "Visual Studio 2022 Build Tools with the .NET desktop and Universal Windows "
+            "Platform workloads (including the AppxPackage/PRI tools) are required "
+            "to build the WinUI desktop shell. Install Microsoft.VisualStudio.2022.BuildTools "
+            "with Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools and "
+            "Microsoft.VisualStudio.Workload.UniversalBuildTools, then retry."
+        )
+    return msbuild
+
+
 
 def run(cmd, cwd, check=True, env=None):
     resolved = [_exe(cmd[0]) if i == 0 else c for i, c in enumerate(cmd)]
@@ -476,12 +518,7 @@ def stage_desktop():
     project = ROOT / "desktop" / "BookVoice.App" / "BookVoice.App.csproj"
     if not project.is_file():
         raise SystemExit("desktop/BookVoice.App/BookVoice.App.csproj missing")
-    dotnet = shutil.which("dotnet")
-    if not dotnet:
-        raise SystemExit(
-            "the dotnet SDK was not found on PATH; it is required to build "
-            "desktop/BookVoice.App (skip with --skip-desktop)"
-        )
+    msbuild = _require_visual_studio_msbuild()
     # F-43: at install time, sandboxed SDKs (notably the Windows App SDK
     # XamlCompiler shipped via the user's NuGet cache on a V:\ drive) arrive
     # marked "downloaded from the internet"; SmartScreen then refuses to
@@ -518,25 +555,19 @@ def stage_desktop():
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     project = str(project)
     target_str = str(target)
-    run(
-        [dotnet, "restore", project],
-        ROOT,
-    )
+    run([msbuild, project, "/t:Restore", "/p:RestoreIgnoreFailedSources=false"], ROOT)
     _unblock_mark_of_the_web()
     run(
         [
-            dotnet,
-            "publish",
+            msbuild,
             project,
-            "--no-restore",
-            "-c",
-            "Release",
-            "-r",
-            "win-x64",
-            "-o",
-            target_str,
-            "-p:BookVoiceVersion=" + version,
-            "--nologo",
+            "/t:Publish",
+            "/p:Configuration=Release",
+            "/p:RuntimeIdentifier=win-x64",
+            "/p:Platform=x64",
+            f"/p:PublishDir={target_str}",
+            f"/p:BookVoiceVersion={version}",
+            "/v:minimal",
         ],
         ROOT,
     )

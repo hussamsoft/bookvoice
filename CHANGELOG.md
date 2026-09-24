@@ -45,8 +45,12 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 - Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
   to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
   root `Launcher.exe`.
-- Fixed the WinUI 3 desktop shell compile blockers: an invalid XML comment in `MainWindow.xaml`, missing interop namespace/accessibility on generated `LibraryImport` methods, and WebView2 new-window URI handling.
-- `build.py` desktop staging now discovers a Visual Studio MSBuild instance with the AppxPackage PRI tools, then runs restore, Mark-of-the-Web removal, and publish through that toolchain.
+- Fixed the WinUI 3 desktop shell compile blockers: an invalid XML comment
+  in `MainWindow.xaml`, missing interop namespace/accessibility on generated
+  `LibraryImport` methods, and WebView2 new-window URI handling.
+- `build.py` desktop staging now discovers a Visual Studio MSBuild instance
+  with the AppxPackage PRI tools, then runs restore, Mark-of-the-Web removal,
+  and publish through that toolchain.
 
 ## Unreleased
 

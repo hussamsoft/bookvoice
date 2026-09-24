@@ -73,6 +73,7 @@ bootstrap, model-weight notes, and a hardened systemd unit.
 - **Python**: Python 3.10+
 - **Node.js**: v18+ (for frontend development only)
 - **Disk**: ~2–3 GB for Chatterbox + EasyOCR model weights (downloaded automatically on first use)
+- **Windows desktop build**: Visual Studio 2022 Build Tools with the .NET desktop and Universal Windows Platform workloads, plus Windows SDK 10.0.19041. `build.py` uses the Visual Studio MSBuild instance that includes the AppxPackage/PRI tools; the standalone `dotnet` SDK alone cannot run the WinUI 3 PRI/XAML packaging targets.
 
 ## Directory Structure
 

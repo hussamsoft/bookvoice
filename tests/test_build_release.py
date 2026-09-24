@@ -294,6 +294,53 @@ class MsiConfigTests(unittest.TestCase):
         self.assertTrue(all(component.get("Win64") == "yes" for component in wxs.iter("Component")))
 
 
+class DesktopBuildTests(unittest.TestCase):
+    def test_visual_studio_msbuild_requires_matching_pri_task(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            install = root / "VS" / "Community"
+            msbuild = install / "MSBuild" / "Current" / "Bin" / "MSBuild.exe"
+            task = install / "MSBuild" / "Microsoft" / "VisualStudio" / "v17.0" / "AppxPackage" / "Microsoft.Build.Packaging.Pri.Tasks.dll"
+            msbuild.parent.mkdir(parents=True)
+            task.parent.mkdir(parents=True)
+            msbuild.touch()
+            task.touch()
+            vswhere = root / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+            vswhere.parent.mkdir(parents=True)
+            vswhere.touch()
+            payload = json.dumps([{"installationPath": str(install), "installationVersion": "17.0"}])
+            with patch.object(build, "subprocess") as proc, patch.dict(os.environ, {"ProgramFiles(x86)": str(root)}):
+                proc.run.return_value = type("Result", (), {"stdout": payload})()
+                self.assertEqual(build._visual_studio_msbuild(), str(msbuild))
+                proc.run.assert_called_once_with(
+                    [str(vswhere), "-products", "*", "-requires", "Microsoft.Component.MSBuild", "-format", "json"],
+                    capture_output=True, text=True, check=False,
+                )
+
+    def test_stage_desktop_fails_loud_without_vs_instance(self):
+        with patch.object(build, "_visual_studio_msbuild", return_value=None), self.assertRaisesRegex(SystemExit, "Build Tools"):
+            build.stage_desktop()
+
+    def test_stage_desktop_uses_msbuild_publish_properties(self):
+        project = ROOT / "desktop" / "BookVoice.App" / "BookVoice.App.csproj"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir)
+            old_dist = build.DIST
+            build.DIST = dist
+            try:
+                with patch.object(build, "_require_visual_studio_msbuild", return_value=r"C:\\VS\\MSBuild.exe"), patch.object(build, "run") as run, patch.object(build.subprocess, "run"):
+                    build.stage_desktop()
+            finally:
+                build.DIST = old_dist
+        self.assertEqual(run.call_args_list[0].args[0][0], r"C:\\VS\\MSBuild.exe")
+        publish = run.call_args_list[1].args[0]
+        self.assertIn("/t:Publish", publish)
+        self.assertIn("/p:Configuration=Release", publish)
+        self.assertIn("/p:RuntimeIdentifier=win-x64", publish)
+        self.assertIn("/p:Platform=x64", publish)
+        self.assertTrue(any(str(p).startswith("/p:PublishDir=") for p in publish))
+
+
 class EmbedPythonTests(unittest.TestCase):
     def _load_stage_embed(self):
         spec = importlib.util.spec_from_file_location(
