@@ -19,6 +19,7 @@ const ALLOWLIST = new Set([
     // Third-party managed classes.
     'react-pdf__Page',
     'react-pdf__Document',
+    'react-pdf__Page__textContent',
 ]);
 
 function walk(dir, out = []) {

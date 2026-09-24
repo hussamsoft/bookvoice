@@ -13,21 +13,30 @@ import {
 import { useToast } from '../Toast';
 import PlaybackControls from '../PlaybackControls';
 import PreparedBookRow from '../shell/PreparedBookRow';
+import VoiceSettings from '../VoiceSettings';
 import {
     getPreparedPage,
     importPreparedBook,
     preparedBookSource,
+    pronounceText,
     savePreparedPage,
     updatePreparedProgress,
 } from '../../utils/api';
-import { libraryBookFile, sourceKindFromName } from '../../utils/bookFiles';
+import {
+    pronounceWithSystemVoice,
+    stopSystemPronunciation,
+} from '../../utils/wordPronunciation';
+import { libraryBookFile, readerProgressId, sourceKindFromName } from '../../utils/bookFiles';
 import { resolvePageContent } from '../../utils/pageContentResolver';
-import { documentFingerprint, loadReadingProgress } from '../../utils/readingProgress';
+import { loadReadingProgress } from '../../utils/readingProgress';
+import { SUPPORTED_LANGUAGES } from '../../utils/languages';
+import { activePreparedProfile } from '../../utils/preparedPages';
 import { createSessionId } from '../../utils/session';
 import { usePdfDocument } from '../../hooks/usePdfDocument';
 import { useSleepTimer } from '../../hooks/useSleepTimer';
 import { useTtsStatus } from '../../hooks/useTtsStatus';
 import { useUserConfig } from '../../hooks/useUserConfig';
+import { useBookActions } from '../../hooks/useBookActions';
 import { useBookmarks } from '../../hooks/reader/useBookmarks';
 import { useKeyboardShortcuts } from '../../hooks/reader/useKeyboardShortcuts';
 import { usePopoverMenu } from '../../hooks/usePopoverMenu';
@@ -41,6 +50,7 @@ import { useReaderZoom } from '../../hooks/reader/useReaderZoom';
 import { useServerPageText } from '../../hooks/reader/useServerPageText';
 import PdfStage from './PdfStage';
 import TextStage from './TextStage';
+import ReaderPageExport from './ReaderPageExport';
 
 const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
@@ -49,12 +59,10 @@ const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  *
  * Opens real books: files land in the prepared library
  * (`importPreparedBook`), PDFs render through `PdfStage` (react-pdf),
- * text books (.epub/.txt/.md) stream their pages from the server, and
- * reading progress is keyed by the document fingerprint so it survives
- * re-opens — locally through `useReaderProgress` and server-side for
- * library books. Text extraction and find-in-book reuse the production
- * `usePdfDocument` core; freshly extracted pages are written back to
- * the library so it stays authoritative.
+ * text books (.epub/.txt/.md) stream their pages from the server. Prepared
+ * books use the stable server `book.id` for local progress; only local
+ * uploads use a file fingerprint. The library remains authoritative for
+ * prepared pages and server-side continue-reading state.
  *
  * Narration pipeline: pages narrate through `useReaderNarration`
  * using a chunked streaming endpoint (see `narrateTextStream`).
@@ -64,8 +72,7 @@ const FILE_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/
  * `useSleepTimer` and only fires on natural page ends (not user
  * stops) so Stop mid-page does not prematurely end the sleep arm.
  *
- * The legacy `?reader=old` fallback to the pre-migration viewer was removed in
- * 2.8.0. This reader is the only option.
+ * Reader is opened from Home, Library, or a `?book=<id>` deep link.
  */
 export default function Reader() {
     const toast = useToast();
@@ -85,16 +92,37 @@ export default function Reader() {
     const [pdfLoadError, setPdfLoadError] = useState(null);
     const [statusHint, setStatusHint] = useState('');
     const [moreOpen, setMoreOpen] = useState(false);
+    const [isOcring, setIsOcring] = useState(false);
+    const [currentPreparedAudio, setCurrentPreparedAudio] = useState(null);
+    const [followNarration, setFollowNarration] = useState(() => {
+        try { return localStorage.getItem('bookvoice:reader:follow-narration') === 'true'; }
+        catch { return false; }
+    });
     const [sessionId] = useState(() => createSessionId('reader'));
     const { modelReady } = useTtsStatus();
-    // Saved user voice/language, applied exactly once when the config
-    // settles. F-37: the old "user touch wins" refs were vestigial — the
-    // Reader exposes no voice/language picker, so nothing ever set them
-    // (that pattern belongs to BookSession, where it is real).
-    const { config } = useUserConfig();
+    // Saved voice/language remain the defaults, while this contextual
+    // surface lets the reader change them without duplicating transport state.
+    const { config, updateConfig } = useUserConfig();
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
     const configAppliedRef = useRef(false);
+    const userTouchedRef = useRef({ voice: false, language: false });
+
+    const handleVoiceChange = useCallback((voiceId) => {
+        userTouchedRef.current.voice = true;
+        setActiveVoiceId(voiceId);
+        updateConfig({ voice_id: voiceId }).catch((error) => {
+            toast.error(error?.message || 'Could not save voice preference.');
+        });
+    }, [toast, updateConfig]);
+
+    const handleLanguageChange = useCallback((languageId) => {
+        userTouchedRef.current.language = true;
+        setTargetLanguage(languageId);
+        updateConfig({ language_id: languageId }).catch((error) => {
+            toast.error(error?.message || 'Could not save language preference.');
+        });
+    }, [toast, updateConfig]);
 
     // Refs mirror the values the async paths (content resolution, search,
     // shortcuts) read: a freshly activated book must resolve against its
@@ -102,6 +130,8 @@ export default function Reader() {
     const fileRef = useRef(null);
     const rootRef = useRef(null);
     const pageNumberRef = useRef(1);
+    const pronunciationAudioRef = useRef(null);
+    const pronunciationRequestRef = useRef(0);
     const numPagesRef = useRef(null);
     const libraryBookIdRef = useRef(null);
     const activeProfileIdRef = useRef(null);
@@ -152,13 +182,51 @@ export default function Reader() {
     });
 
     const pdfDocument = usePdfDocument({ file, fileRef, toast });
+    const currentBook = books.find((book) => book.id === libraryBookId) || null;
+    const activeProfile = activePreparedProfile(currentBook);
+    const exportProfile = activeProfile || (currentBook?.activeProfileId
+        ? { id: currentBook.activeProfileId }
+        : null);
+    const bookActions = useBookActions({
+        toast,
+        getVoiceId: () => activeVoiceId,
+        getLanguageId: () => targetLanguage,
+    });
     const serverPages = useServerPageText({ totalPages: numPages });
+    const runPageOcr = useCallback(async () => {
+        if (sourceKind === 'pdf' && !isOcring) {
+            try {
+                const text = await pdfDocument.preparePageText(pageNumber, {
+                    forceOcr: true,
+                    setIsOcring,
+                });
+                setPageText(text);
+                preparedRef.current = null;
+                if (libraryBookIdRef.current) {
+                    savePreparedPage(
+                        libraryBookIdRef.current,
+                        pageNumber,
+                        text,
+                        numPagesRef.current || pageNumber,
+                    ).catch(() => { /* local reading still works without the write */ });
+                }
+                toast.success(`OCR complete for page ${pageNumber}.`);
+            } catch (error) {
+                toast.error(error?.message || 'OCR could not read this page.');
+            }
+        }
+    }, [isOcring, pageNumber, pdfDocument, sourceKind, toast]);
 
-    // One resolver for both book kinds: prepared pages win when a
-    // profile has them; otherwise PDFs extract (with OCR) and text
-    // books fetch their server page. The prepared record is stashed for
-    // the narration ladder.
+    useEffect(() => {
+        try { localStorage.setItem('bookvoice:reader:follow-narration', String(followNarration)); }
+        catch { /* preference storage is best-effort */ }
+    }, [followNarration]);
+
+    // One resolver for both book kinds: prepared pages win when a profile has
+    // them; otherwise embedded PDF text is extracted and text books fetch
+    // their server page. OCR remains an explicit Reader action.
     const resolveContent = useCallback(async (page) => {
+        setCurrentPreparedAudio(null);
         const result = await resolvePageContent({
             bookId: libraryBookIdRef.current,
             profileId: activeProfileIdRef.current,
@@ -169,6 +237,9 @@ export default function Reader() {
                 : (p) => pdfDocument.preparePageText(p),
         });
         preparedRef.current = result.prepared ?? null;
+        setCurrentPreparedAudio(result.prepared?.audioUrl
+            ? { ...result.prepared, page }
+            : null);
         return result;
     }, [serverPages, pdfDocument]);
 
@@ -220,6 +291,7 @@ export default function Reader() {
         sessionId,
         voiceId: activeVoiceId,
         languageId: targetLanguage,
+        bookId: libraryBookId,
         modelReady,
         getPage,
         onNarratePage: useCallback((page) => {
@@ -232,12 +304,58 @@ export default function Reader() {
         narrationRef.current = narration;
     }, [narration]);
 
-    // F-08: word-level highlight plumbing is in place (TextStage accepts
-    // `currentWord` and wraps each word in a span), but the full
-    // `useWordHighlight` RAF integration is deferred to a follow-up —
-    // see tasks/fix-2.8.1/LOG.md. Word timings from the streaming
-    // endpoint aren't reliable enough yet to drive the loop deterministically.
-    const currentWord = null;
+    // The narration hook exposes a word only when the backend supplied a
+    // complete monotonic timing map. No estimate is fabricated here.
+    const currentWord = narration.currentWord;
+    const hasMeasuredTimings = narration.measuredPage === pageNumber;
+    useEffect(() => {
+        if (!followNarration || currentWord < 0) return undefined;
+        const frame = window.requestAnimationFrame(() => {
+            const target = rootRef.current?.querySelector(
+                sourceKind === 'pdf' ? '.highlight-active' : '.is-current-word',
+            );
+            target?.scrollIntoView?.({ block: 'nearest' });
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [currentWord, followNarration, pageNumber, sourceKind]);
+    const stopPronunciation = useCallback(() => {
+        pronunciationRequestRef.current += 1;
+        const audio = pronunciationAudioRef.current;
+        if (audio) {
+            audio.pause();
+            audio.currentTime = 0;
+            pronunciationAudioRef.current = null;
+        }
+        stopSystemPronunciation();
+    }, []);
+
+    const pronounceWord = useCallback(async (word) => {
+        const text = String(word || '').trim();
+        if (!text) return;
+        stopPronunciation();
+        const requestId = pronunciationRequestRef.current;
+        try {
+            const clip = await pronounceText(text, sessionId, activeVoiceId, targetLanguage);
+            if (requestId !== pronunciationRequestRef.current) return;
+            const audio = new Audio(clip.audioUrl);
+            pronunciationAudioRef.current = audio;
+            audio.addEventListener('ended', () => {
+                if (pronunciationAudioRef.current === audio) pronunciationAudioRef.current = null;
+            }, { once: true });
+            try {
+                await audio.play();
+            } catch {
+                await pronounceWithSystemVoice(text, targetLanguage, { narratorVoiceId: activeVoiceId });
+            }
+        } catch {
+            await pronounceWithSystemVoice(text, targetLanguage, { narratorVoiceId: activeVoiceId });
+        }
+    }, [activeVoiceId, sessionId, stopPronunciation, targetLanguage]);
+
+    useEffect(() => () => stopPronunciation(), [stopPronunciation]);
+    useEffect(() => {
+        stopPronunciation();
+    }, [pageNumber, stopPronunciation]);
 
     // Sleep timer: counts down only while narration plays; expiry stops
     // playback so the user doesn't fall asleep to a finished page.
@@ -268,8 +386,8 @@ export default function Reader() {
     useEffect(() => {
         if (!config || configAppliedRef.current) return;
         configAppliedRef.current = true;
-        if (config.voice_id) setActiveVoiceId(config.voice_id);
-        if (config.language_id) setTargetLanguage(config.language_id);
+        if (!userTouchedRef.current.voice && config.voice_id) setActiveVoiceId(config.voice_id);
+        if (!userTouchedRef.current.language && config.language_id) setTargetLanguage(config.language_id);
     }, [config]);
 
     useReaderProgress({
@@ -468,7 +586,7 @@ export default function Reader() {
     const activateBook = (f, book = null) => {
         if (!f) return;
         const nextSourceKind = book?.sourceKind || sourceKindFromName(f.name);
-        const nextDocumentId = documentFingerprint(f);
+        const nextDocumentId = readerProgressId(book, f);
         const progress = loadReadingProgress(nextDocumentId);
         const isTextBook = nextSourceKind !== 'pdf';
 
@@ -773,6 +891,50 @@ export default function Reader() {
                             Fit
                         </button>
                     </div>
+                    <div className="reader-nav-menu-group reader-voice-language-options">
+                        <span className="reader-nav-menu-label">Narration options</span>
+                        <VoiceSettings
+                            compact
+                            backendReady={modelReady}
+                            activeVoiceId={activeVoiceId}
+                            onVoiceChange={handleVoiceChange}
+                        />
+                        <label className="reader-language-option">
+                            <span>Narration language</span>
+                            <select
+                                aria-label="Narration language"
+                                value={targetLanguage}
+                                onChange={(event) => handleLanguageChange(event.target.value)}
+                                disabled={narration.isGenerating}
+                            >
+                                {SUPPORTED_LANGUAGES.map((language) => (
+                                    <option key={language.code} value={language.code}>{language.name}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="reader-follow-option">
+                            <input
+                                type="checkbox"
+                                checked={followNarration}
+                                onChange={(event) => setFollowNarration(event.target.checked)}
+                                disabled={sourceKind === 'pdf' && !hasMeasuredTimings}
+                                title={sourceKind === 'pdf' && !hasMeasuredTimings
+                                    ? 'Follow narration becomes available when this PDF page has measured word timings.'
+                                    : undefined}
+                            />
+                            <span>Follow narration</span>
+                        </label>
+                        {sourceKind === 'pdf' && (
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                onClick={runPageOcr}
+                                disabled={isOcring}
+                            >
+                                {isOcring ? 'Reading page…' : 'Run OCR for this page'}
+                            </button>
+                        )}
+                    </div>
                     <div className="reader-nav-menu-group">
                         <form className="reader-search" onSubmit={submitSearch}>
                             <label htmlFor="reader-search-input" className="sr-only">Find in book</label>
@@ -808,6 +970,57 @@ export default function Reader() {
                             ))}
                         </div>
                     )}
+                    {currentBook && (
+                        <div className="reader-nav-menu-group reader-book-actions-options">
+                            <span className="reader-nav-menu-label">Book actions</span>
+                            {bookActions.jobs[currentBook.id] ? (
+                                <button
+                                    type="button"
+                                    className="btn secondary btn-compact"
+                                    onClick={() => bookActions.cancelJob(currentBook)}
+                                >
+                                    Cancel {bookActions.jobs[currentBook.id].label.toLowerCase()}
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="btn primary btn-compact"
+                                    onClick={() => bookActions.prepareBook(currentBook)}
+                                >
+                                    Prepare whole book
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                disabled={!activeProfile}
+                                onClick={() => bookActions.exportArchive(currentBook, activeProfile?.id)}
+                            >
+                                Save .bookvoice file
+                            </button>
+                            <button
+                                type="button"
+                                className="btn secondary btn-compact"
+                                disabled={!activeProfile}
+                                onClick={() => bookActions.exportAudiobook(currentBook, activeProfile?.id)}
+                            >
+                                Export audiobook
+                            </button>
+                            {!activeProfile && !bookActions.jobs[currentBook.id] && (
+                                <span className="reader-book-actions-hint">Prepare the book first to export it.</span>
+                            )}
+                        </div>
+                    )}
+                    <ReaderPageExport
+                        book={currentBook}
+                        profile={exportProfile}
+                        currentPage={pageNumber}
+                        numPages={numPages || 0}
+                        currentPreparedAudio={currentPreparedAudio}
+                        modelReady={modelReady}
+                        sessionId={sessionId}
+                        toast={toast}
+                    />
                 </div>
             )}
             {searchStatus && (
@@ -836,12 +1049,17 @@ export default function Reader() {
                     displayZoom={zoom.displayZoom}
                     isLoading={lifecycle.isLoading}
                     currentWord={currentWord}
+                    onWordActivate={pronounceWord}
                 />
             ) : (
                 <PdfStage
                     file={file}
                     pageNumber={pageNumber}
+                    pageText={pageText}
                     displayZoom={zoom.displayZoom}
+                    currentWord={currentWord}
+                    hasMeasuredTimings={hasMeasuredTimings}
+                    onWordActivate={pronounceWord}
                     onDocumentLoad={handleDocumentLoad}
                     onDocumentError={handleDocumentError}
                 />

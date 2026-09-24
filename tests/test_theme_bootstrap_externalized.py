@@ -62,16 +62,12 @@ class ThemeBootstrapExternalizedTests(unittest.TestCase):
         self.assertIn("data-mode", text)
 
     def test_theme_boot_validates_stored_values_and_supports_system(self):
-        """F-35: the bootstrap must share the React side's validation and
-        'system' semantics — an unknown stored palette or mode must not
-        paint a half-migrated theme."""
+        """The bootstrap shares Paper/Night/System validation with React."""
         text = THEME_BOOT.read_text(encoding="utf8")
         self.assertIn("prefers-color-scheme", text)
-        # 'system' is a recognized stored mode resolved through the OS.
         self.assertIn("system", text)
-        # The palette whitelist matches useTheme.js PALETTES ids exactly.
-        for palette_id in ("paper", "blue", "sage", "plum", "sand"):
-            self.assertIn(palette_id, text)
+        self.assertIn("paper", text)
+        self.assertIn("night", text)
 
     def test_committed_static_bundle_matches_source(self):
         """The committed `backend/static/` bundle is what production serves;

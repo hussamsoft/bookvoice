@@ -5,6 +5,7 @@ import {
   stitchPartialTimings,
   highlightLagMs,
   timesFromWordTimings,
+  strictWordTimings,
   wordIndexAtTime,
 } from './timings';
 
@@ -122,5 +123,23 @@ describe('timesFromWordTimings', () => {
     const { times, ends } = timesFromWordTimings(aligned, 'one two three four');
     expect(times).toEqual([]);
     expect(ends).toEqual([]);
+  });
+});
+
+describe('strictWordTimings', () => {
+  it('accepts a complete monotonic backend map', () => {
+    expect(strictWordTimings([
+      { word: 'Hello', start_s: 0, end_s: 0.4 },
+      { word: 'world', start_s: 0.4, end_s: 0.9 },
+    ], 'Hello world')).toEqual({ times: [0, 0.4], ends: [0.4, 0.9] });
+  });
+
+  it('rejects partial or non-monotonic maps instead of filling gaps', () => {
+    expect(strictWordTimings([{ word: 'Hello', start_s: 0, end_s: 0.4 }], 'Hello world'))
+      .toEqual({ times: [], ends: [] });
+    expect(strictWordTimings([
+      { word: 'Hello', start_s: 0.5, end_s: 0.8 },
+      { word: 'world', start_s: 0.2, end_s: 0.5 },
+    ], 'Hello world')).toEqual({ times: [], ends: [] });
   });
 });

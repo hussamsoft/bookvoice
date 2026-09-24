@@ -23,6 +23,9 @@ vi.mock('./components/VoiceStudio', () => ({
 vi.mock('./components/reader/Reader', () => ({
     default: () => <div data-testid="reader-mock">New Reader Component</div>,
 }));
+vi.mock('./components/UpdateBanner', () => ({
+    default: () => <div data-testid="update-banner-mock">Update Banner Component</div>,
+}));
 
 // Library data for HomeView's continue-reading list.
 vi.mock('./hooks/reader/usePreparedLibrary', () => ({
@@ -78,6 +81,11 @@ describe('App shell navigation', () => {
         expect(screen.getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     });
 
+    it('mounts the update banner on every app view', () => {
+        renderApp();
+        expect(screen.getByTestId('update-banner-mock')).toBeInTheDocument();
+    });
+
     it('navigates to Library, Scan, and Studio, persisting the view', async () => {
         renderApp();
 
@@ -92,6 +100,8 @@ describe('App shell navigation', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Studio' }));
         expect(await screen.findByTestId('voice-studio-mock')).toBeInTheDocument();
         expect(localStorage.getItem('bookvoice.app.view')).toBe('studio');
+        window.dispatchEvent(new CustomEvent('bookvoice:studio-project', { detail: { name: 'Demo voice project' } }));
+        expect(await screen.findByText('Demo voice project')).toBeInTheDocument();
     });
 
     it('opens a book from Home into the reader and remembers it', async () => {
@@ -103,6 +113,7 @@ describe('App shell navigation', () => {
         expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
         expect(localStorage.getItem('bookvoice.lastBook')).toBe('b1');
         expect(window.location.search).toBe('?book=b1');
+        expect(document.querySelector('.topbar-title')?.textContent).toBe('Alice in Wonderland');
     });
 
     it('opens a `?book=` deep link straight into the reader', async () => {
@@ -111,11 +122,17 @@ describe('App shell navigation', () => {
         expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
     });
 
-    it('mounts the new Reader behind ?reader=new (legacy flag is ignored)', async () => {
-        // The legacy ?reader=old flag used to switch to the pre-migration
-        // viewer; after deleting it, the flag is no longer recognized and
-        // the new Reader mounts unconditionally.
-        window.history.replaceState(null, '', '/?reader=old&book=b1');
+    it('shows an explicit disabled return-to-book state after leaving Reader', async () => {
+        renderApp();
+        fireEvent.click(screen.getByRole('button', { name: /Alice in Wonderland/ }));
+        await screen.findByTestId('reader-mock');
+        fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+        await screen.findByRole('heading', { name: 'Library', level: 1 });
+        expect(screen.getByRole('button', { name: 'Return to book' })).toBeDisabled();
+    });
+
+    it('opens a book deep link without a reader mode flag', async () => {
+        window.history.replaceState(null, '', '/?reader=archive&book=b1');
         renderApp();
         expect(await screen.findByTestId('reader-mock')).toBeInTheDocument();
         expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();

@@ -129,6 +129,45 @@
   margin-bottom: 0;
 }
 
+.reader-word {
+  appearance: none;
+  border: 0;
+  border-radius: 0.18em;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.reader-word:hover {
+  background: var(--surface-hover);
+}
+
+.reader-word:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.reader-word.is-current-word {
+  background: var(--signal-soft);
+  box-shadow: 0 0 0 1px var(--signal);
+}
+
+@media (forced-colors: active) {
+  .reader-word:hover,
+  .reader-word.is-current-word {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .reader-word:focus-visible {
+    outline: 2px solid CanvasText;
+  }
+}
+
 .text-page-empty {
   display: flex;
   align-items: center;
@@ -271,10 +310,72 @@
   gap: var(--space-1);
 }
 
+.reader-voice-language-options,
+.reader-book-actions-options {
+  min-width: 0;
+}
+
+.reader-language-option,
+.reader-follow-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+
+.reader-language-option {
+  justify-content: space-between;
+}
+
+.reader-book-actions-hint {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
 .reader-nav-menu-group + .reader-nav-menu-group {
   padding-top: var(--space-2);
   border-top: 1px solid var(--hairline);
   margin-top: var(--space-1);
+}
+
+.reader-page-audio-options {
+  position: relative;
+}
+
+.reader-page-audio-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+
+.reader-export-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+
+.reader-export-range label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.reader-export-range input {
+  width: 100%;
+  min-width: 0;
+}
+
+.reader-export-range .btn {
+  grid-column: 1 / -1;
 }
 
 .reader-nav-menu .bookmark-jump {
@@ -581,6 +682,12 @@
   flex-shrink: 0;
 }
 
+.translation-privacy {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
 @keyframes reading-options-slide-up {
   from {
     transform: translateY(100%);
@@ -750,16 +857,23 @@
   max-height: 18em;
 }
 
+.prepared-book-row-shell {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .prepared-book-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
   padding: var(--space-3);
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
-  /* F-21: the row is a button that opens the book — afford it as clickable. */
   cursor: pointer;
   text-align: left;
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
@@ -770,6 +884,42 @@
   box-shadow: var(--shadow-raised);
 }
 
+.prepared-book-row.is-featured {
+  padding: var(--space-4);
+  border-color: var(--accent-ring);
+  box-shadow: var(--shadow-raised);
+}
+
+.prepared-book-cover {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 58px;
+  flex: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.prepared-book-row.is-featured .prepared-book-cover {
+  width: 56px;
+  height: 74px;
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.prepared-book-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
 .prepared-book-row-heading {
   display: inline-flex;
   align-items: center;
@@ -777,12 +927,26 @@
   min-width: 0;
 }
 
-/* F-21: long titles truncate instead of pushing the row's meta line away. */
 .prepared-book-row-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.prepared-book-meta,
+.preparation-progress {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.preparation-progress {
+  color: var(--signal);
 }
 
 .source-kind-badge {
@@ -790,15 +954,16 @@
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   border: 1px solid var(--hairline-strong);
-  background: var(--surface-raised);
   color: var(--ink-muted);
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
 }
 
-.preparation-progress {
-  font-size: var(--text-xs);
+.prepared-book-overflow {
+  display: grid;
+  place-items: center;
+  width: var(--control-h-md);
   color: var(--ink-muted);
 }
 
@@ -834,6 +999,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.scan-session-title {
+  display: flex;
+  min-width: min(18rem, 40vw);
+}
+
+.scan-session-title input {
+  width: 100%;
 }
 
 /* Step tracker entries are real controls once their content exists. */

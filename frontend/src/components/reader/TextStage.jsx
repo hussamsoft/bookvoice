@@ -19,7 +19,7 @@ function splitParagraphs(text) {
         .filter((para) => para.length > 0);
 }
 
-export default function TextStage({ text, pageNumber, numPages, displayZoom, isLoading, currentWord }) {
+export default function TextStage({ text, pageNumber, numPages, displayZoom, isLoading, currentWord, onWordActivate }) {
     // Loading the next page must not look like an empty result. Render a
     // skeleton while the page is being resolved; show the empty state only
     // when the fetch has completed and the page is genuinely empty. (F-09.)
@@ -67,13 +67,16 @@ export default function TextStage({ text, pageNumber, numPages, displayZoom, isL
                             const isCurrent = Number.isFinite(currentWord)
                                 && globalIndex === currentWord;
                             return (
-                                <span
+                                <button
+                                    type="button"
                                     key={`${paragraphIndex}-${wordIndex}`}
-                                    className={isCurrent ? 'is-current-word' : undefined}
+                                    className={`reader-word${isCurrent ? ' is-current-word' : ''}`}
+                                    onClick={() => onWordActivate?.(word)}
+                                    aria-label={`Pronounce ${word}`}
                                 >
                                     {word}
                                     {wordIndex < words.length - 1 ? ' ' : ''}
-                                </span>
+                                </button>
                             );
                         })}
                     </p>

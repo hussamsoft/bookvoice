@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Mic2, PencilLine, Sparkles, X } from 'lucide-react';
+import { PencilLine, Sparkles } from 'lucide-react';
 import { createStudioNarration, createStudioRepair } from '../utils/api';
 import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
 import * as studioSession from '../utils/studioSession';
 import AudioPlayer from './AudioPlayer';
+import Modal from './ui/Modal';
 import StudioOutputs from './StudioOutputs';
 import StudioSettings from './StudioSettings';
 import StudioVoiceCloner from './StudioVoiceCloner';
@@ -29,7 +30,7 @@ const TranscriptWord = React.memo(function TranscriptWord({ timing, index, onSel
     );
 });
 
-export default function StudioNarration({ project, voices, onPatch, onRunJob, disabled, ttsStatus }) {
+export default function StudioNarration({ project, voices, onPatch, onRunJob, disabled, _ttsStatus }) {
     // The draft is this device's own: typing on a phone must not overwrite
     // what is on screen at the desk. It falls back to the project's last
     // generated script the first time a device opens it.
@@ -275,39 +276,23 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                 )}
             </main>
 
-            {showCloner && (
-                <div
-                    className="studio-modal-backdrop"
-                    onClick={() => setShowCloner(false)}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Voice Cloner"
-                >
-                    <div className="studio-modal-content" onClick={(e) => e.stopPropagation()}>
-                        <div className="studio-modal-header">
-                            <span className="studio-kicker">Voice Cloner</span>
-                            <button
-                                type="button"
-                                className="btn text studio-modal-close"
-                                onClick={() => setShowCloner(false)}
-                                aria-label="Close cloner"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <StudioVoiceCloner
-                            project={project}
-                            voices={voices}
-                            onPatch={(patch) => {
-                                onPatch(patch);
-                                setShowCloner(false);
-                            }}
-                            onRunJob={onRunJob}
-                            disabled={disabled}
-                        />
-                    </div>
-                </div>
-            )}
+            <Modal
+                open={showCloner}
+                onClose={() => setShowCloner(false)}
+                title="Voice Cloner"
+                className="studio-cloner-modal"
+            >
+                <StudioVoiceCloner
+                    project={project}
+                    voices={voices}
+                    onPatch={(patch) => {
+                        onPatch(patch);
+                        setShowCloner(false);
+                    }}
+                    onRunJob={onRunJob}
+                    disabled={disabled}
+                />
+            </Modal>
         </div>
     );
 }

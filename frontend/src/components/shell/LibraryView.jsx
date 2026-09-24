@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Download, FolderPlus, Loader2 } from 'lucide-react';
+import { BookOpen, Download, FolderPlus, Loader2, Trash2 } from 'lucide-react';
 import Button from '../ui/Button';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { useToast } from '../Toast';
 import PreparedBookRow from './PreparedBookRow';
 import { usePreparedLibrary } from '../../hooks/reader/usePreparedLibrary';
@@ -8,11 +9,10 @@ import { useBookActions } from '../../hooks/useBookActions';
 import { useUserConfig } from '../../hooks/useUserConfig';
 import { usePopoverMenu } from '../../hooks/usePopoverMenu';
 import { activePreparedProfile } from '../../utils/preparedPages';
-import { importPreparedBook } from '../../utils/api';
-
+import { importPreparedBook, deletePreparedBook } from '../../utils/api';
 const BOOK_ACCEPT = '.pdf,.epub,.txt,.md,.bookvoice,application/pdf,application/zip';
 
-function BookRowMenu({ book, job, actions, ready }) {
+function BookRowMenu({ book, job, actions, ready, onDelete }) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef(null);
     const triggerRef = useRef(null);
@@ -118,6 +118,16 @@ function BookRowMenu({ book, job, actions, ready }) {
                             Prepare the book first to export it.
                         </p>
                     ) : null}
+                    <button
+                        type="button"
+                        className="btn danger btn-compact"
+                        onClick={() => {
+                            onDelete(book);
+                            close();
+                        }}
+                    >
+                        <Trash2 size={15} aria-hidden="true" /> Delete book
+                    </button>
                 </div>
             ) : null}
         </div>
@@ -131,6 +141,20 @@ function BookRowMenu({ book, job, actions, ready }) {
 export default function LibraryView({ onOpenBook, onError }) {
     const { books, isLoading, refresh } = usePreparedLibrary({ onError });
     const { config } = useUserConfig();
+    const [deleteTarget, setDeleteTarget] = useState(null);
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
+        setDeleteTarget(null);
+        try {
+            await deletePreparedBook(target.id);
+            await refresh();
+            toast.success(`Deleted “${target.title || 'book'}”.`);
+        } catch (error) {
+            toast.error(error.message || 'Could not delete the book.');
+        }
+    };
     const toast = useToast();
     const actions = useBookActions({
         toast,
@@ -209,13 +233,32 @@ export default function LibraryView({ onOpenBook, onError }) {
             {!isLoading && books.length > 0 && (
                 <div className="library-list">
                     {books.map((book) => (
-                        <div className="library-row" key={book.id}>
-                            <PreparedBookRow book={book} onOpen={onOpenBook} />
-                            <BookRowMenu book={book} job={actions.jobs[book.id]} actions={actions} ready={config != null} />
-                        </div>
+                        <PreparedBookRow
+                            key={book.id}
+                            book={book}
+                            onOpen={onOpenBook}
+                            job={actions.jobs[book.id]}
+                            actions={(
+                                <BookRowMenu
+                                    book={book}
+                                    job={actions.jobs[book.id]}
+                                    actions={actions}
+                                    ready={config != null}
+                                    onDelete={setDeleteTarget}
+                                />
+                            )}
+                        />
                     ))}
                 </div>
             )}
+            <ConfirmDialog
+                open={deleteTarget !== null}
+                title="Delete this book?"
+                message={deleteTarget ? `“${deleteTarget.title || 'Untitled book'}” will be removed from this computer.` : ''}
+                confirmLabel="Delete book"
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTarget(null)}
+            />
         </div>
     );
 }

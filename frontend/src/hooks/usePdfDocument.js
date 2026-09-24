@@ -63,7 +63,7 @@ export function usePdfDocument({ file, fileRef, toast }) {
     };
 
     const preparePageText = useCallback(
-        async (pageNum, { forceOcr = false, quiet = false, setIsOcring } = {}) => {
+        async (pageNum, { forceOcr = false, quiet = false, setIsOcring, allowOcr = false } = {}) => {
             if (!forceOcr && textCacheRef.current.has(pageNum)) {
                 return textCacheRef.current.get(pageNum);
             }
@@ -72,7 +72,11 @@ export function usePdfDocument({ file, fileRef, toast }) {
             if (!forceOcr) {
                 text = await extractTextFromPage(pdf, pageNum);
             }
-            if (!text.trim() || forceOcr) {
+            const shouldOcr = forceOcr || allowOcr;
+            if (!text.trim() && !shouldOcr) {
+                throw new Error('No embedded text found on this page. Run OCR explicitly to continue.');
+            }
+            if (shouldOcr || !text.trim()) {
                 if (!quiet && setIsOcring) setIsOcring(true);
                 try {
                     if (!quiet && toast) {

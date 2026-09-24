@@ -41,4 +41,15 @@ describe('usePdfDocument', () => {
 
     await expect(result.current.findTextInDocument('needle', 1)).resolves.toBe(2);
   });
+
+  it('does not run OCR implicitly for an empty PDF page', async () => {
+    const proxy = {
+      numPages: 1,
+      getPage: vi.fn(async () => ({ getTextContent: async () => ({ items: [] }) })),
+    };
+    const { result } = renderHook(() => usePdfDocument({ file: null, fileRef: { current: null }, toast: null }));
+    act(() => result.current.adoptPdfDocument(proxy));
+
+    await expect(result.current.preparePageText(1)).rejects.toThrow('Run OCR explicitly');
+  });
 });

@@ -1,53 +1,50 @@
 # BookVoice
 
-BookVoice is a personal web application that allows users to capture images of physical book pages (via a phone or webcam) or open a PDF, extract the text using OCR, translate between **English and Arabic**, and have it read aloud using a high-quality, voice-cloned text-to-speech (TTS) engine.
+BookVoice is a local-first desktop and private-server app for capturing book
+pages, reviewing extracted text, translating English/Arabic, and listening to
+locally generated narration. The browser UI runs against a bundled FastAPI
+backend; there is no hosted account system.
 
 ## Features
 
-This MVP was built across three development phases:
+### Scanner and narration
 
-1. **Phase 1: Core Loop (OCR & TTS)**
-   - Local OCR using **EasyOCR** — models download automatically on first use, no API keys.
-   - Text review and editing step.
-   - Local narration via the open-source **Chatterbox (Resemble AI)** TTS engine.
-   - Self-contained standalone application packaging.
+- Camera/webcam capture and local EasyOCR extraction, with an editable text
+  review step.
+- English/Arabic translation through Google's translation service. The text
+  action states that selected text is sent to Google Translate; OCR, TTS, and
+  Voice Studio remain local, and BookVoice adds no telemetry.
+- Local Chatterbox TTS, microphone/upload voice profiles, and saved
+  voice/language defaults.
+- A sleep timer, playback speed, seeking, skip controls, and OS media-key
+  integration in the shared transport.
 
-2. **Phase 2: Voice Cloning**
-   - Direct-from-browser microphone recording via the `MediaRecorder` API to create instant Voice Profiles.
-   - Support for uploading `.wav` reference clips.
-   - Zero-shot voice cloning capabilities natively integrated into the TTS generation step.
+### Reader capability contract
 
-3. **Phase 3: Translation & Dubbing (English + Arabic)**
-   - Built-in translation via `deep-translator` (Google Translate free endpoint).
-   - Supported languages: **English** and **Arabic** only.
-   - Dynamic VRAM management: switches between the English TTS model and the Multilingual model (for Arabic) to reduce OOM risk on 8GB GPUs.
-   - PDF mode: embedded text layer when available; **OCR fallback** for scanned pages.
-   - Follow-along PDF highlighting with click-to-pronounce, bookmarks, search, and continue-reading.
-   - Playback progress, seeking, speed control, skip controls, and page-audio export.
-   - Desktop launcher binds to **localhost only** (not exposed on the LAN).
+| Status | Capability |
+|---|---|
+| **Supported now** | Open PDF, EPUB, TXT, MD, and `.bookvoice` books from the Reader file picker or Library; `?book=<id>` opens a prepared book. |
+| **Supported now** | Reader toolbar symbols: bookmark, Previous, Next, page jump, and More. More contains mute, zoom out/in, Fit, find-in-book, bookmark jumps, contextual voice/language controls, explicit PDF OCR, and Reader book actions. |
+| **Supported now** | `PlaybackControls`: play/pause, stop, seek bar, elapsed/remaining time, narration speed, and sleep timer. |
+| **Supported now** | Streamed page narration, prepared page-audio playback, saved progress, server-side Library progress, and durable promotion of successful narration for a prepared book. |
+| **Supported now in Reader and Library** | Prepare whole book, save `.bookvoice`, and export chaptered `.m4b`; Reader's More menu uses the same `useBookActions` contract as Library rows. |
+| **Supported now, no second transport** | Leaving Reader stops its existing playback session; other views show an explicit disabled **Return to book** state rather than a second audio state machine. |
+| **Supported now, measured only** | Text and PDF highlighting, click-to-pronounce, and Follow narration activate only when the backend supplies a complete monotonic word map. PDF activation is disabled with an explanation when the current page lacks timings. |
+| **Supported now** | Download prepared page audio from Reader More as a single WAV or an inclusive page range ZIP with `manifest.json`; downloads do not alter narration position or reading progress. |
+| **Intentionally deferred** | Pan/drag and auto-turn. |
 
+### Voice Studio
 
-4. **Reading formats & exports**
-   - **EPUB and plain-text books** (`.epub`, `.txt`, `.md`) join PDFs and
-     `.bookvoice` archives: chapters are extracted on import into the prepared
-     library, so narration, bookmarks, whole-book preparation, and reading
-     progress work without a PDF. Text books render as a transcript column.
-   - **Chaptered M4B audiobook export** concatenates one voice profile's
-     prepared page audio into a single `.m4b` with per-page chapter markers,
-     using the bundled FFmpeg.
-   - A **sleep timer** (5–60 minutes, or stop at end of page) lives in the
-     shared playback transport, and narration registers with the OS media
-     overlay so keyboard media keys play, pause, skip, and change pages.
-5. **Voice Studio**
-   - Persistent local projects for narration written directly in BookVoice; no text-file import is required.
-   - Create Narration starts with direct WAV, MP3, M4A/AAC, FLAC, OGG, WebM, MP4, MOV, or MKV import. Select 5–30 seconds of one speaker, confirm ownership/permission, and the resulting cloned profile is automatically selected to narrate whatever you type.
-   - Video imports receive a local H.264/AAC preview for reliable in-app picture and sound, while standalone narration adds short head and tail silence to protect speech from playback cutoffs.
-   - Convert Voice re-voices an existing recording instead of retyping it: the imported performance keeps its own timing, rhythm, pauses, and emphasis, and only the speaker changes. The target voice can be a saved profile or a 5–30 second selection from a second recording. No generation controls are involved.
-   - Cloning a voice from media also derives pace, expression, and temperature from that recording's speaking rate and dynamic range, so typed narration starts out matching the speaker.
-   - Descriptive pace, expression, temperature, guidance, and optional seed controls for English and Arabic narration. Pace preserves pitch, and the interface explains the result of increasing or decreasing every value.
-   - Transcript-guided sentence correction and waveform-guided phrase replacement create new immutable WAV output versions while preserving the source.
-   - Repaired video exports use the original video stream when compatible and otherwise produce a broadly compatible H.264/AAC MP4.
-   - Generated outputs use real browser attachment downloads, so **Download to this device** transfers the file to the phone or computer currently using BookVoice. The host computer can also open a project's complete managed folder.
+- Persistent local projects for typed narration and imported audio/video.
+- Clone a consented 5–30 second reference, or re-voice an existing recording.
+- Adjust pace, expression, temperature, guidance, and repeatable seed for new
+  narration.
+- Correct transcript sentences and waveform phrases into immutable output
+  versions; repair compatible video to H.264/AAC MP4.
+- Download outputs to the current device or open the project's managed folder.
+
+The Scanner translation action sends selected text to Google Translate. OCR,
+TTS, and Voice Studio remain local. No telemetry is collected by BookVoice.
 
 ## Hosting
 

@@ -97,7 +97,11 @@ export function useUpdateCheck() {
 
     return {
         status,
-        available: Boolean(status?.updateAvailable) && !dismissed,
+        available: Boolean(
+            status?.supported
+            && status?.enabled
+            && status?.updateAvailable
+        ) && !dismissed,
         ready,
         downloading,
         failed,

@@ -2,10 +2,13 @@
 
 Work in this order. Do not begin product additions until the stabilization and performance checkpoints pass.
 
-> **Status — 1.10.0 (2026-07-10):** robust Windows packaging shipped. Per-user MSI
-> (`BookVoice-User.msi`) replaces copy-paste portable; bundled embeddable Python and
-> install-scoped runtime directories eliminate system-Python and version-skew failures.
-> Open items: Whisper packaging, real-browser gapless smoke, full a11y audit.
+> **Status — 2.8.2 (2026-09-23):** Vellum & Signal and the Reader capability
+> reconciliation are release-ready: measured PDF/text highlighting, Follow,
+> click-to-pronounce, per-page WAV/ZIP export, prepared-library deletion,
+> hosted sign-out, contextual titles, and the unified translation contract
+> ship. Windows MSI repackaging remains a follow-up on a WiX + Windows SDK
+> 10.0.19041 build host.
+
 
 ## Phase 0 — truth and baselines
 
@@ -19,8 +22,9 @@ Work in this order. Do not begin product additions until the stabilization and p
 - [x] Task 4: ship immutable narration URLs and the dedicated pronunciation contract.
 - [x] Task 5: verify the bottom PDF control dock across responsive and packaged builds.
 - [x] Task 6: enforce canonical tokens and monotonic timing arrays.
-- [x] Task 7: benchmark, choose, package, and expose the alignment mode. *(CTC forced alignment shipped 2026-07-14: the known narrated text is Viterbi-aligned per synthesized chunk against a bundled fp16 wav2vec2-base-960h (~180 MB, scripts/prepare_alignment_model.py); alignment_mode() reports ctc/whisper/estimate/disabled; scripts/verify_alignment.py proves placement by re-decoding each aligned word slice — 0 neighbour mismatches. Paused word-click now slices cached audio only in aligned mode and synthesizes the exact word otherwise.)*
-- [x] Checkpoint: PDF read, pause, word pronunciation, resume, navigation, voice/language switch, and synchronized highlight pass end to end.
+- [x] Task 7: benchmark, choose, package, and expose the backend alignment mode. *(CTC forced alignment ships and reports ctc/whisper/estimate/disabled. Reader consumes only complete monotonic maps for its text-book highlight surface.)*
+- [x] Reader integration checkpoint: PDF/text-book reading, pause/resume, navigation, saved progress, search, bookmarks, rendered transport, contextual options, explicit OCR, measured text/PDF highlighting/follow, and click-to-pronounce are wired when complete monotonic timings are available.
+
 
 ## Phase 2 — performance
 
@@ -36,22 +40,33 @@ Work in this order. Do not begin product additions until the stabilization and p
 - [x] Task 13: separate original, edited, translated, source-language, target-language, and narration-language state.
 - [x] Task 14a: persist reading position and session state.
 - [x] Task 14b: add bookmarks and continue-reading.
-- [x] Task 14c: add search/outline and audio export as independent slices. *(embedded-text search shipped; cached canonical full-page audio can be exported from page 1 through the current page; missing pages are reported rather than silently omitted)*
+- [x] Task 14c: add search and audio export as independent backend/library slices. *(Find-in-book, prepared-page WAV export, and prepared-page range ZIP export are rendered in Reader; whole-book `.m4b` export remains a separate Library/Reader action.)*
 - [x] Task 15: simplify settings and centralize voice management/device diagnostics.
 
 ## Phase 4 — release
 
-- [x] Task 16: complete security, accessibility, RTL, limits, and error-recovery pass. *(keyboard shortcuts, focus-visible, reduced-motion, RTL dir propagation, and transcript keyboard activation shipped; full a11y audit remaining)*
+- [x] Task 16: complete security, accessibility, RTL, limits, and error-recovery pass. *(Keyboard shortcuts, focus-visible, reduced motion, RTL direction, live-region behavior, measured Reader word interaction, and the two site-wide axe findings now ship.)*
+
 - [x] Task 17: build and smoke portable and MSI from a clean checkout. *(BookVoice.msi + BookVoice-User.msi build green; scripts/smoke_launch.py validates install dirs; copy-paste dist/ deprecated for end users; real-browser gapless smoke pending)*
 - [x] Confirm source/static/dist hashes and version metadata match. *(release-manifest.json + build.py validate enforce parity)*
 - [x] Publish before/after correctness and performance results with remaining risks. *(bundle before/after in tasks/bundle-baseline.json; TTS pipeline timings in tasks/perf-baseline.json; remaining risks: Whisper packaging deferred, real-browser gapless smoke, full a11y audit)*
 
-## A11y follow-ups (from `scripts/audit_a11y.py`, run on the 2.8.0 build)
+## Reader capability reconciliation
 
-The Playwright + axe-core audit scans the five primary routes (`/`, `/library`, `/reader`, `/studio`, `/settings`) in both `light` and `dark` mode. Two unique violations are found and need a follow-up fix in the frontend. Both are site-wide; the per-route number in `scripts/audit_a11y.py` is the per-page node count (consistently 1 across all routes).
+| Status | Current scope |
+|---|---|
+| **Supported now** | Real-book opening/deep links; contextual voice/language, find, bookmark, page, OCR, and book-action controls; playback transport, speed, and sleep timer; prepared/streamed narration; local and server progress; measured text and PDF highlighting, Follow narration, and click-to-pronounce when complete monotonic timings are available. |
+| **Supported now in Reader and Library** | Prepare whole book, save `.bookvoice`, and export `.m4b` through the shared `useBookActions` contract. |
+| **Supported now in Reader** | Download prepared audio for the current page as WAV or an inclusive page range as a STORE-only ZIP with `manifest.json`; downloads leave narration position and progress unchanged. |
+| **Intentionally deferred** | Pan/drag and auto-turn. |
+| **Timing-dependent** | Text/PDF word highlighting, Follow, and click-to-pronounce activate only for a complete monotonic backend timing map; no anchors are fabricated. Leaving Reader stops its only audio session and exposes a disabled Return to book state elsewhere. |
 
-- [ ] **A11Y-1 (critical)** — `label`: The hidden file `<input type="file">` (the "Choose a book file" picker) has no implicit `<label>`, no explicit `<label>`, no `aria-label`, and no `aria-labelledby`. The visible "Choose a book file" button is rendered as a sibling, so screen readers announce the input as unlabelled. Fix: add `aria-label="Choose a book file"` to the `<input>` element (or wrap the visible button as an explicit `<label for="…">`).
-- [ ] **A11Y-2 (serious)** — `aria-prohibited-attr`: The toast region `<div class="toast-region" aria-label="Notifications">` uses `aria-label` on a `<div>` with no role, which axe-core flags because `aria-label` is only valid on elements with an interactive or landmark role. Fix: add `role="region"` (or `role="status"` if a polite live region is acceptable) to the div.
+Reader persists contextual voice/language choices. Prepared-library deletion
+uses an explicit confirmation flow. Scanner sessions have an editable
+date-default title used by the exported `.txt` import while preserving the
+existing unsaved-navigation guard. Hosted deployments expose sign-out, and
+Voice Studio has a contextual project title/h1 and explicit empty-project
+start state.
 
 ## Follow-ups (deferred from `tasks/plan-bookvoice-improvements.md`)
 

@@ -247,6 +247,8 @@ def requires_session(path: str) -> bool:
     if not auth_required():
         return False
     target = str(path or "")
+    if target.rstrip("/") == "/api/access/all":
+        return True
     if target.startswith(PUBLIC_API_PREFIXES):
         return False
     # Generated audio is served straight off /sessions, so it is gated too.

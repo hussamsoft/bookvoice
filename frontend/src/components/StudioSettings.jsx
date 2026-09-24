@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, memo } from 'react';
 import { Mic2 } from 'lucide-react';
 import { SUPPORTED_LANGUAGES } from '../utils/languages';
+import { STUDIO_DELIVERY_PRESETS } from '../utils/studio';
 
 
 const NumberControl = memo(function NumberControl({
@@ -71,12 +72,6 @@ function temperatureLabel(value) {
     if (value < 1.2) return 'Balanced';
     return 'Warm';
 }
-
-export const STUDIO_DELIVERY_PRESETS = [
-    { id: 'natural', label: 'Natural', pace: 1.0, expression: 0.5, temperature: 0.8, hint: 'Balanced reading' },
-    { id: 'expressive', label: 'Expressive', pace: 0.95, expression: 0.75, temperature: 0.9, hint: 'Story & dramatic tone' },
-    { id: 'fast', label: 'Fast & Crisp', pace: 1.15, expression: 0.35, temperature: 0.6, hint: 'Podcast & news tempo' },
-];
 
 export default function StudioSettings({
     voices,
@@ -166,7 +161,7 @@ export default function StudioSettings({
                         </div>
                         <select
                             id="studio-voice-select"
-                            value={voiceId}
+                            value={voiceId ?? ''}
                             onChange={(e) => onVoiceChange(e.target.value)}
                             disabled={disabled}
                             className="studio-select"
@@ -181,7 +176,7 @@ export default function StudioSettings({
                         <label className="studio-setting-label" htmlFor="language-select">Language</label>
                         <select
                             id="language-select"
-                            value={languageId}
+                            value={languageId ?? ''}
                             onChange={(e) => onLanguageChange(e.target.value)}
                             disabled={disabled}
                             className="studio-select"

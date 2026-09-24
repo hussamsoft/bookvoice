@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, MonitorSmartphone } from 'lucide-react';
+import { Check, Copy, LogOut, MonitorSmartphone } from 'lucide-react';
 import Button from '../ui/Button';
 import { useToast } from '../Toast';
 import { useUserConfig } from '../../hooks/useUserConfig';
-import { useTheme, PALETTES, getSwatchColor } from '../../hooks/useTheme';
+import { useTheme, THEME_MODE_OPTIONS, getSwatchColor } from '../../hooks/useTheme';
 import { useCapabilities } from '../../hooks/useCapabilities';
-import { getServerAddresses } from '../../utils/api';
+import { getServerAddresses, signOut } from '../../utils/api';
 import VoiceSettings from '../VoiceSettings';
 
 /**
@@ -18,6 +18,19 @@ export default function SettingsView() {
     const { config, updateConfig, saveError, loadError } = useUserConfig();
     const theme = useTheme();
     const { serverMode } = useCapabilities();
+    const [signingOut, setSigningOut] = useState(false);
+
+    const handleSignOut = async () => {
+        setSigningOut(true);
+        try {
+            await signOut();
+            toast.success('Signed out of this hosted session.');
+            window.location.reload();
+        } catch (error) {
+            toast.error(error?.message || 'Could not sign out.');
+            setSigningOut(false);
+        }
+    };
     const [saving, setSaving] = useState(false);
     const [access, setAccess] = useState(null);
 
@@ -54,52 +67,34 @@ export default function SettingsView() {
     }, [toast]);
 
     // F-29: palette+mode is a single choice across ten options, so it is a
-    // radiogroup — one tab stop, arrow keys move the selection (selection
-    // follows focus), not ten aria-pressed buttons that each promise an
-    // independent toggle.
-    const paletteOptions = PALETTES.flatMap((palette) =>
-        ['light', 'dark', 'system'].map((mode) => ({ palette: palette.id, name: palette.name, mode })),
-    );
-    const paletteGroupRef = useRef(null);
+    const modeOptions = THEME_MODE_OPTIONS;
+    const modeGroupRef = useRef(null);
     const pendingFocusRef = useRef(null);
 
     useEffect(() => {
         if (pendingFocusRef.current == null) return;
-        const radios = paletteGroupRef.current?.querySelectorAll('[role="radio"]');
+        const radios = modeGroupRef.current?.querySelectorAll('[role="radio"]');
         radios?.[pendingFocusRef.current]?.focus();
         pendingFocusRef.current = null;
     });
 
-    const onPaletteKeyDown = (event) => {
-        const current = paletteOptions.findIndex(
-            (option) => option.palette === theme.palette && option.mode === theme.mode,
-        );
+    const onModeKeyDown = (event) => {
+        const current = modeOptions.findIndex((option) => option.id === theme.mode);
         if (current === -1) return;
-        const count = paletteOptions.length;
         let next;
-        switch (event.key) {
-            case 'ArrowRight':
-            case 'ArrowDown':
-                next = (current + 1) % count;
-                break;
-            case 'ArrowLeft':
-            case 'ArrowUp':
-                next = (current - 1 + count) % count;
-                break;
-            case 'Home':
-                next = 0;
-                break;
-            case 'End':
-                next = count - 1;
-                break;
-            default:
-                return;
-        }
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % modeOptions.length;
+        else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current - 1 + modeOptions.length) % modeOptions.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = modeOptions.length - 1;
+        else return;
         event.preventDefault();
-        const option = paletteOptions[next];
-        theme.setPalette(option.palette);
-        theme.setMode(option.mode);
+        theme.setMode(modeOptions[next].id);
         pendingFocusRef.current = next;
+    };
+
+    const selectMode = (mode) => {
+        theme.setMode(mode);
+        theme.setPalette('paper');
     };
 
     return (
@@ -127,6 +122,14 @@ export default function SettingsView() {
                     <span>Hosted server mode: local file actions and LAN tunnel options are disabled.</span>
                 </div>
             )}
+            {serverMode ? (
+                <div className="settings-row settings-hosted-row">
+                    <span>Hosted session</span>
+                    <Button variant="secondary" size="sm" disabled={signingOut} onClick={handleSignOut}>
+                        <LogOut size={14} aria-hidden="true" /> {signingOut ? 'Signing out…' : 'Sign out'}
+                    </Button>
+                </div>
+            ) : null}
             {/* F-41: ONE loading announcement for the whole page. The
                 per-section "Loading settings…" paragraphs each carried
                 role="status" and were announced three times. */}
@@ -134,48 +137,46 @@ export default function SettingsView() {
                 <p className="settings-hint" role="status">Loading settings…</p>
             )}
 
-            <section className="settings-card" aria-labelledby="settings-appearance">
-                <h2 className="settings-section-title" id="settings-appearance">Appearance</h2>
+            <section className="settings-card settings-appearance" aria-labelledby="settings-appearance">
+                <div className="settings-appearance-heading">
+                    <div>
+                        <h2 className="settings-section-title" id="settings-appearance">Mode</h2>
+                        <p className="settings-hint">Paper and Night are tuned for long reading. System follows this device.</p>
+                    </div>
+                    <div className="appearance-role-legend" aria-label="Color roles">
+                        <span><i className="appearance-role-swatch action" aria-hidden="true" />Action</span>
+                        <span><i className="appearance-role-swatch signal" aria-hidden="true" />Signal</span>
+                    </div>
+                </div>
                 <div
-                    className="appearance-grid"
+                    className="appearance-mode-grid"
                     role="radiogroup"
-                    aria-label="Color palette and mode"
-                    ref={paletteGroupRef}
-                    onKeyDown={onPaletteKeyDown}
+                    aria-label="Reading mode"
+                    ref={modeGroupRef}
+                    onKeyDown={onModeKeyDown}
                 >
-                    {PALETTES.map((palette) => (
-                        <div key={palette.id} className="appearance-palette">
-                            <span className="appearance-palette-name">{palette.name}</span>
-                            <div className="appearance-palette-modes">
-                                {/* F-35: System is a first-class third choice. */}
-                                {['light', 'dark', 'system'].map((mode) => {
-                                    const active = theme.palette === palette.id && theme.mode === mode;
-                                    return (
-                                        <button
-                                            key={mode}
-                                            type="button"
-                                            role="radio"
-                                            aria-checked={active}
-                                            tabIndex={active ? 0 : -1}
-                                            className={`appearance-option ${active ? 'is-active' : ''}`}
-                                            onClick={() => {
-                                                theme.setPalette(palette.id);
-                                                theme.setMode(mode);
-                                            }}
-                                            aria-label={`${palette.name}, ${mode}`}
-                                        >
-                                            <span
-                                                className="theme-selector-swatch"
-                                                style={{ background: getSwatchColor(palette.id, mode) }}
-                                                aria-hidden="true"
-                                            />
-                                            {active ? <Check size={13} aria-hidden="true" /> : null}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ))}
+                    {modeOptions.map((option) => {
+                        const active = theme.mode === option.id;
+                        return (
+                            <button
+                                key={option.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={active}
+                                tabIndex={active ? 0 : -1}
+                                className={`appearance-mode ${active ? 'is-active' : ''}`}
+                                onClick={() => selectMode(option.id)}
+                                aria-label={option.name}
+                            >
+                                <span className="appearance-mode-swatch" style={{ background: getSwatchColor('paper', option.id) }} aria-hidden="true" />
+                                <span className="appearance-mode-copy">
+                                    <strong>{option.name}</strong>
+                                    <small>{option.description}</small>
+                                </span>
+                                {active ? <Check size={15} aria-hidden="true" /> : null}
+                            </button>
+                        );
+                    })}
                 </div>
             </section>
 

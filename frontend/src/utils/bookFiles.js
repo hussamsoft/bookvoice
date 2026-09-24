@@ -1,3 +1,5 @@
+import { documentFingerprint } from './readingProgress';
+
 /**
  * File helpers for opening books in the reader.
  */
@@ -15,13 +17,22 @@ export function sourceKindFromName(name = '') {
 }
 
 /**
- * Build the synthetic `File` that represents a prepared library book.
- *
- * The `lastModified` stamp comes from the book's `updatedAt`, which keeps
- * `documentFingerprint(file)` — and therefore the saved reading progress —
- * stable across re-opens. PDFs read from the fetched source blob; text
- * books read their pages from the server, so no source blob is needed or
- * fetched.
+ * Stable local-progress identity for an open Reader document.
+ * Prepared books use their immutable server id; only local, unimported
+ * uploads fall back to the browser file fingerprint.
+ */
+export function readerProgressId(book, file) {
+    const serverId = book?.id;
+    return serverId != null && String(serverId) !== ''
+        ? String(serverId)
+        : documentFingerprint(file);
+}
+
+/**
+ * Build the synthetic `File` that renders a prepared library book.
+ * This is a rendering adapter, not the saved-progress identity. Use
+ * `readerProgressId` for that. PDFs read the fetched source blob; text books
+ * read their pages from the server, so they need no source blob.
  */
 export function libraryBookFile(book, source = null) {
     const kind = book?.sourceKind || 'pdf';

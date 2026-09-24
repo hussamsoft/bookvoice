@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { libraryBookFile, sourceKindFromName } from './bookFiles';
+import { documentFingerprint } from './readingProgress';
+import { libraryBookFile, readerProgressId, sourceKindFromName } from './bookFiles';
 
 describe('sourceKindFromName', () => {
     it('maps file extensions to book kinds', () => {
@@ -32,12 +33,22 @@ describe('libraryBookFile', () => {
         expect(file.lastModified).toBe(1700000000 * 1000);
     });
 
-    it('keeps the fingerprint stable across re-opens of the same book', () => {
-        const first = libraryBookFile(book);
-        const second = libraryBookFile(book);
-        // documentFingerprint is name \0 size \0 lastModified; equal here.
-        expect(`${first.name}\0${first.size}\0${first.lastModified}`)
-            .toBe(`${second.name}\0${second.size}\0${second.lastModified}`);
+    it('uses the server book id for prepared-book progress', () => {
+        const first = readerProgressId({ id: 'book-7' }, libraryBookFile(book));
+        const renamed = readerProgressId(
+            { id: 'book-7' },
+            libraryBookFile({ ...book, title: 'Renamed', updatedAt: 1700000001 }),
+        );
+        expect(first).toBe('book-7');
+        expect(renamed).toBe(first);
+    });
+
+    it('uses a file fingerprint only for local uploads', () => {
+        const file = new File(['local'], 'draft.pdf', {
+            type: 'application/pdf',
+            lastModified: 42,
+        });
+        expect(readerProgressId(null, file)).toBe(documentFingerprint(file));
     });
 
     it('falls back to a pdf file with a generic title', () => {

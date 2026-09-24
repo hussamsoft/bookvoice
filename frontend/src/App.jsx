@@ -10,6 +10,7 @@ import Shortcuts from './components/Shortcuts';
 import { getAppView, setAppView, getLastBookId, setLastBookId } from './utils/appSession';
 import { useKeyboardShortcuts } from './hooks/reader/useKeyboardShortcuts';
 import { useTtsStatus } from './hooks/useTtsStatus';
+import UpdateBanner from './components/UpdateBanner';
 import { useTheme } from './hooks/useTheme';
 
 const BookSession = lazy(() => import('./components/BookSession'));
@@ -46,6 +47,19 @@ export default function App() {
     const [transitioning, setTransitioning] = useState(false);
     const [displayView, setDisplayView] = useState(view);
     const prevViewRef = useRef(view);
+    const [readerTitle, setReaderTitle] = useState(() => {
+        const id = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('book') : null;
+        return id ? 'Reader' : '';
+    });
+    const [studioProjectTitle, setStudioProjectTitle] = useState('');
+
+    useEffect(() => {
+        const onStudioProject = (event) => {
+            setStudioProjectTitle(event.detail?.name || '');
+        };
+        window.addEventListener('bookvoice:studio-project', onStudioProject);
+        return () => window.removeEventListener('bookvoice:studio-project', onStudioProject);
+    }, []);
 
     const theme = useTheme();
     const tts = useTtsStatus();
@@ -136,6 +150,7 @@ export default function App() {
     const openBook = useCallback((book) => {
         const id = book?.id;
         if (id == null) return;
+        setReaderTitle(book.title || 'Reader');
         setLastBookId(id);
         setLastBookIdState(String(id));
         try {
@@ -156,11 +171,16 @@ export default function App() {
 
     // F-24/F-40: the title describes the screen that is actually showing —
     // derived from displayView, so it can never name a view mid-fade-out.
-    const contextTitle = displayView === 'reader' ? VIEW_TITLES.reader : VIEW_TITLES[displayView] || '';
+    const contextTitle = displayView === 'reader'
+        ? (readerTitle || VIEW_TITLES.reader)
+        : displayView === 'studio'
+            ? (studioProjectTitle || VIEW_TITLES.studio)
+            : VIEW_TITLES[displayView] || '';
 
     return (
         <div className="app-shell">
             <a href="#main-content" className="skip-link">Skip to main content</a>
+            <UpdateBanner />
             <Sidebar view={view} onNavigate={navigate} />
             <div className="app-column">
                 <header className="main-header">
@@ -169,6 +189,7 @@ export default function App() {
                         engineStatus={engineStatus}
                         theme={theme}
                         onThemeToggle={theme.toggleMode}
+                        returnToBookDisabled={displayView !== 'reader' && Boolean(readerTitle)}
                     />
                 </header>
                 <main id="main-content" className="main-content">

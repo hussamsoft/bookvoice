@@ -133,19 +133,21 @@ describe('LibraryView', () => {
         expect(popover.contains(document.activeElement)).toBe(true);
 
         const items = Array.from(popover.querySelectorAll('button:not(:disabled)'));
-        expect(items.length).toBe(3);
+        expect(items.length).toBe(4);
         fireEvent.keyDown(popover, { key: 'ArrowDown' });
         expect(document.activeElement).toBe(items[1]);
         fireEvent.keyDown(popover, { key: 'ArrowDown' });
         expect(document.activeElement).toBe(items[2]);
+        fireEvent.keyDown(popover, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(items[3]);
         fireEvent.keyDown(popover, { key: 'ArrowDown' }); // wraps
         expect(document.activeElement).toBe(items[0]);
         fireEvent.keyDown(popover, { key: 'ArrowUp' }); // wraps back
-        expect(document.activeElement).toBe(items[2]);
+        expect(document.activeElement).toBe(items[3]);
         fireEvent.keyDown(popover, { key: 'Home' });
         expect(document.activeElement).toBe(items[0]);
         fireEvent.keyDown(popover, { key: 'End' });
-        expect(document.activeElement).toBe(items[2]);
+        expect(document.activeElement).toBe(items[3]);
 
         fireEvent.keyDown(popover, { key: 'Escape' });
         expect(screen.queryByRole('group', { name: 'Book actions' })).not.toBeInTheDocument();

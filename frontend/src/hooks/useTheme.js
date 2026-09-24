@@ -2,80 +2,35 @@ import { useEffect, useState } from 'react';
 import { readStoredString, writeStoredString } from '../utils/storage';
 
 /**
- * Theme (palette + light/dark/system) ownership for the whole app.
- *
- * Extracted from the old TitleBar so both the top bar's quick toggle and the
- * Settings appearance section drive the same state. Keeps <html> data
- * attributes and the meta theme-color in sync with tokens.css.
- *
- * F-35: `mode` is the user's CHOICE — 'system' (the default), 'light', or
- * 'dark'. 'system' follows prefers-color-scheme live via a matchMedia
- * subscription; the chosen value, never the resolved one, is what goes to
- * storage. Fresh installs write nothing until the user picks, so the OS
- * keeps owning the value. Stored values outside the known sets (hand-edited
- * or stale from an older build) self-heal: the hook falls back to the
- * default and rewrites storage.
- *
- * Accent swatches for the Settings picker come from a static map below,
- * keyed by palette × mode. The previous implementation appended a probe
- * `<div data-palette=…>` and asked `getComputedStyle` for `--accent`, but
- * every palette rule in tokens.css is scoped to `:root[data-palette=…]`, so
- * the probe never matched and all ten swatches resolved to the *active*
- * accent. The probe also mutated the DOM during render and forced layout —
- * unsafe under StrictMode and concurrent rendering.
+ * Theme ownership for the whole app. Paper is the default light mode and
+ * Night is the default dark mode; System is an explicit opt-in. The legacy
+ * palette values normalize to Paper while their existing light/dark choice
+ * is preserved.
  */
 export const PALETTES = [
     {
         id: 'paper',
-        name: 'Aurora Ink',
+        name: 'Paper',
         accents: {
-            light: '#5f4bd8',
-            dark: '#a08dfb',
-            system: 'linear-gradient(135deg, #5f4bd8 0 50%, #a08dfb 50% 100%)',
-        },
-    },
-    {
-        id: 'blue',
-        name: 'Cobalt Haze',
-        accents: {
-            light: '#2f5fe0',
-            dark: '#6f9bff',
-            system: 'linear-gradient(135deg, #2f5fe0 0 50%, #6f9bff 50% 100%)',
-        },
-    },
-    {
-        id: 'sage',
-        name: 'Moss Glow',
-        accents: {
-            light: '#0e8a5c',
-            dark: '#5fd6a4',
-            system: 'linear-gradient(135deg, #0e8a5c 0 50%, #5fd6a4 50% 100%)',
-        },
-    },
-    {
-        id: 'plum',
-        name: 'Violet Dusk',
-        accents: {
-            light: '#7a3ff0',
-            dark: '#c79bff',
-            system: 'linear-gradient(135deg, #7a3ff0 0 50%, #c79bff 50% 100%)',
-        },
-    },
-    {
-        id: 'sand',
-        name: 'Ember Dusk',
-        accents: {
-            light: '#b05e10',
-            dark: '#f0a860',
-            system: 'linear-gradient(135deg, #b05e10 0 50%, #f0a860 50% 100%)',
+            light: '#3a5a78',
+            dark: '#9dbbd6',
+            system: 'linear-gradient(135deg, #3a5a78 0 50%, #9dbbd6 50% 100%)',
         },
     },
 ];
 
 export const MODES = ['system', 'light', 'dark'];
 
+export const THEME_MODE_OPTIONS = [
+    { id: 'light', name: 'Paper', description: 'Warm, quiet light' },
+    { id: 'dark', name: 'Night', description: 'Low-light listening' },
+    { id: 'system', name: 'System', description: 'Follow this device' },
+];
+
+const LEGACY_PALETTES = new Set(['blue', 'sage', 'plum', 'sand']);
+
 export function isKnownPalette(value) {
-    return PALETTES.some((palette) => palette.id === value);
+    return value === 'paper';
 }
 
 export function isKnownMode(value) {
@@ -95,28 +50,30 @@ function readCssVar(name, fallback) {
 }
 
 /**
- * Pure validation used by both the hook and tests: invalid stored values
- * fall back to the defaults and are flagged so storage can be rewritten.
- * `null` means "nothing stored" (use the default WITHOUT persisting).
+ * Pure validation used by both the hook and tests. A legacy palette is
+ * rewritten to Paper, while a fresh install starts in explicit Paper.
  */
 export function resolveStoredTheme(rawPalette, rawMode) {
-    const paletteOk = rawPalette === null || isKnownPalette(rawPalette);
+    const paletteOk = rawPalette === null || rawPalette === 'paper';
     const modeOk = rawMode === null || isKnownMode(rawMode);
+    const paletteRewriteNeeded = rawPalette !== null
+        && (!paletteOk || LEGACY_PALETTES.has(rawPalette) || rawPalette === 'night');
+    let mode = modeOk && rawMode !== null ? rawMode : 'light';
+    if (rawPalette === 'night' && rawMode === null) mode = 'dark';
     return {
-        palette: paletteOk && rawPalette !== null ? rawPalette : 'paper',
-        mode: modeOk && rawMode !== null ? rawMode : 'system',
-        paletteRewriteNeeded: rawPalette !== null && !paletteOk,
+        palette: 'paper',
+        mode,
+        paletteRewriteNeeded,
         modeRewriteNeeded: rawMode !== null && !modeOk,
     };
 }
 
 export function getSwatchColor(palette, mode) {
-    const entry = PALETTES.find((p) => p.id === palette);
-    return entry?.accents?.[mode] || '#5f4bd8';
+    const entry = PALETTES.find((p) => p.id === palette) || PALETTES[0];
+    return entry.accents[mode] || entry.accents.light;
 }
 
 export function useTheme() {
-    // Raw reads run once; legacy colon keys keep working through storage.js.
     const [initial] = useState(() => {
         const rawPalette = readStoredString('bookvoice.palette', {
             legacyKeys: ['bookvoice:palette'],
@@ -132,14 +89,11 @@ export function useTheme() {
     const [mode, setModeState] = useState(initial.mode);
     const [systemDark, setSystemDark] = useState(() => prefersColorSchemeDark());
 
-    // F-35: a corrupt stored value self-heals — storage is rewritten to the
-    // fallback once, at mount.
     useEffect(() => {
         if (initial.paletteRewriteNeeded) writeStoredString('bookvoice.palette', initial.palette);
         if (initial.modeRewriteNeeded) writeStoredString('bookvoice.mode', initial.mode);
     }, [initial]);
 
-    // Follow the OS live while in system mode.
     useEffect(() => {
         if (mode !== 'system' || typeof window.matchMedia !== 'function') return undefined;
         const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -162,21 +116,15 @@ export function useTheme() {
         document.documentElement.dataset.palette = palette;
         document.documentElement.dataset.mode = effectiveMode;
         const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) {
-            meta.setAttribute('content', readCssVar('--bg', '#0d0d17'));
-        }
+        if (meta) meta.setAttribute('content', readCssVar('--bg', '#f7f5f1'));
     }, [palette, effectiveMode]);
 
-    // Persistence is choice-driven, never effect-driven: defaults stay
-    // unwritten so a fresh install keeps following the OS, and only an
-    // explicit set (Settings radio, top-bar toggle) writes a value.
-    const setPalette = (next) => {
-        const safe = isKnownPalette(next) ? next : 'paper';
-        setPaletteState(safe);
-        writeStoredString('bookvoice.palette', safe);
+    const setPalette = (_next) => {
+        setPaletteState('paper');
+        writeStoredString('bookvoice.palette', 'paper');
     };
     const setMode = (next) => {
-        const safe = isKnownMode(next) ? next : 'system';
+        const safe = isKnownMode(next) ? next : 'light';
         setModeState(safe);
         writeStoredString('bookvoice.mode', safe);
     };

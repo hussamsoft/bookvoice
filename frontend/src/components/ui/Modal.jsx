@@ -18,7 +18,7 @@ let modalTitleId = 0;
  * Escape closes, focus returns to whoever opened it, body scroll is locked
  * while open, and the title is wired to aria-labelledby on the dialog.
  */
-export default function Modal({ open, onClose, title, children, actions }) {
+export default function Modal({ open, onClose, title, children, actions, className }) {
     const panelRef = useRef(null);
     const previouslyFocused = useRef(null);
     const onCloseRef = useRef(onClose);
@@ -103,7 +103,7 @@ export default function Modal({ open, onClose, title, children, actions }) {
         >
             <div
                 ref={panelRef}
-                className={`modal-panel${shown ? ' is-shown' : ''}`}
+                className={`modal-panel${shown ? ' is-shown' : ''}${className ? ` ${className}` : ''}`}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={title ? titleId : undefined}

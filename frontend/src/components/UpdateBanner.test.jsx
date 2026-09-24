@@ -33,6 +33,16 @@ describe('UpdateBanner', () => {
         expect(container).toBeEmptyDOMElement();
     });
 
+    it.each([
+        ['unsupported', { supported: false }],
+        ['disabled', { enabled: false }],
+    ])('stays hidden when updates are %s', async (_label, capability) => {
+        getUpdateStatus.mockResolvedValue({ ...base, ...capability });
+        const { container } = render(<UpdateBanner />);
+        await waitFor(() => expect(getUpdateStatus).toHaveBeenCalled());
+        expect(container).toBeEmptyDOMElement();
+    });
+
     it('says nothing when the backend cannot be reached', async () => {
         // An older backend has no /api/updates at all. Surfacing that as an
         // error banner would be worse than surfacing nothing.

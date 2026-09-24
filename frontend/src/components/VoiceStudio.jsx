@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
+import { AudioLines, LayoutGrid, Repeat2, RotateCw, Scissors } from 'lucide-react';
 import {
     cancelStudioJob,
     claimLegacyStudioProjects,
@@ -44,11 +44,15 @@ export default function VoiceStudio() {
     const openProject = useCallback(async (projectId) => {
         if (!projectId) {
             setProject(null);
+            window.dispatchEvent(new CustomEvent('bookvoice:studio-project', { detail: null }));
             return null;
         }
         const opened = await getStudioProject(projectId);
         if (mountedRef.current) {
             setProject(opened);
+            window.dispatchEvent(new CustomEvent('bookvoice:studio-project', {
+                detail: { id: opened.id, name: opened.name || 'Untitled project' },
+            }));
             setWorkflowState(studioSession.getWorkflow(opened.id));
             studioSession.setActiveProjectId(opened.id);
         }
@@ -321,10 +325,12 @@ export default function VoiceStudio() {
                             </p>
                             <div
                                 className={`studio-engine-pill ${modelReady ? 'is-ready' : modelError ? 'is-error' : 'is-loading'}`}
-                                role="status"
+                                role={modelError ? 'button' : 'status'}
                                 aria-live="polite"
+                                tabIndex={modelError ? 0 : undefined}
                                 title={modelError ? `Engine error: ${modelError}. Click to retry.` : (modelStatusDetail || 'Voice AI engine status')}
                                 onClick={modelError ? retryLoad : undefined}
+                                onKeyDown={modelError ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); retryLoad(); } } : undefined}
                                 style={{ alignSelf: 'flex-start', marginTop: 'var(--space-2)' }}
                             >
                                 <span className="studio-engine-dot" aria-hidden="true" />
@@ -340,7 +346,7 @@ export default function VoiceStudio() {
                     </div>
                 ) : <>
                     <header className="studio-project-header">
-                        <div>
+                        <h1 className="studio-project-title-heading">
                             <span className="studio-kicker">Voice Studio project</span>
                             <label className="sr-only" htmlFor="studio-project-title">Project name</label>
                             <input
@@ -354,14 +360,16 @@ export default function VoiceStudio() {
                                 }}
                                 disabled={Boolean(activeJob)}
                             />
-                        </div>
+                        </h1>
                         <div className="studio-project-header-actions">
                             <div
                                 className={`studio-engine-pill ${modelReady ? 'is-ready' : modelError ? 'is-error' : 'is-loading'}`}
-                                role="status"
+                                role={modelError ? 'button' : 'status'}
                                 aria-live="polite"
+                                tabIndex={modelError ? 0 : undefined}
                                 title={modelError ? `Engine error: ${modelError}. Click to retry.` : (modelStatusDetail || 'Voice AI engine status')}
                                 onClick={modelError ? retryLoad : undefined}
+                                onKeyDown={modelError ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); retryLoad(); } } : undefined}
                             >
                                 <span className="studio-engine-dot" aria-hidden="true" />
                                 <span className="studio-engine-text">
@@ -378,6 +386,7 @@ export default function VoiceStudio() {
                                 onClick={() => {
                                     studioSession.setActiveProjectId('');
                                     setProject(null);
+                                    window.dispatchEvent(new CustomEvent('bookvoice:studio-project', { detail: null }));
                                 }}
                                 disabled={Boolean(activeJob)}
                             >

@@ -32,6 +32,7 @@ const api = vi.hoisted(() => ({
     savePreparedPage: vi.fn(),
     updatePreparedProgress: vi.fn(),
     preparedBookSource: vi.fn(),
+    exportCachedAudio: vi.fn(),
     narrateTextStream: vi.fn(),
     cancelGeneration: vi.fn(),
     getTtsStatus: vi.fn(),
@@ -73,6 +74,9 @@ vi.mock('react-pdf', () => ({
 
 const toast = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock('../Toast', () => ({ useToast: () => toast }));
+vi.mock('../VoiceSettings', () => ({
+    default: ({ activeVoiceId }) => <div data-testid="voice-settings-mock">Voice: {activeVoiceId || 'default'}</div>,
+}));
 
 const SEED_BOOK = {
     id: 'book-1',
@@ -90,7 +94,7 @@ const SEED_PDF = {
     updatedAt: 1700000100,
     activeProfileId: 'profile-1',
 };
-const SEED_DOC_ID = `Seed book.txt\0${0}\0${1700000000 * 1000}`;
+const SEED_DOC_ID = 'book-1';
 
 // jsdom has no media backend: give every audio element a working
 // play/pause pair and a "metadata ready" state so the narration paths
@@ -151,6 +155,32 @@ describe('Reader', () => {
         });
         api.getUserConfig.mockResolvedValue({ version: '1.7.0', config: {} });
         api.saveUserConfig.mockResolvedValue({ version: '1.7.0', config: {} });
+    });
+
+    it('shows prepared page export options only while the current page has audio', async () => {
+        const unprepared = render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await findPageText(unprepared.container, /Server page 1 text/);
+        fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+        expect(screen.getByRole('button', { name: 'Download page audio' })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: 'Download this page (WAV)' })).not.toBeInTheDocument();
+        unprepared.unmount();
+
+        api.getPreparedPage.mockResolvedValue({
+            text: 'Prepared page one.',
+            audioUrl: '/audio/page-1.wav',
+            wordTimings: [],
+            audio: { duration: 10 },
+        });
+        const prepared = render(<Reader />);
+        fireEvent.click(await screen.findByRole('button', { name: /Seed book/ }));
+        await findPageText(prepared.container, /Prepared page one\./);
+        fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+        const exportButton = screen.getByRole('button', { name: 'Download page audio' });
+        await waitFor(() => expect(exportButton).toBeEnabled());
+        fireEvent.click(exportButton);
+        expect(screen.getByRole('button', { name: 'Download this page (WAV)' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Download a range (ZIP)' })).toBeInTheDocument();
     });
 
     it('shows the open-a-book empty state with the prepared library', async () => {
@@ -236,13 +266,16 @@ describe('Reader', () => {
         fireEvent.click(trigger);
         const popover = screen.getByRole('group', { name: 'More reader options' });
         expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByLabelText('Narration language')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Prepare whole book' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save .bookvoice file' })).toBeDisabled();
 
         // Open moves focus into the popover.
         expect(popover.contains(document.activeElement)).toBe(true);
 
         // Down/Up cycle between enabled controls, wrapping.
         const focusables = Array.from(
-            popover.querySelectorAll('button:not(:disabled), input:not(:disabled)')
+            popover.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]')
         );
         expect(focusables.length).toBeGreaterThan(1);
         const first = focusables[0];
@@ -566,7 +599,7 @@ describe('Reader', () => {
                 1,
                 null,
                 'en',
-                expect.anything(),
+                expect.objectContaining({ bookId: 'book-1' }),
                 expect.any(AbortSignal),
             );
         });

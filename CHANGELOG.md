@@ -1,3 +1,46 @@
+## 2.8.2 - 2026-09-23
+
+The Vellum & Signal release reconciles the production Reader with the
+capabilities that now ship, and rolls the design system through the app shell,
+Library, Settings, Reader, Scanner, and Voice Studio.
+
+### Added
+
+- Reader supports measured text and PDF word highlighting, Follow narration,
+  and click-to-pronounce when a complete monotonic backend timing map is
+  available. Click pronunciation uses a separate neural clip or OS fallback
+  without interrupting narration.
+- Reader More exports the current prepared page as WAV and inclusive page
+  ranges as STORE-only ZIPs with `manifest.json`, without changing playback
+  position or reading progress.
+- Prepared-library deletion uses an explicit confirmation flow, and hosted
+  deployments expose sign-out from the account surface.
+
+### Changed
+
+- Vellum & Signal now defines the shared shell, Library, Settings, Reader,
+  Scanner, and Voice Studio design system, with contextual Reader and Studio
+  titles and a date-default title for new scan sessions.
+- Scanner translation uses one frontend `{ translatedText }` contract across
+  the API adapter and `TextEditor`.
+- Reader narration forwards the active prepared `book.id`, allowing successful
+  streamed page audio to be promoted into durable prepared-book audio.
+- `UpdateBanner` is mounted app-wide while preserving its support, opt-in,
+  availability, dismissal, and restart-confirmation behavior.
+
+### Packaging
+
+- Refreshed `dist/VERSION`, `dist/release-manifest.json`, and `backend/static/`
+  from this source tree. The complete payload and MSI installers still require
+  a Windows build host with WiX (`tools/wix`) and Windows SDK 10.0.19041; the
+  gitignored `installer/` follow-up is not included in this repository commit.
+
+## Unreleased
+
+### Added
+
+### Fixed
+
 ## 2.8.1 - 2026-09-21
 
 A six-phase audit-driven remediation that finishes the reader the v2.8.0 audit
@@ -5,6 +48,13 @@ flagged as "the least finished surface in the app." 44 findings across six
 phases; every finding closed in a separate commit with a failing-first
 regression test. Plus a build-pipeline fix that had been silently broken
 since `tts_service` was split into a package in 2.4.x (`27d2459`).
+
+### Added
+
+- Reader More now exports the current prepared page as WAV and inclusive
+  prepared-page ranges as STORE-only ZIPs with `manifest.json`. Downloads use
+  the existing cached-audio endpoint and do not overwrite playback or progress.
+
 
 ### Fixed
 
@@ -17,14 +67,7 @@ since `tts_service` was split into a package in 2.4.x (`27d2459`).
   were silently swallowed by `onError={() => {}}`; modal scrim inverted
   (brightened) in dark mode; every palette swatch rendered identically with
   DOM mutation during render; Settings had no top-bar title.
-- **Reader restoration (Phase 2, F-07, F-09, F-12, F-13, F-38):** the Reader
-  regains the scrubber, time, rate, transcript, bookmark jump, and
-  voice/language controls the deleted PdfViewer had, plus `PlaybackControls`
-  mounted in production, grouped toolbar, paragraphs in text books, real
-  consumed loading state, and a "Try again" that actually retries the
-  underlying load. `useWordHighlight`/`pdfHighlight`/`wordPronunciation` stay
-  deferred — they're orphaned hooks waiting on a real audio path that the
-  shipped Reader does not yet have.
+- **Reader interactivity:** measured text and PDF word highlighting, PDF follow-scroll, and click-to-pronounce now ship. Pronunciation uses a separate neural clip or OS fallback without interrupting narration; PDF actions remain gated by complete monotonic timings.
 - **Responsive & touch (Phase 3, F-10, F-16…F-21, F-41):** touch targets
   normalized to 44 px on `pointer: coarse`; `Button` `size` prop is no longer
   inert; `100vh` retired on a phone-targeted app; toast region no longer
@@ -99,10 +142,14 @@ since `tts_service` was split into a package in 2.4.x (`27d2459`).
 
 ### Changed
 
-- **New Reader is the only option.** `?reader=old` is no longer recognized; the legacy `PdfViewer.jsx` and its six sub-components (`ReaderBanners`, `ReaderToolbar`, `ReadingOptionsPanel`, `ResumeDialog`, `TextPageColumn`, `TranscriptColumn`) plus `usePageResume` and `useReaderToolbar` are deleted. Per `PARITY.md` rows 6 and 8, the per-page ZIP export and click-to-pronounce no longer have a fallback reader; both are tracked as follow-ups.
-- **Backend correctness.** TTS `_generate_lock` released per chunk (streaming) and per window (voice conversion) — the previous scope blocked all synthesis, streaming, and pronounce-click work while a long page was narrating. Pronunciation cache filenames include a deployment-scoped HMAC (default-salted from `BOOKVOICE_SECRET_KEY` or `data_dir + version`); the previous SHA-only filename was guessable for any user who knew the prompt content. In-app updater download capped at 1 GiB with per-chunk overflow check. Login throttle no longer falls back to a global "unknown" bucket when a trusted proxy doesn't forward `X-Forwarded-For`; instead it returns `proxy:missing-x-forwarded-for` (operators can opt back into per-peer bucketing with `BOOKVOICE_LOGIN_TRUST_REMOTE_DIRECT=1`).
+- **Reader capability contract.** The production Reader owns real-book opening,
+  page navigation, find-in-book, bookmarks, streamed/prepared narration, the
+  shared transport, contextual voice/language controls, measured text-book
+  highlighting, explicit OCR, progress, and whole-book actions. PDF-stage
+  timing UI remains deferred; see `PARITY.md`.
+- **Backend correctness.** TTS `_generate_lock` was released per chunk (streaming) and per window (voice conversion); the previous scope blocked all synthesis, streaming, and pronunciation requests while a long page was narrating. Pronunciation cache filenames include a deployment-scoped HMAC (default-salted from `BOOKVOICE_SECRET_KEY` or `data_dir + version`); the previous SHA-only filename was guessable for any user who knew the prompt content. In-app updater download is capped at 1 GiB with per-chunk overflow checks. Login throttling no longer falls back to a global "unknown" bucket when a trusted proxy does not forward `X-Forwarded-For`; it returns `proxy:missing-x-forwarded-for` instead.
 - **Linux install.** `--no-install-recommends` for both the initial apt install and the t64 retry. `--host lan` and `--host all` translate to `0.0.0.0` so the systemd unit doesn't fail with "error while attempting to bind on address 'lan'". The t64 retry now also renames `libgl1` to `libgl1t64` (Ubuntu 24.04 compatibility).
-- **Reader sleep timer.** Distinguishes natural page-end from user-initiated stop via a new `naturalEndRef` exposed by `useReaderNarration`. The end-of-chapter sleep arm only fires on natural ends; Stop mid-page no longer ends the sleep timer prematurely.
+- **Reader sleep timer.** Distinguishes natural page-end from user-initiated stop via a new `naturalEndRef` exposed by `useReaderNarration`. The timer only completes on a natural page end, so Stop mid-page does not end it prematurely.
 - **Debounced progress save fixed.** `Reader.jsx:248-269` was a trailing-edge debounce with `transport.currentTime` in its deps; the timer reset on every tick and the save never fired during continuous playback. Replaced with a leading-edge throttle (same pattern as `useReaderProgress.js`).
 - **`useServerPageText.findText` short-circuits on first match.** The previous implementation warmed the entire book before scanning, taking 30+ s for a 500-page cold-cache query even when the match was on page 3. The new implementation scans in wrap-around order and returns the first hit.
 - **Dormant code removed.** `backend/services/remote_execution.py` was entirely dormant (no caller registered an executor, `run_remote_job` had no caller); deleted, with `generation_gateway.dispatch` collapsed to always run locally and the test file rewritten to cover only the local path.
@@ -116,7 +163,7 @@ since `tts_service` was split into a package in 2.4.x (`27d2459`).
 
 ### Known limitations
 
-- **No fallback reader.** The legacy `?reader=old` hatch has been removed; the new Reader is the only option. Users who depended on PdfViewer-specific behaviour (per-page ZIP export, click-to-pronounce, follow-narration auto-scroll, pan/drag when zoomed past viewport) have no fallback reader and those rows are tracked as follow-ups in `PARITY.md`.
+- **Reader capability boundaries.** Click-to-pronounce, per-page WAV/ZIP export, pan/drag, auto-turn, and PDF-stage synchronized word UI remain deferred. Text-book measured highlighting/follow, explicit PDF OCR, contextual voice/language, and Reader/Library book actions are now rendered; see `PARITY.md`.
 - **A11Y audit gate is non-gating in CI.** The `audit_a11y` and `gapless_browser` jobs run with `continue-on-error: true`. Promote to required after two consecutive nightly greens.
 - **`book_library_service.py` not split.** The audit deferred this split because the per-page state machine has tighter coupling than the function map captured. The 1,249-line monolith is unchanged in 2.8.0; tracked as `Phase 1C` in `tasks/todo.md` for 2.9.0.
 - **MSI unsigned.** Both executables ship without code-signing. SmartScreen warning on first install; user-trafficked UAC prompt on machine-scope installs. Real risk, not a formality; tracked since the 2.7.0 release.
@@ -125,6 +172,34 @@ since `tts_service` was split into a package in 2.4.x (`27d2459`).
 ## Unreleased
 
 ### Added
+
+### Fixed
+
+- Scanner translation now has one frontend contract: the API adapter returns
+  `{ translatedText }`, and `TextEditor` applies that value. The translation
+  action discloses that selected text goes to Google Translate while OCR, TTS,
+  and Voice Studio remain local, with no telemetry.
+- The existing update banner is mounted app-wide. It remains silent when
+  updates are unsupported, disabled, unavailable, or already dismissed, and
+  still requires confirmation before closing the app to install.
+- Reader narration forwards the active prepared `book.id`; successful streamed
+  page audio can therefore be promoted into durable prepared-book audio.
+- Prepared-book local progress is keyed by the stable server `book.id`.
+  Browser file fingerprints are used only for local uploads that have no
+  prepared-book identity.
+- Reader More now renders contextual `VoiceSettings`, supported language
+  selection, persistent text-book Follow narration, explicit page OCR, and the
+  shared prepare/archive/M4B actions. PDF text extraction no longer triggers
+  OCR implicitly.
+- Reader consumes only complete monotonic backend word maps for text-book
+  highlighting; malformed or partial timing produces no fabricated highlight.
+  Leaving Reader stops its existing audio element and exposes a disabled Return
+  to book state instead of creating a second transport.
+- Scanner sessions have an editable date-default title used for the exported
+  text import, without changing the existing unsaved-navigation guard.
+- Voice Studio's active project now has a contextual title/h1 and an explicit
+  empty-project start state; the three workflow tabs remain the compact
+  project-level workflow.
 
 - **A full visual redesign — the "Aurora Glass" design system — applied to every version of the app** (browser web UI, the WinUI 3 desktop shell's WebView content, the Electron shell, and the legacy launcher splash). Deep-ink stages carry a soft aurora wash in each palette's two gradient hues; floating chrome (menus, modals, sheets, toasts, fixed transports, dropdowns) is frosted glass (translucent surface + backdrop blur); the five palettes are remastered around the same storage ids with new names — Aurora Ink, Cobalt Haze, Moss Glow, Violet Dusk, Ember Dusk — and a violet/cyan accent pair whose gradient is reserved for decoration (brand wordmark, mode pill, progress fills, glows) so interactive fills stay solid and WCAG-checked. Typography switches to Space Grotesk for display and DM Sans for UI (Literata still renders book text, IBM Plex Mono keys, Noto Naskh Arabic for RTL), corners soften to an 8/12/18 px scale, primary buttons gain a glass top-sheen and accent glow, focus rings gain a soft halo, and the phone titlebar no longer lets the mode switcher overlap the brand (the redundant mode label hides at ≤720 px, the brand text at ≤560 px). A new app icon — a voice rising from an open book on the aurora gradient, with a simplified three-bar variant for the tiny tray/favicon sizes — replaces the old mark everywhere via a reproducible generator (`scripts/tools/make_icon_set.py` writes the root/exe/splash `.ico` set, the web PNG, and the vector `favicon.svg`, which the web app now links).
 - **The dynamic port is now sticky, and every entry point can publish where it is.** The server reuses the port it last came up ready on and only scans 8000-8020 when that port is genuinely taken (pinned ports still never fall back), so bookmarked phone URLs and tunnel routing survive restarts; the port is remembered only after a successful readiness check and re-recorded if a scan has to move. `serve_bookvoice.py` writes `DATA_DIR/server-access.json` when ready, and a new `GET /api/server/addresses` serves it, so a **Settings → Open on another device** card can list the LAN URLs and the tunnel address with copy buttons. Verified live: pinned → sticky reuse → busy-port scan each leave the system consistent, and a real `*.trycloudflare.com` quick tunnel served `/api/health` end-to-end.
@@ -135,9 +210,9 @@ since `tts_service` was split into a package in 2.4.x (`27d2459`).
 - **`Start-BookVoice-Server.bat` for phone and tablet reading.** Serves the app on the computer's LAN address without any window and prints the URLs to open on another device, with the no-password exposure warning. Stopping it (Ctrl+C or closing the console) stops the server.
 - **A Linux server scaffold** under `deploy/linux/`: `install.sh` (distro checks, system packages, timestamped `releases/` layout with a `backend` symlink, CPU or CUDA venv, env-file rendering, a hardened systemd unit, and a `/api/health` smoke check), `update.sh` (new release, health-gated auto-rollback, old-release pruning), env and unit templates (the unit expands `${BOOKVOICE_HOST}`/`${BOOKVOICE_PORT}` from the env file at restart), and a CPU Dockerfile + compose file (verified to build). `deploy/linux.md` now leads with the scaffold and keeps the manual path below it; the backend itself needed no Linux compatibility changes.
 - **Mobile-web polish from a standards-driven UI review** (WCAG 2.2, Apple HIG / Material touch-target sizes, WebKit input behavior): buttons, the Read/Scan/Studio segments, and form fields now meet a 44 px minimum on touch devices (`pointer: coarse`) while desktop pointer density is unchanged; field fonts are 16 px on touch so iOS Safari stops zooming the viewport on focus; and the reader toolbar wraps into stacked rows at reading widths ≤720 px instead of clipping its zoom/fit controls past the container edge where they could not be tapped. Verified by measured audits — no contrast violations (WCAG 1.4.3), no horizontal overflow at 320 px (1.4.10), and every control inside the viewport after the toolbar fix.
-- **Stage A of the reader rewrite, previewable behind `?reader=new`.** A new `Reader` composition root wires nine focused hooks — page lifecycle (browse vs. load with race-cancel), audio transport, zoom, wrap-around search, bookmarks, resume choice, throttled progress autosave, prepared-book library, and the reader keyboard set — with `TextStage` rendering text pages. The production `PdfViewer` stays the default reader (including for `?reader=old`); flipping the default is a separate, later decision.
-- **The new reader narrates pages** (A.8.2). `Read` becomes a real transport: Play/Pause, Stop, ±10 s skip, and mute (M), with Space and ←/→ wired through the reader keyboard set. Pages narrate through the streaming endpoint with gapless chunk advance and a page-audio cache; the canonical full-page WAV is promoted at the current position when synthesis completes, so duration and seeking become exact. Prepared page audio (from a preparation profile) plays directly without regenerating. Loading a page for narration cancels in-flight generation (client abort + server cancel), browsing keeps the current audio playing, and closing or swapping books stops playback and drops the cache. The saved reading position arms a one-shot resume: when the restored page's audio is prepared or cached, the playhead parks at the saved time, paused. Playback surfaces through `data-transport-state` (`idle | buffering | playing | paused | stopped`) and generation shows a status line. Voice narrates with the server default (a picker is the next slice); word highlighting and pause-pronunciation are deferred, with cache entries carrying estimate timings so the highlighting slice can fill them in.
-- **The new reader now opens real books** (A.8.1). A file input and the prepared-book library cover the open paths: PDFs render through react-pdf in `PdfStage` (bundled worker, text layer on, fit-to-viewport width with CSS-zoom), text books (.epub/.txt/.md) stream their pages from the library manifest, and freshly extracted PDF pages are written back with `savePreparedPage` so the library stays authoritative. Reading progress is keyed by the document fingerprint and restored on re-open — locally through the autosave hook and server-side through `updatePreparedProgress` for library books. Find-in-book reuses the production scans (PDF text-layer extraction, or the warmed server pages with bounded concurrency). Page navigation, search-jump, and the resume dialog work against real page counts.
+- **Reader composition root.** `Reader` wires focused page-lifecycle, audio-transport, zoom, search, bookmarks, progress, prepared-library, configuration, and keyboard hooks, with `TextStage` for text-book pages and `PdfStage` for PDFs.
+- **Reader page narration and contextual options.** `PlaybackControls` provides play/pause, stop, seek, time, speed, and sleep controls. More now exposes persisted voice/language selection, measured text-book highlighting/follow preference, explicit PDF OCR, and the same whole-book actions as Library. PdfStage does not yet consume measured word timing; click-to-pronounce remains deferred.
+- **Reader opens real books.** A file input and prepared-library rows cover PDF, EPUB, TXT, MD, and `.bookvoice` books; text-book pages come from the library manifest and extracted PDF pages are written back with `savePreparedPage`. Prepared books use their stable server `book.id` for local progress; only local uploads use a file fingerprint. Server-side progress keeps Library continue-reading current.
 - A **keyboard-shortcuts sheet** for the whole app, opened with `?` from any mode, documenting the reader key set: Space, ←/→, PageUp/PageDown, Home/End, Ctrl/Cmd+[ and ], F, B, M.
 - The mode switcher now lives in the title bar as an ARIA tablist with roving tabindex, replacing the separate switcher band; each segment carries its hint as a native tooltip.
 
@@ -630,7 +705,7 @@ found, not a refactor.
 ### Fixed
 
 - PDF interaction now uses true pointer-captured grab-and-drag panning. The mouse wheel scrolls normally; Ctrl+wheel zooms.
-- PDF word highlighting is rebound after final aligned narration timings arrive, restoring synchronized highlighting in both the PDF text layer and transcript.
+- Historical pre-2.8 releases exposed aligned PDF/transcript highlighting. The current production Reader does not wire aligned narration timing into its rendered text/PDF stages; that capability remains timing-dependent in `PARITY.md`.
 - Whole-book preparation preserves every completed page across cancellation or restart and never promotes partial or corrupt WAV files.
 - Narration waits for the completed canonical audio and final alignment map before playback, so the displayed generation state and highlighting cannot lag behind early chunk playback.
 
@@ -676,7 +751,7 @@ found, not a refactor.
 ### Changed
 
 - The desktop UI now opens as soon as the backend health check succeeds; model warming no longer blocks library browsing or cached playback.
-- The app now fills the window with no page-level scrolling: the title bar and mode tabs are fixed rows, the reading stage claims the rest, and only the PDF page and follow-along transcript scroll. The window's minimum size (1024×700) is pinned to the smallest size at which the side-by-side reader fits without squishing.
+- Historical desktop releases used a side-by-side PDF and follow-along transcript. The current production Reader renders `PdfStage` or `TextStage` as a single reading surface; transcript and follow-scroll UI are not current capabilities.
 
 ## 1.10.1 - 2026-07-10
 
@@ -727,7 +802,7 @@ found, not a refactor.
 
 ### Changed
 
-- Moved the PDF control dock below the PDF and follow-along transcript.
+- Historical pre-2.8 releases placed the PDF control dock below a side-by-side transcript. The current Reader renders its controls above a single PDF or text stage.
 - Split PDF, camera, and settings code into on-demand bundles, reducing the initial entry (JavaScript plus CSS) from about 672 kB to 213 kB, well under the 350 kB budget.
 - Limited speculative narration to one adjacent page and made stale prefetch results cancellable.
 - Reused the PDF.js document proxy instead of parsing each PDF twice.

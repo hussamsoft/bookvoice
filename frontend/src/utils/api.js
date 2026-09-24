@@ -138,7 +138,7 @@ export async function translateText(text, targetLang) {
     }
 
     const data = await response.json();
-    return data.translated_text;
+    return { translatedText: data.translated_text };
 }
 
 /** Export the inclusive range of already-generated full-page audio for a session. */
@@ -340,6 +340,16 @@ export async function getPreparedBook(bookId) {
     const response = await fetch(`${API_BASE_URL}/books/${encodeURIComponent(bookId)}`);
     if (!response.ok) throw new Error('Could not load the prepared-book manifest.');
     return response.json();
+}
+
+export async function deletePreparedBook(bookId) {
+    const response = await fetch(`${API_BASE_URL}/books/${encodeURIComponent(bookId)}`, {
+        method: 'DELETE',
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(error, 'Could not delete the book.'));
+    }
 }
 
 /**
@@ -590,6 +600,14 @@ export async function signIn(password) {
         throw new Error(detailMessage(errorData, 'That password is not correct.'));
     }
     return response.json();
+}
+
+export async function signOut() {
+    const response = await fetch(`${API_BASE_URL}/access/`, { method: 'DELETE' });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(detailMessage(errorData, 'Could not sign out.'));
+    }
 }
 
 export function createStudioConversion(projectId, input) {

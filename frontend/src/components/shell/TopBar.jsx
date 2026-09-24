@@ -4,7 +4,7 @@ import { Moon, Sun } from 'lucide-react';
  * Slim top bar over the workspace: where you are, one honest engine status,
  * and the quick theme toggle. Everything else lives in the Settings view.
  */
-export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
+export default function TopBar({ title, engineStatus, theme, onThemeToggle, returnToBookDisabled = false }) {
     // F-35: the icon/label track the mode actually showing (effective),
     // not the stored choice — which may be 'system'.
     const dark = theme.effectiveMode === 'dark';
@@ -28,6 +28,16 @@ export default function TopBar({ title, engineStatus, theme, onThemeToggle }) {
                         <span className="engine-chip-detail">{engineStatus.detail}</span>
                     ) : null}
                 </span>
+                {returnToBookDisabled && (
+                    <button
+                        type="button"
+                        className="btn text btn-compact topbar-return-book"
+                        disabled
+                        title="Playback stops when you leave Reader. Reopen the book to listen."
+                    >
+                        Return to book
+                    </button>
+                )}
                 <button
                     type="button"
                     className="icon-btn theme-toggle"

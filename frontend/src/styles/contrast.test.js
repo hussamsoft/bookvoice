@@ -36,9 +36,8 @@ function mix(fg, bg, pct) {
         .join('');
 }
 
-// Pull the hex tokens out of each `:root[data-palette=…][data-mode=…]` block.
-// The very first block (`:root, :root[data-palette="paper"][data-mode="light"]`)
-// is the paper/light block.
+// Pull the hex tokens out of each first-class Paper/Night block.
+// Legacy palette ids intentionally share these semantic values.
 function palettes() {
     const out = [];
     const re = /:root[^{]*data-palette="(\w+)"[^{]*data-mode="(\w+)"[^{]*\{([^}]*)\}/g;
@@ -54,8 +53,9 @@ function palettes() {
 
 describe('WCAG AA contrast for semantic text pairs (F-22)', () => {
     const all = palettes();
-    it('found all five palettes in both modes', () => {
-        expect(all.length).toBe(10);
+    it('finds Paper and Night in both modes', () => {
+        expect(all).toHaveLength(2);
+        expect(new Set(all.map(({ mode }) => mode))).toEqual(new Set(['light', 'dark']));
     });
 
     for (const { palette, mode, vars } of all) {

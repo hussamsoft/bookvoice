@@ -6,6 +6,7 @@ import {
   createBookAudiobook,
   createStudioNarration,
   createStudioProject,
+  deletePreparedBook,
   exportCachedAudio,
   getBookAudiobook,
   getBookPage,
@@ -14,6 +15,8 @@ import {
   narrateTextStream,
   openStudioProjectFolder,
   pronounceText,
+  signOut,
+  translateText,
   uploadStudioSource,
   waitForStudioJob,
 } from './api';
@@ -42,6 +45,19 @@ describe('pronounceText', () => {
   });
 });
 
+describe('translateText', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns the scanner translation as translatedText', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ translated_text: 'مرحبا' }),
+    })));
+
+    await expect(translateText('Hello', 'ar')).resolves.toEqual({ translatedText: 'مرحبا' });
+  });
+});
+
 describe('narrateTextStream', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -54,6 +70,7 @@ describe('narrateTextStream', () => {
         controller.close();
       },
     });
+
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, body })));
     const onChunk = vi.fn(async () => {});
 
@@ -70,6 +87,21 @@ describe('narrateTextStream', () => {
     await narrateTextStream('text', 'session-1', 1, null, 'en', { requestId: 'request_1' });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).request_id).toBe('request_1');
+  });
+});
+
+describe('signOut', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('deletes the access session without requiring a response body', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(signOut()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/access\/$/),
+      { method: 'DELETE' },
+    );
   });
 });
 
@@ -107,6 +139,22 @@ describe('getPreparedBook', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/books\/book$/));
     expect(result.pageHashes).toEqual({ '1.json': 'hash' });
+  });
+});
+
+describe('deletePreparedBook', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('deletes an encoded prepared-book id', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await deletePreparedBook('book/one');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/books\/book%2Fone$/),
+      { method: 'DELETE' },
+    );
   });
 });
 

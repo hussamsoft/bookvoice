@@ -248,6 +248,38 @@ export function timesFromWordTimings(wordTimings, pageText) {
 }
 
 /**
+ * Accept only a complete, monotonic backend timing map. This deliberately
+ * does not interpolate or infer missing anchors: Reader must never fabricate
+ * a highlight position when the response is partial or malformed.
+ */
+export function strictWordTimings(wordTimings, pageText) {
+    const words = String(pageText || '').split(/\s+/).filter(Boolean);
+    if (!words.length || !Array.isArray(wordTimings) || wordTimings.length !== words.length) {
+        return { times: [], ends: [] };
+    }
+    const normalize = (value) => String(value || '').replace(/[^\w\u0600-\u06FF']/g, '').toLowerCase();
+    const times = [];
+    const ends = [];
+    let previousStart = -Infinity;
+    let previousEnd = -Infinity;
+    for (let index = 0; index < words.length; index += 1) {
+        const item = wordTimings[index];
+        if (normalize(item?.word) !== normalize(words[index])) return { times: [], ends: [] };
+        const start = Number(item?.start_s ?? item?.start);
+        const end = Number(item?.end_s ?? item?.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end)
+            || start < 0 || end < start || start < previousStart || end < previousEnd) {
+            return { times: [], ends: [] };
+        }
+        times.push(start);
+        ends.push(end);
+        previousStart = start;
+        previousEnd = end;
+    }
+    return { times, ends };
+}
+
+/**
  * Binary-search word index for a given audio time.
  * lagMs: negative delays the highlight to compensate for output latency.
  * Measured end times clear the highlight during real pauses.

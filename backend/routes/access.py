@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -85,8 +85,14 @@ async def destroy_session(response: Response):
     return {"authRequired": access_service.auth_required(), "authenticated": False}
 
 @router.delete("/all")
-async def destroy_all_sessions(response: Response):
+async def destroy_all_sessions(request: Request, response: Response):
     """Log out every browser holding a session, including this one."""
+    token = request.cookies.get(access_service.COOKIE_NAME)
+    if access_service.auth_required() and not access_service.is_valid_session(token):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "AUTH_REQUIRED", "message": "Sign in to continue."},
+        )
     access_service.revoke_all_sessions()
     response.delete_cookie(access_service.COOKIE_NAME, path="/")
     return {"authRequired": access_service.auth_required(), "authenticated": False}

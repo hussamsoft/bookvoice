@@ -62,8 +62,13 @@ export default function HomeView({ lastBookId, onOpenBook, onNavigate, onError }
                 <section className="home-section" aria-labelledby="home-continue-heading">
                     <h2 className="home-section-heading" id="home-continue-heading">Continue reading</h2>
                     <div className="home-continue-list">
-                        {continueBooks.map((book) => (
-                            <PreparedBookRow key={book.id} book={book} onOpen={onOpenBook} />
+                        {continueBooks.map((book, index) => (
+                            <PreparedBookRow
+                                key={book.id}
+                                book={book}
+                                onOpen={onOpenBook}
+                                featured={index === 0}
+                            />
                         ))}
                     </div>
                 </section>

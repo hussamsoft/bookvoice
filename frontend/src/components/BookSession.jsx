@@ -22,6 +22,10 @@ const STEP_LABELS = {
     playback: 'Listen',
 };
 
+function defaultScanTitle() {
+    return `Scanned pages ${new Date().toISOString().slice(0, 10)}`;
+}
+
 export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
     const toast = useToast();
     const [isNarratingUi, setIsNarratingUi] = useState(false);
@@ -36,6 +40,7 @@ export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
     const [currentText, setCurrentText] = useState('');
     const [activeVoiceId, setActiveVoiceId] = useState(null);
     const [targetLanguage, setTargetLanguage] = useState('en');
+    const [sessionTitle, setSessionTitle] = useState(defaultScanTitle);
     const epochRef = useRef(epoch);
     useEffect(() => { epochRef.current = epoch; }, [epoch]);
 
@@ -173,11 +178,11 @@ export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
         if (!text) return;
         setIsSaving(true);
         try {
-            // F-44: date-only titles collided for every session on the same
-            // day; the stamp now carries the time (filesystem-safe).
-            const stamp = new Date().toISOString().replace('T', '-').slice(0, 16).replace(':', '');
-            const title = `Scanned pages ${stamp}`;
-            const file = new File([text], `${title}.txt`, { type: 'text/plain' });
+            const safeTitle = (sessionTitle.trim() || defaultScanTitle())
+                .replace(/[\\/:*?"<>|]/g, '-')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const file = new File([text], `${safeTitle}.txt`, { type: 'text/plain' });
             const book = await importPreparedBook(file);
             toast.success('Saved to your Library.');
             // F-34: a successful save makes the "unsaved work" guard a lie —
@@ -218,6 +223,15 @@ export default function BookSession({ epoch, onDirty, onSaved, onOpenBook }) {
                     {/* F-24: this is the scan view's document heading. */}
                     <h1>Scan pages</h1>
                     <div className="header-top-actions">
+                        <label className="scan-session-title">
+                            <span className="sr-only">Scan session title</span>
+                            <input
+                                value={sessionTitle}
+                                onChange={(event) => setSessionTitle(event.target.value)}
+                                maxLength={120}
+                                placeholder="Name this scan"
+                            />
+                        </label>
                         <span className="page-indicator">Page {currentPageIndex + 1}</span>
                         {pages.length > 0 && (
                             <Button

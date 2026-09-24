@@ -13,18 +13,56 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-
+import {
+    applyWordHighlight,
+    buildWordSpanMap,
+    splitTextLayerWordRuns,
+} from '../../utils/pdfHighlight';
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export default function PdfStage({
     file,
     pageNumber,
+    pageText = '',
     displayZoom,
+    currentWord = -1,
+    hasMeasuredTimings = false,
+    onWordActivate,
     onDocumentLoad,
     onDocumentError,
 }) {
-    const scrollRef = useRef(null);
     const [pageWidth, setPageWidth] = useState(null);
+    const scrollRef = useRef(null);
+    const textLayerRef = useRef(null);
+    const wordSpanMapRef = useRef([]);
+    const previousHighlightRef = useRef(null);
+    useEffect(() => {
+        const root = textLayerRef.current;
+        const textLayer = root?.querySelector('.react-pdf__Page__textContent') || root;
+        if (!textLayer) return;
+        previousHighlightRef.current = null;
+        wordSpanMapRef.current = [];
+        if (!hasMeasuredTimings || !pageText) return;
+        splitTextLayerWordRuns(textLayer);
+        wordSpanMapRef.current = buildWordSpanMap(pageText.split(/\s+/).filter(Boolean), textLayer);
+        wordSpanMapRef.current.forEach((span, index) => {
+            if (span) span.dataset.wordIndex = String(index);
+        });
+    }, [pageNumber, pageText, hasMeasuredTimings]);
+
+    useEffect(() => {
+        const root = textLayerRef.current;
+        const textLayer = root?.querySelector('.react-pdf__Page__textContent') || root;
+        if (textLayer && hasMeasuredTimings) {
+            applyWordHighlight(textLayer, wordSpanMapRef.current, currentWord, previousHighlightRef);
+        }
+    }, [currentWord, hasMeasuredTimings]);
+
+    const activateWord = (event) => {
+        const target = event.target.closest?.('.pdf-word-fragment');
+        if (!target || !hasMeasuredTimings) return;
+        onWordActivate?.(target.textContent, Number(target.dataset.wordIndex));
+    };
 
     // Fit the page to the viewport width; the CSS `zoom` on the wrapper
     // then scales that fit width up or down — the same split that lets
@@ -35,10 +73,7 @@ export default function PdfStage({
         if (!el) return undefined;
         const measure = () => setPageWidth(Math.floor(el.clientWidth) || null);
         measure();
-        // ResizeObserver may not exist in jsdom tests.
         if (typeof ResizeObserver === 'undefined') return undefined;
-        // F-44: coalesce resize bursts into one setState per frame — dragging
-        // a window edge used to re-render the whole PDF page per observation.
         let frame = 0;
         const observer = new ResizeObserver(() => {
             cancelAnimationFrame(frame);
@@ -65,14 +100,26 @@ export default function PdfStage({
                     )}
                 >
                     <div className="pdf-page-wrapper pdf-page-current" style={{ zoom: displayZoom }}>
-                        <Page
-                            pageNumber={pageNumber}
-                            width={pageWidth || undefined}
-                            renderAnnotationLayer={false}
-                            renderTextLayer={true}
-                            className="pdf-page-fit"
-                            loading={<div className="skeleton skeleton--block skeleton--page" />}
-                        />
+                        <div
+                            ref={textLayerRef}
+                            className="react-pdf__Page__textContent"
+                            onClick={activateWord}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    activateWord(event);
+                                }
+                            }}
+                        >
+                            <Page
+                                pageNumber={pageNumber}
+                                width={pageWidth || undefined}
+                                renderAnnotationLayer={false}
+                                renderTextLayer={true}
+                                className="pdf-page-fit"
+                                loading={<div className="skeleton skeleton--block skeleton--page" />}
+                            />
+                        </div>
                     </div>
                 </Document>
             ) : (

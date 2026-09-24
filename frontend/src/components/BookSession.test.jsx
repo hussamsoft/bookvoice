@@ -131,6 +131,7 @@ describe('BookSession scan wizard', () => {
         expect(await screen.findByTestId('editor-text')).toHaveTextContent('raw page text');
 
         // Save as text only: back to capture with a page in the bank.
+        fireEvent.change(screen.getByLabelText('Scan session title'), { target: { value: 'Evening notes' } });
         fireEvent.click(screen.getByRole('button', { name: 'mock-save-text' }));
         expect(await screen.findByRole('button', { name: 'mock-capture' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Page 1' })).toBeInTheDocument();
@@ -142,9 +143,8 @@ describe('BookSession scan wizard', () => {
         ));
         expect(importMock).toHaveBeenCalledTimes(1);
         const [file] = importMock.mock.calls[0];
-        // F-44 supersedes the date-only title: same-day sessions collided,
-        // so the name now carries a filesystem-safe hour+minute stamp.
-        expect(file.name).toMatch(/^Scanned pages \d{4}-\d{2}-\d{2}-\d{4}\.txt$/);
+        // The editable session title is used for the exported file name.
+        expect(file.name).toBe('Evening notes.txt');
         expect(await file.text()).toContain('captured page text');
     });
 

@@ -39,8 +39,8 @@ export function preparedPageAudioEntry({
     languageId,
 }) {
     if (!prepared?.audioUrl) return null;
-    const timings = (Array.isArray(prepared.wordTimings) ? prepared.wordTimings : [])
-        .filter((item) => String(item?.word || '').trim());
+    const rawTimings = Array.isArray(prepared.wordTimings) ? prepared.wordTimings : [];
+    const timings = rawTimings.filter((item) => String(item?.word || '').trim());
     const words = timings.map((item) => String(item.word).trim());
     const times = timings.map((item) => Number(item.start_s) || 0);
     const ends = timings.map((item) => Number(item.end_s) || 0);
@@ -51,6 +51,7 @@ export function preparedPageAudioEntry({
         languageId: languageId || 'en',
         text,
         audioUrl: prepared.audioUrl,
+        wordTimings: rawTimings,
         segments: [],
         duration_s: Number(prepared.audio?.duration) || 0,
         words: words.length ? words : String(text || '').split(/\s+/).filter(Boolean),

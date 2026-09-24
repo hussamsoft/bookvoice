@@ -115,6 +115,7 @@ class AccessServiceTests(unittest.TestCase):
             self.assertTrue(access_service.requires_session("/api/studio/projects"))
             self.assertTrue(access_service.requires_session("/api/voices/"))
             self.assertTrue(access_service.requires_session("/sessions/studio-x/audio.wav"))
+            self.assertTrue(access_service.requires_session("/api/access/all"))
             # The gate itself and the launcher's readiness probe stay reachable,
             # or there would be no way to sign in and no way to start.
             self.assertFalse(access_service.requires_session("/api/access/"))
@@ -216,6 +217,26 @@ class AccessRouteTests(unittest.TestCase):
         with patch.dict(os.environ, _clear_env()):
             state = self.client.get("/api/access/").json()
         self.assertEqual(state, {"authRequired": False, "authenticated": True})
+
+    def test_destroy_all_sessions_requires_authentication(self):
+        with patch.dict(
+            os.environ,
+            {"BOOKVOICE_ACCESS_PASSWORD": PASSWORD, "BOOKVOICE_COOKIE_SECURE": "0"},
+        ):
+            # Unauthenticated attempt is rejected with 401
+            unauthenticated = self.client.delete("/api/access/all")
+            self.assertEqual(unauthenticated.status_code, 401)
+            self.assertEqual(unauthenticated.json()["detail"]["code"], "AUTH_REQUIRED")
+
+            # Sign in first
+            self.client.post("/api/access/", json={"password": PASSWORD})
+            self.assertTrue(self.client.get("/api/access/").json()["authenticated"])
+
+            # Authenticated attempt succeeds
+            authenticated = self.client.delete("/api/access/all")
+            self.assertEqual(authenticated.status_code, 200)
+            self.assertFalse(authenticated.json()["authenticated"])
+            self.assertFalse(self.client.get("/api/access/").json()["authenticated"])
 
 
 if __name__ == "__main__":

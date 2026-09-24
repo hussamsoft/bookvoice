@@ -108,6 +108,9 @@ export default function TextEditor({
                     </button>
                 )}
             </div>
+            <p className="translation-privacy hint">
+                Selected text is sent to Google Translate. OCR, TTS, and Voice Studio remain local. No telemetry.
+            </p>
 
             <p className="hint">
                 Fix any OCR mistakes before narrating. Narration language:{' '}

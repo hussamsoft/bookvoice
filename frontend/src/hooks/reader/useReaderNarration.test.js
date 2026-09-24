@@ -24,12 +24,14 @@ vi.mock('../../utils/playlistController', () => ({
 }));
 
 import { useReaderNarration } from './useReaderNarration';
+import { narrateTextStream } from '../../utils/api';
 
 function makeAudioElement() {
     const listeners = new Map();
     const audio = {
         src: '',
         paused: true,
+        readyState: 1,
         currentTime: 0,
         duration: 0,
         volume: 1,
@@ -79,6 +81,8 @@ function makeArgs(overrides = {}) {
 describe('useReaderNarration naturalEndRef', () => {
     beforeEach(() => {
         vi.useFakeTimers();
+        vi.clearAllMocks();
+        narrateTextStream.mockReturnValue(new Promise(() => {}));
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -102,5 +106,51 @@ describe('useReaderNarration naturalEndRef', () => {
             result.current.stopPlayback();
         });
         expect(result.current.naturalEndRef.current).toBe(false);
+    });
+
+    it('sends the active prepared-book id when generating narration', () => {
+        const { result } = renderHook(() => useReaderNarration(makeArgs({ bookId: 'book-7' })));
+
+        act(() => {
+            void result.current.startForLoadedPage(3, 'Page text', null, { autoplay: true });
+        });
+
+        expect(narrateTextStream).toHaveBeenCalledWith(
+            'Page text',
+            'reader-1',
+            3,
+            null,
+            'en',
+            expect.objectContaining({ bookId: 'book-7' }),
+            expect.any(AbortSignal),
+        );
+    });
+
+    it('exposes a word only for a complete monotonic backend timing map', async () => {
+        narrateTextStream.mockImplementation(async (_text, _session, _page, _voice, _language, options) => {
+            await options.onChunk({
+                type: 'done',
+                audio_url: '/sessions/reader/full.wav',
+                segments: [],
+                duration_s: 1,
+                word_timings: [
+                    { word: 'Hello', start_s: 0, end_s: 0.4 },
+                    { word: 'world', start_s: 0.5, end_s: 0.9 },
+                ],
+            });
+            return { type: 'done' };
+        });
+        const args = makeArgs({ bookId: 'book-7' });
+        const { result } = renderHook(() => useReaderNarration(args));
+        await act(async () => {
+            await result.current.startForLoadedPage(1, 'Hello world', null, { autoplay: true });
+        });
+
+        const audio = args.audioRef.current;
+        act(() => {
+            audio.currentTime = 0.6;
+            audio.dispatch('timeupdate');
+        });
+        expect(result.current.currentWord).toBe(1);
     });
 });

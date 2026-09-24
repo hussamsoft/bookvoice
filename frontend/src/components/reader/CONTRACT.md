@@ -1,225 +1,130 @@
-# Reader — public contract
+# Reader — current public contract
 
-> **Status — Phase 0.1 of `tasks/plan-bookvoice-improvements.md`.**
-> This document is the source of truth for what `Reader` exposes, what its
-> callers (`App.jsx`, tests) can rely on, and what gaps must close before
-> slice 0.5 deletes `PdfViewer.jsx`.
->
-> **Superseded note (2.8.1, F-37).** `PdfViewer.jsx` was deleted in the
-> 2.7.x migration — every `PdfViewer` mention below is historical
-> ("the pre-migration viewer"), and two rows have since changed: the
-> `?book=` deep link now toasts when the id matches no library book
-> (F-39), and `useUserConfig` is consumed by the Reader and shared
-> app-wide through `UserConfigProvider` (F-33).
+`Reader` is the production reading surface. It is mounted as a lazy component by
+`App.jsx`; there is no alternate reader mode or query-parameter switch.
 
-## 1. Export shape
+## Capability status
+
+| Status | Capability | Current contract |
+|---|---|---|
+| **Supported now** | Open books | `Choose a book file` accepts PDF, EPUB, TXT, MD, and `.bookvoice`; prepared-library rows open the same books. `?book=<id>` auto-opens a matching prepared book. |
+| **Supported now** | Navigate, find, and contextual options | The toolbar renders bookmark, Previous, Next, page jump, and More. More contains mute, zoom out/in, Fit, find-in-book, bookmark jumps, `VoiceSettings`, supported English/Arabic language selection, Follow narration, explicit PDF OCR, and book actions. |
+| **Supported now** | Narration transport | `PlaybackControls` renders play/pause, stop, seek, elapsed/remaining time, playback speed, and sleep-timer presets. Pages use streamed TTS and prepared page audio when available. |
+| **Supported now** | Reading state | Page, time, zoom, speed, and bookmarks persist locally. Prepared books use the stable server `book.id`; server-side progress mirrors to the Library. |
+| **Supported now** | Whole-book actions | Reader and Library both use `useBookActions` to prepare a book, save `.bookvoice`, and export `.m4b`. |
+| **Supported now, measured only** | Word state and highlighting | `useReaderNarration` exposes a current word only for a complete monotonic timing map. `TextStage` and `PdfStage` highlight measured words; PDF spans rebind after page changes. |
+| **Supported now, explicit action** | Scanned-PDF OCR | Reader extracts the embedded text layer without implicit OCR. More exposes **Run OCR for this page**, which uses the existing `usePdfDocument`/OCR path and persists the result when a book id exists. |
+| **Supported now, no second transport** | Leaving Reader | Reader's existing playback stops on unmount; other views show a disabled **Return to book** state instead of a second audio state machine. |
+| **Supported now, measured-only for PDF** | Click-to-pronounce | Text words are buttons activated by click, Enter, or Space. Neural pronunciation runs alongside narration; the OS voice is the fallback. PDF text-layer activation requires measured timings. |
+| **Supported now** | Per-page WAV/ZIP export | `ReaderPageExport` uses `exportCachedAudio` for the current prepared page and `pageAudioZip.js` for inclusive-range STORE-only ZIPs with `manifest.json`. It downloads through anchor elements and never overwrites narration transport or reading progress. |
+| **Intentionally deferred** | Pan/drag and auto-turn | Reader supports zoom/fit and page controls, not drag-to-pan or automatic page turn. |
+| **Supported now, measured only** | Follow-narration auto-scroll | The persistent checkbox follows the measured active word in both stages; PDF is disabled with an explanation when the current page lacks timings. |
+
+## Export and mount shape
 
 ```text
 export default function Reader(): JSX.Element
 ```
 
-The component takes **no props today**. Callers mount it as a lazy chunk:
+`Reader` takes no props. `App.jsx` mounts it without a prop contract:
 
 ```jsx
 const Reader = lazy(() => import('./components/reader/Reader'));
-…
 <Reader key={`reader-${readerEpoch}`} />
 ```
 
-The `key` is the only thing `App.jsx` ever changes; bumping `readerEpoch`
-unconditionally remounts the component (used when the user opens a new book
-or re-enters the reader from elsewhere).
+Changing `readerEpoch` remounts the surface when a book is opened.
 
-## 2. Lifecycle contract
+## Lifecycle contract
 
-| Phase | Side effect | Caller-visible? |
+| Phase | Side effect | Caller-visible result |
 |---|---|---|
-| Mount | Reads `listPreparedBooks()` once via `usePreparedLibrary` and renders the empty state (file input + library rows). | Yes — library rows appear async. |
-| Mount | Generates a `sessionId` via `createSessionId('reader')`. The session id is passed into `useReaderNarration` and travels through every narration request for cancel/by-key purposes. | Indirect — appears in network requests. |
-| User selects a file | `handleFileChange` (PDF/archive imports through `importPreparedBook`; archives auto-open via `openLibraryBook`). | Yes — file input clears, status hint flashes. |
-| User opens a library book | `openLibraryBook` resolves the prepared source and calls `activateBook`. | Yes — page 1 of the book appears (or saved page). |
-| Activation | `activateBook` resets `pdfDocument`, clears `serverPages`, calls `narration.resetForNewBook`, hydrates `bookmarks`/`zoom`/`playbackRate` from `loadReadingProgress(documentId)`. | Yes — toolbar reflects saved state. |
-| Page change (browse) | `lifecycle.browsePage` resolves content without auto-playing; updates URL is **not** touched. | Visible only as page text + counter. |
-| Page change (load) | `lifecycle.loadPage` calls `onContent`, which sets `pageText`, fires `narration.startForLoadedPage` (autoplay by default), and writes freshly extracted PDF text back to `savePreparedPage`. | Visible as page text + audio plays. |
-| Unmount | Native `wheel` listener is detached; debounced `updatePreparedProgress` timer is cleared. No pending narration is awaited (browser ref is gone). | None — `App.jsx` remounts via `key` change. |
+| Mount | Loads the prepared library and creates a Reader session id. | The open-book surface lists prepared books. |
+| Open prepared book | Resolves a PDF source when needed, chooses the server `book.id` as local-progress identity, resets narration, and restores progress. | The book title, page, zoom, speed, and bookmarks render. |
+| Open local upload | Uses the browser file fingerprint for local progress and imports the file into the library when required. | The file opens; its library record may arrive asynchronously. |
+| Browse page | Resolves prepared/server/PDF text without starting new narration. | Page text, search state, and page count update. |
+| Start narration | `useReaderNarration` first uses prepared page audio, then its page cache, then streamed generation. Prepared generation includes the active `book.id` so successful audio can be promoted by the backend. | Playback starts or reports a real error. |
+| Page change for narration | Aborts/cancels in-flight work before the next page resolves. | Playback transitions to the new page. |
+| Unmount | Cancels narration and flushes pending prepared-book progress. | No reader-owned work survives the remount. |
 
-**What `Reader` does NOT do today** (gaps to track for 0.5):
+## Composed hooks
 
-- Does **not** read `?book=` from `window.location.search` to auto-open a
-  prepared book on mount. `PdfViewer` does this (lines 237-242). When 0.2
-  flips the default, the App-level routing in `App.jsx:107-119` still passes
-  `/?book=${id}` via `history.replaceState`, but the new Reader would need
-  to mirror the auto-open behaviour to behave identically to the legacy
-  viewer for desktop deep links and `.bookvoice` double-click.
-- Does **not** read or apply `useUserConfig()` for voice/language. The
-  server default voice is hard-coded (`useReaderNarration({ voiceId: null,
-  languageId: 'en', … })`). `PdfViewer` reads `config.voice_id` and
-  `config.language_id` via `useUserConfig`.
-- Does **not** expose `onDirty` / `onExit` props. `App.jsx` does not pass
-  them, and `PdfViewer` only uses them to drive the dirty-leave dialog (no
-  equivalent exists in the new reader).
+| Hook | Reader responsibility |
+|---|---|
+| `usePreparedLibrary` | Open-book list and progress updates. |
+| `usePdfDocument` | PDF document lifecycle, text extraction, and search. |
+| `useServerPageText` | Text-book page loading and search. |
+| `useReaderPageLifecycle` | Browse/load distinction and page race cancellation. |
+| `useReaderNarration` | Prepared/cache/stream ladder and playback events. |
+| `useReaderTransport` | Shared play, pause, seek, rate, time, and duration. |
+| `useReaderProgress` | Local progress autosave. |
+| `useUserConfig` + `VoiceSettings` | Saved defaults plus contextual voice selection; Reader persists user changes. |
+| `useBookActions` | Prepare, archive, and audiobook actions for the active prepared book. |
+| `useSleepTimer` | Minute timer and natural page-end stop. |
+| `useBookmarks` | Toggle, jump, display, and persistence. |
+| `useReaderSearch` | Wrap-around find-in-book state. |
+| `useReaderZoom` | Zoom in/out/fit and wheel behavior. |
+| `useKeyboardShortcuts` | Navigation, playback, seek, mute, find, and bookmark keys. |
+| `usePopoverMenu` | More-options keyboard/outside-click behavior. |
+| `useUserConfig` | Apply saved voice and language once. |
+| `useTtsStatus` | Model-readiness gate. |
+| `useToast` | User-visible failures. |
 
-## 3. Hooks composed
+## DOM contract
 
-Reader composes 13 hooks. The composition is the contract — replacing one
-hook is a breaking change for any hook that consumes the same state.
+### Reading root
 
-### Reader-specific (`frontend/src/hooks/reader/`)
+After a file opens, the root remains:
 
-| Hook | Returned surface | Reader uses it for |
-|---|---|---|
-| `useBookmarks({ initial: [] })` | `{ bookmarks, toggle, set, isBookmarked }` | Toolbar button, `B` shortcut, progress save, restart-hydration |
-| `useReaderZoom({ initial: 1 })` | `{ zoom, displayZoom, min, max, in, out, fit, set, onWheel }` | Toolbar zoom in/out/fit + non-passive wheel listener |
-| `useReaderTransport(audioRef)` | `{ currentTime, playbackRate, setRate, skipBy }` | Skip-by-10s buttons + progress save + resume positioning |
-| `usePreparedLibrary({ onError })` | `{ books, isLoading, refresh, setBooks }` | Empty-state library list, refresh after import |
-| `useReaderPageLifecycle({ totalPages, resolveContent, onContent, onBeforeLoad, onError })` | `{ loadPage, browsePage }` | All page navigation, narration handoff, PDF text writeback |
-| `useReaderNarration({ audioRef, transport, sessionId, voiceId, languageId, modelReady, getPage, onNarratePage, toast })` | `{ handlePlay, stopPlayback, toggleMute, resetForNewBook, transportState, audioPage, isGenerating, isPlaying, muted, startForLoadedPage, teardownForNavigation }` | All playback control; ref-bridged into the lifecycle for `onContent` |
-| `usePageResume({ currentPage, audioPage, hasAudio, onResume, onStartFresh })` | `{ showChoice, resume, startFresh, dismiss }` | "Resume or start fresh?" dialog |
-| `useReaderProgress({ documentId, page, time, zoom, playbackRate, bookmarks })` | side-effect only | Local autosave via `saveReadingProgress` |
-| `useReaderSearch({ findInDocument, currentPage, totalPages })` | `{ result, isSearching, error, submit, reset }` | Find-in-book form, jump-to-page on match, status messages |
-| `useServerPageText({ totalPages })` | `{ fetchPage, findText, clear }` | Text-book content + search |
-| `useKeyboardShortcuts({ isEnabled, onToggleBookmark, onFind, onPrevPage, onNextPage, onFirstPage, onLastPage, onPlayPause, onSeekBack, onSeekForward, onToggleMute, onShowShortcuts })` | side-effect only | Global keydown dispatch |
+```html
+<div
+  class="pdf-viewer-container"
+  data-transport-state="idle|buffering|playing|paused|stopped"
+  data-source-kind="pdf|epub|txt|md"
+>
+```
 
-### Shared (`frontend/src/hooks/`)
+It owns one hidden audio element:
 
-| Hook | Returned surface | Reader uses it for |
-|---|---|---|
-| `useToast()` | `{ info, success, error }` | Library load failure, page load error, progress-save failure, file open error |
-| `usePdfDocument({ file, fileRef, toast })` | `{ adoptPdfDocument, preparePageText, findTextInDocument, resetDocument, … }` | PDF text extraction, in-document search, document lifecycle |
-| `useTtsStatus()` | `{ modelReady, … }` | Wait for model ready before narration |
+```html
+<audio class="audio-hidden" preload="auto" />
+```
 
-### Stage components
+The open-book state uses the same root class and contains the accessible
+`Choose a book file` input plus prepared-book rows.
 
-| Component | Props | Used when |
-|---|---|---|
-| `PdfStage` | `file, pageNumber, displayZoom, onDocumentLoad, onDocumentError` | `sourceKind === 'pdf'` |
-| `TextStage` | `text, pageNumber, numPages, displayZoom` | `sourceKind !== 'pdf'` |
+### Stable controls and ids
 
-## 4. DOM contract
+- `reader-upload` — book file input.
+- `reader-page-jump-input` — numeric page jump.
+- `reader-search-input` — find-in-book input focused by `F`.
+- Accessible buttons/controls include Previous, Next, More options, bookmark,
+  mute, zoom out/in, Fit, Search, playback transport, narration position,
+  narration speed, and sleep timer.
 
-Reader publishes a few intentional attributes/refs that stylesheets and tests
-can rely on. Once published, they are part of the contract.
-
-### Root element
-
-The reading surface (after a book is open) is a `<div>` with:
-
-- `className="pdf-viewer-container"` — kept for CSS continuity with the
-  legacy viewer's container class.
-- `ref={rootRef}` — used for the non-passive `wheel` listener.
-- `data-transport-state={narration.transportState}` — one of `idle |
-  buffering | playing | paused | stopped`. The new reader and the test
-  suite both depend on this attribute (e.g. `Reader.test.jsx:325-326`).
-- `data-source-kind={sourceKind}` — `pdf | epub | txt | md | bookvoice`.
-
-### Audio element
-
-A single `<audio ref={audioRef} className="audio-hidden" preload="auto" />`
-sits inside the root. Tests drive it via `container.querySelector('audio')`.
-
-### Form controls by id / accessible name
-
-The shortcut hook relies on these existing:
-
-- `document.getElementById('reader-search-input')` — search input (focused by
-  the `F` shortcut).
-- Toolbar buttons are addressed by `getByRole('button', { name: … })` in
-  tests. Their accessible names **are** the contract.
-
-### Global lookups
-
-- `window.HTMLMediaElement.prototype.play` / `pause` — tests stub these
-  (`Reader.test.jsx:75-96`); Reader itself assumes a real browser media
-  backend. Acceptable for the production build.
-
-## 5. External dependencies
+## Data identity and dependencies
 
 | Dependency | Purpose |
 |---|---|
-| `react-pdf` (`Document`, `Page`, `pdfjs`) | PDF rendering via `PdfStage` |
-| `lucide-react` icons | Toolbar icons |
-| `useToast` (shared) | Notification surface |
-| `useTtsStatus` (shared) | TTS model readiness |
-| `useUserConfig` (shared) | Saved voice/language, applied once (shipped in the migration; app-wide single copy via `UserConfigProvider`, 2.8.1 F-33) |
-| `usePreparedLibrary`, `usePdfDocument`, `useServerPageText` | Data fetch |
-| API helpers in `utils/api.js` | `importPreparedBook`, `preparedBookSource`, `getPreparedPage`, `savePreparedPage`, `updatePreparedProgress` |
-| `utils/bookFiles.js` (`libraryBookFile`, `sourceKindFromName`) | Library row → file |
-| `utils/pageContentResolver.js` (`resolvePageContent`) | Page text resolution |
-| `utils/readingProgress.js` (`documentFingerprint`, `loadReadingProgress`) | Identity + restore |
-| `utils/session.js` (`createSessionId`) | Per-session cancel token |
+| `utils/bookFiles.js` | Source-kind detection, prepared render adapter, and `readerProgressId`. |
+| `utils/readingProgress.js` | Local progress storage and local-file fingerprint fallback. |
+| `utils/pageContentResolver.js` | Prepared/server/PDF page-text ladder. |
+| `utils/api.js` | Import, page, progress, and narration requests. |
+| `useUserConfig` + `VoiceSettings` | Saved defaults plus contextual voice/language selection and persistence. |
+| `react-pdf` | PDF rendering. |
 
-## 6. Open contract gaps (preconditions for slice 0.5)
+## Verification surface
 
-Each row below is a behavioural difference between the two readers today.
-Rows are flagged **Closed** when the new reader has the behaviour (with
-the verifying test linked in `PARITY.md`), **Deferred** when the
-behaviour is intentionally left to PdfViewer for one release, or
-**Shipped** when the new reader does it natively without a direct
-parity contract.
+Focused contracts are covered by:
 
-| Gap | Reader.jsx | PdfViewer.jsx | Status | Gate |
-|---|---|---|---|---|
-| `?book=` deep-link auto-open | shipped | `PdfViewer.jsx:237-242` | **Closed** | Vitest test on `Reader` |
-| Saved voice + language from `useUserConfig` | shipped | `PdfViewer.jsx:104, 232-248` | **Closed** | Vitest test |
-| OCR fallback for empty/scanned PDFs | absent | `PdfViewer.jsx` runs EasyOCR | **Deferred** | PARITY.md row 5 + CHANGELOG |
-| Page-audio export (page → WAV cache) | absent | `PdfViewer.jsx:1894` | **Deferred** | PARITY.md row 6 + CHANGELOG |
-| Whole-book preparation + audiobook export | absent | `PdfViewer.jsx` `PreparationProgress` | **Deferred** | PARITY.md row 7 + CHANGELOG |
-| Pronounce word on click while paused | absent | `PdfViewer.jsx` `pronounceRef` + `pronounceText` | **Deferred** | PARITY.md row 8 + CHANGELOG |
-| Sleep timer | shipped | `PdfViewer.jsx:148` + UI | **Closed** | Vitest test |
-| Follow-narration scroll lock | absent | `PdfViewer.jsx:112-114, 229` | **Deferred** | PARITY.md row 9 + CHANGELOG |
-| Page jump numeric input | shipped | `PdfViewer.jsx:109, 1244-1256` | **Closed** | Vitest test |
-| Pan/drag when zoomed | absent | `PdfViewer.jsx:178` | **Deferred** | PARITY.md row 10 + CHANGELOG |
+- `Reader.test.jsx` — open/deep-link, navigation, search, bookmarks, progress,
+  playback, and prepared-page narration behavior.
+- `useReaderNarration.test.js` — playback stop semantics and prepared `bookId`
+  forwarding.
+- `bookFiles.test.js` — server-id versus local-file progress identity.
+- `UpdateBanner.test.jsx` — updater reachability is app-owned; install still
+  requires confirmation.
 
-The closed rows were implemented in the 2.7.0 development cycle (PRs
-that landed in commits `feat(reader): narrate pages behind ?reader=new`
-and the reader rewrite chain). See `PARITY.md` for the Vitest case
-references and `CHANGELOG.md` "Unreleased" for the deferred rows.
-
-The reader's `useUserConfig` apply-once contract is preserved by
-the dedicated apply-once effect at `Reader.jsx:225-234`. The sleep
-timer is wired through the shared `useSleepTimer` hook at
-`Reader.jsx:208-212`, with `onExpire: narration.stopPlayback` and
-`notifyPageEnded` fired on the natural-end transport transition
-(distinguishing natural end from user stop via `narration.naturalEndRef`,
-audit L-4 fix).
-
-## 7. Test surface
-
-`Reader.test.jsx` (396 lines, 16 cases) covers:
-
-- empty-state rendering
-- library-book open with progress restore
-- next/previous/keyboard navigation
-- find-in-book jump + no-match state
-- resume dialog after navigating away from the narrated page
-- PDF file import + library record + `savePreparedPage` writeback
-- bookmark toggle (B shortcut)
-- server-side `updatePreparedProgress` mirror (debounced 3 s)
-- streaming narration + chunk promotion to the canonical full-page WAV
-- cancel-on-navigate via `cancelGeneration`
-- prepared-audio resume parking at the saved position
-- mute toggle
-- Space shortcut → narration
-
-These tests are the **current** contract. Adding new behaviour without
-extending the test file is out-of-scope for refactor work.
-
-## 8. Change policy
-
-Any change to:
-
-- the exported function signature
-- the 13 composed hooks or the props passed into them
-- the published DOM contract (root class, data attributes, audio element,
-  accessible names of toolbar buttons)
-- the file's load behaviour (`handleFileChange`, `activateBook`,
-  `openLibraryBook`, `handleDocumentLoad`)
-
-requires one of:
-
-1. a corresponding test in `Reader.test.jsx` (or a sibling `*.test.jsx`),
-   or
-2. an update to this file explaining why the contract changed and which
-   caller broke.
-
-Reviewers should reject PRs that change Reader's surface silently.
+A change to the no-props export, root/data attributes, stable control names,
+or capability table must update this file and its focused test in the same
+change.

@@ -9,17 +9,15 @@ import {
     playbackTargetAtGlobalTime,
 } from '../../utils/playlistController';
 import { waitForAudioMetadata } from '../../utils/media';
+import { strictWordTimings, wordIndexAtTime } from '../../utils/timings';
 
 /**
  * Page narration for the migrated reader: streaming TTS with gapless
  * chunk advance, prepared single-audio playback, a small page-audio
  * cache, cancel-on-navigate, and the one-shot resume seek.
- *
- * This is the A.8.2 port of the pre-migration viewer's playback core. Word highlighting,
- * pause-pronunciation, prefetch, voice pickers, and translation are later
- * slices: cache entries carry empty timing arrays (timingMode
- * 'estimate'), which keeps the entry shape a highlighting slice can fill
- * in without reworking this hook.
+ * This hook also exposes `currentWord` only when a complete monotonic backend
+ * timing map is present. It never interpolates missing anchors; callers can
+ * safely treat an absent word as "no measured highlight".
  *
  * Voice/language are plain args (mirrored into refs internally); `null`
  * voiceId is a supported configuration — the server narrates with its
@@ -31,6 +29,8 @@ import { waitForAudioMetadata } from '../../utils/media';
  * @param {string} args.sessionId      Stable per-reader session id.
  * @param {string|null} [args.voiceId]
  * @param {string} [args.languageId='en']
+ * @param {string|null} [args.bookId] Active prepared-book id used for durable
+ *   promotion of successful interactive narration.
  * @param {boolean} [args.modelReady]  TTS model readiness gate.
  * @param {() => number} args.getPage  Current page (1-indexed).
  * @param {(page: number) => void} args.onNarratePage
@@ -44,6 +44,7 @@ export function useReaderNarration({
     transport,
     sessionId,
     voiceId = null,
+    bookId = null,
     languageId = 'en',
     modelReady = false,
     getPage,
@@ -55,6 +56,7 @@ export function useReaderNarration({
     const [transportState, setTransportState] = useState('idle');
     const [audioPage, setAudioPage] = useState(null);
     const [muted, setMutedState] = useState(false);
+    const [currentWord, setCurrentWord] = useState(-1);
 
     // Playlist state: the collected chunk events, the playing position
     // inside them, and the intent flags that decide what "ended" means
@@ -71,6 +73,10 @@ export function useReaderNarration({
     const cacheRef = useRef(createPageAudioCache({ maxEntries: 14 }));
     const savedResumeRef = useRef({ page: 0, time: 0 });
     const audioUrlRef = useRef(null);
+    const wordTimesRef = useRef([]);
+    const wordEndsRef = useRef([]);
+    const timingPageRef = useRef(null);
+    const [measuredPage, setMeasuredPage] = useState(null);
 
     // Mirrors so the once-bound audio handlers and the timeline read the
     // latest values without re-binding.
@@ -79,12 +85,14 @@ export function useReaderNarration({
     const transportStateRef = useRef('idle');
     const voiceIdRef = useRef(voiceId);
     const languageIdRef = useRef(languageId);
+    const bookIdRef = useRef(bookId);
     const modelReadyRef = useRef(modelReady);
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
     useEffect(() => { transportStateRef.current = transportState; }, [transportState]);
     useEffect(() => { voiceIdRef.current = voiceId; }, [voiceId]);
     useEffect(() => { languageIdRef.current = languageId; }, [languageId]);
+    useEffect(() => { bookIdRef.current = bookId; }, [bookId]);
     useEffect(() => { modelReadyRef.current = modelReady; }, [modelReady]);
     useEffect(() => {
         const audio = audioRef.current;
@@ -150,14 +158,41 @@ export function useReaderNarration({
         audio.currentTime = 0;
         transport.refresh();
         if (playlistShouldPlayRef.current) {
+
             try { await audio.play(); } catch { /* play rejection surfaces via media error */ }
         }
         return true;
     };
+    const setWordTiming = useCallback((entry) => {
+        const words = entry?.words || [];
+        const measured = strictWordTimings(entry?.wordTimings, entry?.text);
+        const valid = entry?.timingMode === 'aligned'
+            && words.length > 0
+            && measured.times.length === words.length
+            && measured.ends.length === words.length;
+        wordTimesRef.current = valid ? measured.times : [];
+        wordEndsRef.current = valid ? measured.ends : [];
+        timingPageRef.current = valid ? entry.page : null;
+        setMeasuredPage(valid ? entry.page : null);
+        setCurrentWord(-1);
+    }, []);
+
+    const syncCurrentWord = useCallback(() => {
+        const audio = audioRef.current;
+        if (!audio || timingPageRef.current == null) return;
+        const next = wordIndexAtTime(
+            wordTimesRef.current,
+            audio.currentTime,
+            0,
+            wordEndsRef.current,
+        );
+        setCurrentWord((current) => (current === next ? current : next));
+    }, [audioRef]);
 
     const applyReadyAudio = useCallback(async (entry, { autoplay = false } = {}) => {
         const audio = audioRef.current;
         if (!audio || !entry?.audioUrl) return;
+        setWordTiming(entry);
         clearPlaylist();
         transport.clearPlaylistTimeline();
         audioUrlRef.current = entry.audioUrl;
@@ -186,7 +221,7 @@ export function useReaderNarration({
             } catch { /* rejection surfaces through the media error path */ }
         }
         setTransport('paused');
-    }, [audioRef, clearPlaylist, setTransport, toast, transport]);
+    }, [audioRef, clearPlaylist, setTransport, setWordTiming, toast, transport]);
 
     const generateAndPlayStreamed = useCallback(async (page, text, { autoplay = true } = {}) => {
         const audio = audioRef.current;
@@ -211,7 +246,7 @@ export function useReaderNarration({
                 voiceIdRef.current,
                 languageIdRef.current || 'en',
                 {
-                    bookId: null,
+                    bookId: bookIdRef.current,
                     // crypto.randomUUID is unavailable in some webviews
                     // (and jsdom); a monotonic id is all the server needs.
                     requestId: `${sessionId}-${page}-${requestSeqRef.current += 1}`,
@@ -237,6 +272,8 @@ export function useReaderNarration({
             }
 
             const words = String(text || '').split(/\s+/).filter(Boolean);
+            const measured = strictWordTimings(doneEvent.word_timings, text);
+            const hasMeasuredTiming = measured.times.length === words.length;
             const entry = {
                 status: 'ready',
                 page,
@@ -245,18 +282,16 @@ export function useReaderNarration({
                 audioUrl: doneEvent.audio_url || doneEvent.audioUrl,
                 text,
                 words,
-                times: [],
-                ends: [],
+                wordTimings: Array.isArray(doneEvent.word_timings) ? doneEvent.word_timings : [],
+                times: hasMeasuredTiming ? measured.times : [],
+                ends: hasMeasuredTiming ? measured.ends : [],
                 segments: Array.isArray(doneEvent.segments) ? doneEvent.segments : [],
                 duration_s: Number(doneEvent.duration_s) || 0,
                 fromWord: 0,
                 partial: false,
-                timingMode: 'estimate',
+                timingMode: hasMeasuredTiming ? 'aligned' : 'estimate',
             };
-            cacheRef.current.set(cacheKey(page, voiceIdRef.current, languageIdRef.current), entry);
-
-            // Promote the canonical full-page WAV at the current logical
-            // position so the scrubber and duration become exact. The
+            setWordTiming(entry);
             // play intent survives the swap — clearPlaylist() must NOT
             // be used here, it resets playlistShouldPlayRef.
             const logicalTime = transport.currentTime;
@@ -280,7 +315,7 @@ export function useReaderNarration({
         } finally {
             setIsGenerating(false);
         }
-    }, [audioRef, clearPlaylist, sessionId, setTransport, transport]);
+    }, [audioRef, clearPlaylist, sessionId, setTransport, setWordTiming, transport]);
 
     const generateAndPlay = useCallback(async (page, text, { autoplay = true } = {}) => {
         try {
@@ -375,6 +410,7 @@ export function useReaderNarration({
         streamAbortRef.current?.abort();
         streamAbortRef.current = null;
         cancelGeneration();
+        setWordTiming(null);
         clearPlaylist();
         transport.clearPlaylistTimeline();
         const audio = audioRef.current;
@@ -385,7 +421,7 @@ export function useReaderNarration({
         naturalEndRef.current = false;
         setIsPlaying(false);
         setTransport('stopped');
-    }, [audioRef, clearPlaylist, setTransport, transport]);
+    }, [audioRef, clearPlaylist, setTransport, setWordTiming, transport]);
 
     // Page loads for narration tear the current playback down before the
     // new page resolves: abort the stream, tell the server to stop
@@ -394,13 +430,14 @@ export function useReaderNarration({
         streamAbortRef.current?.abort();
         streamAbortRef.current = null;
         cancelGeneration();
+        setWordTiming(null);
         clearPlaylist();
         transport.clearPlaylistTimeline();
         const audio = audioRef.current;
         if (audio && !audio.paused) audio.pause();
         setIsGenerating(false);
         setTransport('idle');
-    }, [audioRef, clearPlaylist, setTransport, transport]);
+    }, [audioRef, clearPlaylist, setTransport, setWordTiming, transport]);
 
     // Swapping books: stop everything, drop cached audio, and arm the
     // one-shot resume from the freshly loaded progress record.
@@ -422,6 +459,7 @@ export function useReaderNarration({
         const onPlay = () => {
             playlistWaitingRef.current = false;
             setIsPlaying(true);
+            syncCurrentWord();
             setTransport('playing');
         };
         const onPause = () => {
@@ -448,12 +486,14 @@ export function useReaderNarration({
         audio.addEventListener('play', onPlay);
         audio.addEventListener('pause', onPause);
         audio.addEventListener('ended', onEnded);
+        audio.addEventListener('timeupdate', syncCurrentWord);
         return () => {
             audio.removeEventListener('play', onPlay);
             audio.removeEventListener('pause', onPause);
             audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('timeupdate', syncCurrentWord);
         };
-    }, [audioRef, setTransport]);
+    }, [audioRef, setTransport, syncCurrentWord]);
 
     // Unmount: abort any in-flight generation and stop the player
     // (the pre-migration viewer leaked this; this port closes the gap).
@@ -473,6 +513,8 @@ export function useReaderNarration({
         isGenerating,
         transportState,
         audioPage,
+        currentWord,
+        measuredPage,
         muted,
         scrubberDuration,
         naturalEndRef,  // exposed for the consumer to read; not callable

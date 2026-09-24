@@ -70,6 +70,7 @@ describe('VoiceStudio', () => {
         renderStudio();
 
         expect(await screen.findByDisplayValue('The corrected sentence.')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: /Voice Studio project/i })).toBeInTheDocument();
         expect(screen.getByRole('tab', { name: /Create narration/i })).toHaveAttribute('aria-selected', 'true');
         expect(screen.getByRole('tab', { name: /Repair media/i })).toBeInTheDocument();
     }, 15_000);
@@ -77,6 +78,7 @@ describe('VoiceStudio', () => {
     it('offers media-derived voice cloning inside Create Narration', async () => {
         renderStudio();
 
+        fireEvent.click(await screen.findByRole('button', { name: /Clone voice/i }));
         expect(await screen.findByRole('heading', { name: /Clone a voice from media/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Import voice audio or video/i })).toBeInTheDocument();
         expect(screen.getByText(/narrate anything you write in that imported voice/i)).toBeInTheDocument();
@@ -117,6 +119,7 @@ describe('VoiceStudio', () => {
         api.updateStudioProject.mockImplementation(async (_id, changes) => ({ ...sourceProject, ...changes }));
 
         renderStudio();
+        fireEvent.click(await screen.findByRole('button', { name: /Clone voice/i }));
         expect(await screen.findByLabelText('Voice source video preview')).toHaveAttribute(
             'src',
             sourceProject.sources[0].previewUrl,
@@ -160,6 +163,7 @@ describe('VoiceStudio', () => {
         api.updateStudioProject.mockImplementation(async (_id, changes) => ({ ...sourceProject, ...changes }));
 
         renderStudio();
+        fireEvent.click(await screen.findByRole('button', { name: /Clone voice/i }));
         fireEvent.change(await screen.findByLabelText('Profile name'), { target: { value: 'Interview Voice' } });
         fireEvent.click(screen.getByLabelText(/I own or have permission/i));
         fireEvent.click(screen.getByRole('button', { name: /Create and use this voice/i }));
@@ -494,12 +498,15 @@ describe('VoiceStudio', () => {
     it('explains what increasing and decreasing every delivery control does', async () => {
         renderStudio();
 
+        fireEvent.click(await screen.findByRole('button', { name: /Custom sliders…/i }));
         expect(await screen.findByText(/Slower keeps the original pitch/i)).toBeInTheDocument();
         expect(screen.getByText(/Calmer delivery/i)).toBeInTheDocument();
         expect(screen.getByText(/More animated delivery/i)).toBeInTheDocument();
         expect(screen.getByText(/More consistent/i)).toBeInTheDocument();
         expect(screen.getByText(/More varied/i)).toBeInTheDocument();
-        expect(screen.getByText(/Lower guidance gives the voice more freedom/i)).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /Guidance & Randomness/i }));
+        expect(await screen.findByText(/Lower guidance gives the voice more freedom/i)).toBeInTheDocument();
     }, 15_000);
 
     it('downloads generated output to this device and opens the managed project folder', async () => {

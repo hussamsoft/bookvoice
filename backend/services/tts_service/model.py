@@ -470,7 +470,13 @@ def get_model(language_id="en"):
                     raise FileNotFoundError(error_msg)
 
                 _model_type = target_type
-                if device == "cuda" or os.environ.get("TTS_WARMUP", "1").strip().lower() in ("1", "true", "yes", "on"):
+                warmup_env = os.environ.get("TTS_WARMUP", "").strip().lower()
+                should_warmup = (
+                    warmup_env in ("1", "true", "yes", "on")
+                    if warmup_env
+                    else (device == "cuda")
+                )
+                if should_warmup:
                     _warmup_model(_model, device, target_type)
                 _model_state["status"] = "ready"
                 _model_state["loading_started"] = None
