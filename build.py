@@ -577,6 +577,7 @@ def stage_desktop():
             "/p:Configuration=Release",
             "/p:RuntimeIdentifier=win-x64",
             "/p:Platform=x64",
+            "/p:EnableMsixTooling=true",
             f"/p:PublishDir={target_str}",
             f"/p:BookVoiceVersion={version}",
             "/v:minimal",

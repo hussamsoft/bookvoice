@@ -362,6 +362,7 @@ class DesktopBuildTests(unittest.TestCase):
         self.assertIn("/p:Configuration=Release", publish)
         self.assertIn("/p:RuntimeIdentifier=win-x64", publish)
         self.assertIn("/p:Platform=x64", publish)
+        self.assertIn("/p:EnableMsixTooling=true", publish)
         self.assertTrue(any(str(p).startswith("/p:PublishDir=") for p in publish))
 
 
