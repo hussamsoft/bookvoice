@@ -415,7 +415,11 @@ public sealed partial class MainWindow : Window
                     {
                         return;
                     }
-                    var uri = new Uri(uriText);
+                    if (!Uri.TryCreate(uriText, UriKind.Absolute, out var uri))
+                    {
+                        ShellLog.Write($"new-window request ignored: invalid URI {uriText}");
+                        return;
+                    }
                     if (!IsAllowedExternalScheme(uri.Scheme))
                     {
                         ShellLog.Write($"new-window request blocked: scheme '{uri.Scheme}' is not in the allow-list ({uri})");
