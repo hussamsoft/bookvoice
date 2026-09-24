@@ -108,7 +108,7 @@
              background matches the Aurora Ink dark stage color from the web
              tokens so the WebView never flashes light before first paint.
              KEEP IN SYNC with frontend/src/styles/tokens.css
-             --bg for [data-palette="paper"][data-mode="dark"]. -->
+             bg for [data-palette="paper"][data-mode="dark"]. -->
         <Grid x:Name="ContentPanel" Visibility="Collapsed">
             <WebView2
                 x:Name="Web"

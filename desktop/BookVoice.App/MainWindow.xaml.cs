@@ -369,11 +369,12 @@ public sealed partial class MainWindow : Window
                 Web.CoreWebView2.NewWindowRequested += (_, newWindowArgs) =>
                 {
                     newWindowArgs.Handled = true;
-                    var uri = newWindowArgs.Uri;
-                    if (uri == null)
+                    var uriText = newWindowArgs.Uri;
+                    if (uriText == null)
                     {
                         return;
                     }
+                    var uri = new Uri(uriText);
                     if (!IsAllowedExternalScheme(uri.Scheme))
                     {
                         ShellLog.Write($"new-window request blocked: scheme '{uri.Scheme}' is not in the allow-list ({uri})");
