@@ -316,10 +316,18 @@ internal sealed class BackendHost : IDisposable
         _logWriteGate.Wait();
         try
         {
+            if (_logStream == null)
+            {
+                // Validation can fail before Spawn opens the server log.
+                // Keep the failure visible to the shell and user instead of
+                // dereferencing a stream that does not exist yet.
+                ShellLog.Write(line);
+                return;
+            }
             var bytes = Encoding.UTF8.GetBytes(
                 $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss} {line}{Environment.NewLine}");
-            _logStream!.Write(bytes, 0, bytes.Length);
-            _logStream!.Flush();
+            _logStream.Write(bytes, 0, bytes.Length);
+            _logStream.Flush();
         }
         catch (IOException)
         {

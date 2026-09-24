@@ -2,7 +2,7 @@ using System.IO;
 
 namespace BookVoice.App.Backend;
 
-/// <summary>Minimal shell-side diagnostics log (bookvoice_shell.log in the runtime dir).</summary>
+/// <summary>Minimal shell diagnostics log, with a pre-resolution fallback.</summary>
 internal static class ShellLog
 {
     private const long MaxLogBytes = 5L * 1024 * 1024;
@@ -11,15 +11,17 @@ internal static class ShellLog
 
     public static void Write(string message)
     {
-        if (Dir == null)
-        {
-            return;
-        }
         try
         {
             lock (Gate)
             {
-                var path = Path.Combine(Dir, "bookvoice_shell.log");
+                var directory = Dir;
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    directory = AppPaths.LegacyRuntimeDir();
+                }
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, "bookvoice_shell.log");
                 var info = new FileInfo(path);
                 if (info.Exists && info.Length > MaxLogBytes)
                 {
@@ -36,6 +38,9 @@ internal static class ShellLog
             }
         }
         catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
     }

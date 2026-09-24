@@ -1,6 +1,8 @@
+using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using BookVoice.App.Backend;
 using Microsoft.UI.Xaml;
 
@@ -17,7 +19,31 @@ public partial class App : Application
 
     public App()
     {
+        InitializeShellLog();
+        this.UnhandledException += (_, e) =>
+            LogException("Application.UnhandledException", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            LogException("AppDomain.UnhandledException", e.ExceptionObject);
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            LogException("TaskScheduler.UnobservedTaskException", e.Exception);
+            e.SetObserved();
+        };
         InitializeComponent();
+    }
+
+    private static void LogException(string source, object? error)
+    {
+        ShellLog.Write($"{source}: {error?.ToString() ?? "No error object was supplied."}");
+    }
+
+    private static void InitializeShellLog()
+    {
+        var appDir = AppPaths.FindAppDir();
+        if (appDir is not null && AppPaths.IsPortable())
+        {
+            ShellLog.Dir = Path.Combine(appDir, ".bookvoice");
+        }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -48,10 +74,23 @@ public partial class App : Application
             return;
         }
 
-        Window = new MainWindow();
-        SingleInstance.Listen(() => Window?.OnSecondInstanceSignal());
-        Window.Start(bookPath, forwardable);
-        Window.Activate();
+        try
+        {
+            Window = new MainWindow();
+            SingleInstance.Listen(() => Window?.OnSecondInstanceSignal());
+            Window.Start(bookPath, forwardable);
+            Window.Activate();
+        }
+        catch (Exception ex)
+        {
+            LogException("OnLaunched startup failure", ex);
+            NativeMethods.MessageBoxW(
+                nint.Zero,
+                "BookVoice could not start its desktop window. See bookvoice_shell.log for details.",
+                "BookVoice",
+                0x10);
+            Environment.Exit(1);
+        }
     }
 
     private static string? GetBookFromCommandLine(string[] argv)
