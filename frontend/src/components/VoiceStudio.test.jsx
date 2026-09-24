@@ -221,7 +221,9 @@ describe('VoiceStudio', () => {
         expect(screen.queryByLabelText(/Expression/i)).not.toBeInTheDocument();
 
         fireEvent.click(screen.getByLabelText(/I own or have permission/i));
-        fireEvent.click(screen.getByRole('button', { name: /Convert to Interview Voice/i }));
+        const convert = screen.getByRole('button', { name: /Convert to Interview Voice/i });
+        await waitFor(() => expect(convert).toBeEnabled());
+        fireEvent.click(convert);
 
         await waitFor(() => expect(api.createStudioConversion).toHaveBeenCalledWith(project.id, expect.objectContaining({
             sourceId,
@@ -371,12 +373,25 @@ describe('VoiceStudio', () => {
 
         fireEvent.change(editor, { target: { value: 'Saved before switching.' } });
         fireEvent.blur(editor);
-
-        // Typing on a phone must not overwrite what is on screen at the desk.
         expect(api.updateStudioProject).not.toHaveBeenCalledWith(
             project.id, expect.objectContaining({ script: expect.anything() }),
         );
-        await waitFor(() => expect(studioSession.getScript(project.id)).toBe('Saved before switching.'));
+        expect(studioSession.getScript(project.id)).toBe('Saved before switching.');
+    }, 15_000);
+
+    it('flushes a dirty draft when switching projects before autosave', async () => {
+        const otherProject = { ...project, id: 'b'.repeat(32), name: 'Other project', script: 'Other script.' };
+        api.listStudioProjects.mockResolvedValue([project, otherProject]);
+        api.getStudioProject.mockImplementation(async (id) => (id === otherProject.id ? otherProject : project));
+
+        renderStudio();
+        const editor = await screen.findByDisplayValue('The corrected sentence.');
+        fireEvent.change(editor, { target: { value: 'Unflushed project draft.' } });
+        fireEvent.click(screen.getAllByRole('button', { name: /Open Other project/i })[0]);
+
+        await screen.findByDisplayValue('Other script.');
+        expect(studioSession.getScript(project.id)).toBe('Unflushed project draft.');
+        expect(studioSession.getScript(otherProject.id)).toBeUndefined();
     }, 15_000);
 
     it('lands on a start screen when this device has no session', async () => {

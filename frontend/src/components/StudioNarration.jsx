@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PencilLine, Sparkles } from 'lucide-react';
 import { createStudioNarration, createStudioRepair } from '../utils/api';
 import { DEFAULT_STUDIO_SETTINGS } from '../utils/studio';
@@ -37,6 +37,8 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
     const [script, setScript] = useState(
         () => studioSession.getScript(project.id) ?? project.script ?? '',
     );
+    const scriptRef = useRef(script);
+    const draftDirtyRef = useRef(false);
     const [showCloner, setShowCloner] = useState(false);
     const [correction, setCorrection] = useState(null);
     const [transcriptRange, setTranscriptRange] = useState({ from: 0, to: WORD_WINDOW * 2 });
@@ -46,12 +48,17 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
     const handleSettingsChange = useCallback((generationSettings) => onPatch({ generationSettings }), [onPatch]);
 
     useEffect(() => {
-        setScript(studioSession.getScript(project.id) ?? project.script ?? '');
-    }, [project.id, project.script]);
-    useEffect(() => {
         const timer = setTimeout(() => studioSession.setScript(project.id, script), 400);
         return () => clearTimeout(timer);
     }, [script, project.id]);
+    useLayoutEffect(() => () => {
+        if (draftDirtyRef.current) studioSession.setScript(project.id, scriptRef.current);
+    }, [project.id]);
+    const updateScript = useCallback((value) => {
+        draftDirtyRef.current = true;
+        scriptRef.current = value;
+        setScript(value);
+    }, []);
 
     const narrations = useMemo(
         () => (project.outputs || []).filter((output) => output.kind === 'NARRATION'),
@@ -175,7 +182,7 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                                 key={prompt.label}
                                 type="button"
                                 className="studio-prompt-chip"
-                                onClick={() => setScript(prompt.text)}
+                                onClick={() => updateScript(prompt.text)}
                                 disabled={disabled}
                             >
                                 {prompt.label}
@@ -187,8 +194,11 @@ export default function StudioNarration({ project, voices, onPatch, onRunJob, di
                     <textarea
                         id="studio-script"
                         value={script}
-                        onChange={(event) => setScript(event.target.value)}
-                        onBlur={() => studioSession.setScript(project.id, script)}
+                        onChange={(event) => updateScript(event.target.value)}
+                        onBlur={(event) => {
+                            studioSession.setScript(project.id, event.currentTarget.value);
+                            draftDirtyRef.current = false;
+                        }}
                         onKeyDown={onKeyDownTextarea}
                         placeholder="Write the words you want this voice to narrate… (Ctrl+Enter to generate)"
                         dir={(project.languageId || 'en') === 'ar' ? 'rtl' : 'ltr'}

@@ -477,7 +477,7 @@ export default function VoiceStudio() {
                         <StudioConversion project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
                     )}
                     {!['REPAIR', 'CONVERSION'].includes(workflow) && (
-                        <StudioNarration project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
+                        <StudioNarration key={project.id} project={project} voices={voices} onPatch={patchProject} onRunJob={runJob} disabled={Boolean(activeJob)} ttsStatus={ttsStatus} />
                     )}
                 </>}
             </section>
