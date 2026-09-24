@@ -35,19 +35,6 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   gate now audits settled theme transitions instead of transient colors.
 - Voice Studio now waits for conversion prerequisites before submission and
   flushes an edited local draft when switching projects before autosave.
-
-### Packaging
-
-- Verified 2.8.2 packaging built with MSBuild 18.9.1+a81b43525 for .NET Framework, Windows SDK 10.0.19041, and WiX 3.11.2.4516: machine and per-user MSIs, 31 cabinets, `BookVoice-Launcher.exe`, and matching `release-assets.json` / `SHA256SUMS.txt`; per-user installation, shortcut launch, graceful close, saved-placement relaunch, and launcher fast path were verified against the installed Home UI.
-- Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
-  to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
-  root `Launcher.exe`.
-- Fixed the WinUI 3 desktop shell compile blockers: an invalid XML comment
-  in `MainWindow.xaml`, missing interop namespace/accessibility on generated
-  `LibraryImport` methods, and WebView2 new-window URI handling.
-- `build.py` desktop staging now discovers a Visual Studio MSBuild instance
-  with the AppxPackage PRI tools, then runs restore, narrowly scoped
-  Mark-of-the-Web removal for restored package directories, and publish.
 - Fixed desktop startup and monitor-change crashes caused by enumerating
   `DisplayArea.FindAll()` through its broken WinRT `foreach` projection by
   using index-based iteration for saved-placement restore and live window
@@ -63,6 +50,24 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   cancels content work without flashing the embedded-browser error panel.
 - Fixed WebView navigation handling so successful and superseded navigations
   stay silent, while real failures log their WebView status and HTTP code.
+
+### Packaging
+
+- Verified 2.8.2 packaging built with MSBuild 18.9.1+a81b43525 for .NET
+  Framework, Windows SDK 10.0.19041, and WiX 3.11.2.4516: machine and
+  per-user MSIs, 31 cabinets, `BookVoice-Launcher.exe`, and matching
+  `release-assets.json` / `SHA256SUMS.txt`; per-user installation, shortcut
+  launch, graceful close, saved-placement relaunch, and launcher fast path
+  were verified against the installed Home UI.
+- Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
+  to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
+  root `Launcher.exe`.
+- Fixed the WinUI 3 desktop shell compile blockers: an invalid XML comment
+  in `MainWindow.xaml`, missing interop namespace/accessibility on generated
+  `LibraryImport` methods, and WebView2 new-window URI handling.
+- `build.py` desktop staging now discovers a Visual Studio MSBuild instance
+  with the AppxPackage PRI tools, then runs restore, narrowly scoped
+  Mark-of-the-Web removal for restored package directories, and publish.
 - Fixed the 2.8.2 desktop payload omitting `scripts/port_state.py`, which
   caused the WinUI shell to start and then retry a backend that could not
   import its shared sticky-port helper; release validation now imports the
