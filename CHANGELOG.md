@@ -64,6 +64,8 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   fallback.
 - Fixed desktop close during pending WebView2 initialization so shutdown
   cancels content work without flashing the embedded-browser error panel.
+- Fixed WebView navigation handling so successful and superseded navigations
+  stay silent, while real failures log their WebView status and HTTP code.
 - Fixed the 2.8.2 desktop payload omitting `scripts/port_state.py`, which
   caused the WinUI shell to start and then retry a backend that could not
   import its shared sticky-port helper; release validation now imports the

@@ -477,10 +477,19 @@ public sealed partial class MainWindow : Window
 
     private void OnNavigationCompleted(CoreWebView2NavigationCompletedEventArgs args)
     {
-        if (_isClosing)
+        if (_isClosing || args.IsSuccess)
         {
             return;
         }
+        if (args.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled)
+        {
+            ShellLog.Write(
+                $"webview navigation canceled: id={args.NavigationId} http={args.HttpStatusCode}");
+            return;
+        }
+        ShellLog.Write(
+            $"webview navigation failed: status={args.WebErrorStatus} "
+            + $"http={args.HttpStatusCode} id={args.NavigationId}");
         ShowError($"The app page failed to load ({args.WebErrorStatus}).", _host?.ReadLogTail());
     }
 
