@@ -519,13 +519,10 @@ def stage_desktop():
     if not project.is_file():
         raise SystemExit("desktop/BookVoice.App/BookVoice.App.csproj missing")
     msbuild = _require_visual_studio_msbuild()
-    # F-43: at install time, sandboxed SDKs (notably the Windows App SDK
-    # XamlCompiler shipped via the user's NuGet cache on a V:\ drive) arrive
-    # marked "downloaded from the internet"; SmartScreen then refuses to
-    # execute the XamlCompiler.exe, which exits 1 with empty output and the
-    # `compileXaml` target fails. Strip the Mark-of-the-Web *after* restore
-    # (because restore re-extracts packages and re-tags them) and *before*
-    # publish: split the operation into restore → unblock → publish --no-restore.
+    # WinUI XAML/PRI compilation requires Visual Studio MSBuild with the
+    # AppxPackage PRI tasks; the bare dotnet SDK does not provide them.
+    # Restore, defensively unblock NuGet files tagged as downloaded, then
+    # publish through that MSBuild.
     def _unblock_mark_of_the_web() -> None:
         for zone in (
             Path(os.environ.get("USERPROFILE", "") or "") / "AppData",
