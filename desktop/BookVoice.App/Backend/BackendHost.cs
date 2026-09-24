@@ -369,10 +369,8 @@ internal sealed class BackendHost : IDisposable
         {
             if (!process.HasExited)
             {
-                // serve_bookvoice.py installs SIGINT/SIGBREAK handlers so
-                // it can stop its child, tunnel, access file, and state file.
-                // Keep the shell attached with an ignore attribute while the
-                // wrapper exits so the control event cannot terminate us too.
+                // serve_bookvoice.py handles SIGINT/SIGBREAK to stop its child, tunnel, and state;
+                // the --signal-backend helper delivers the event so the shell never receives it.
                 if (TrySendControlEvent(process))
                 {
                     ShellLog.Write("backend graceful stop completed");
