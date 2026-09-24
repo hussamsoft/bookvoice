@@ -49,8 +49,8 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   in `MainWindow.xaml`, missing interop namespace/accessibility on generated
   `LibraryImport` methods, and WebView2 new-window URI handling.
 - `build.py` desktop staging now discovers a Visual Studio MSBuild instance
-  with the AppxPackage PRI tools, then runs restore, Mark-of-the-Web removal,
-  and publish through that toolchain.
+  with the AppxPackage PRI tools, then runs restore, narrowly scoped
+  Mark-of-the-Web removal for restored package directories, and publish.
 
 ## Unreleased
 

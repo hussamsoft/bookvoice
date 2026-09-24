@@ -513,42 +513,57 @@ def stage_media_tools():
     print(f"[build] staged FFmpeg/FFprobe {contract['version']} → {DIST / 'tools' / 'ffmpeg'}")
 
 
+def _restored_package_directories_for_project(project: Path) -> list[Path]:
+    assets_path = Path(project).parent / "obj" / "project.assets.json"
+    try:
+        assets = json.loads(assets_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    package_folders = [Path(folder) for folder in assets.get("packageFolders", {})]
+    package_paths = [
+        Path(library["path"])
+        for library in assets.get("libraries", {}).values()
+        if library.get("type") == "package" and library.get("path")
+    ]
+    return sorted(
+        {folder for folder in package_folders if folder.is_dir()}
+        | {folder / package_path for folder in package_folders for package_path in package_paths if (folder / package_path).is_dir()},
+        key=str,
+    )
+
+
 def stage_desktop():
     """Build the WinUI desktop shell (self-contained) into dist/desktop."""
     project = ROOT / "desktop" / "BookVoice.App" / "BookVoice.App.csproj"
     if not project.is_file():
         raise SystemExit("desktop/BookVoice.App/BookVoice.App.csproj missing")
     msbuild = _require_visual_studio_msbuild()
-    # WinUI XAML/PRI compilation requires Visual Studio MSBuild with the
-    # AppxPackage PRI tasks; the bare dotnet SDK does not provide them.
-    # Restore, defensively unblock NuGet files tagged as downloaded, then
-    # publish through that MSBuild.
-    def _unblock_mark_of_the_web() -> None:
-        for zone in (
-            Path(os.environ.get("USERPROFILE", "") or "") / "AppData",
-            Path(os.environ.get("HOME", "") or Path.home()) / "AppData" / "Local" / "NuGet",
-            Path(os.environ.get("NUGET_PACKAGES", "") or ""),
-        ):
-            if zone.exists() and zone.is_dir():
-                subprocess.run(
-                    [
-                        "powershell",
-                        "-NoProfile",
-                        "-Command",
-                        f"Get-ChildItem -Recurse -File '{zone}' -ErrorAction SilentlyContinue "
-                        f"| Where-Object {{ $_.MarkOfTheWeb -and $_.MarkOfTheWeb.IsAllocated }} "
-                        f"| Unblock-File -ErrorAction SilentlyContinue",
-                    ],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-
+    # The verified desktop build blockers are missing VS MSBuild PRI tasks and
+    # source defects. Narrowly unblock only restored package directories as a
+    # defensive measure for caches tagged as downloaded.
     target = DIST / "desktop"
     if target.exists():
-        # A fresh publish, so no stale self-contained DLLs linger from an
-        # earlier build of a different Windows App SDK version.
         shutil.rmtree(target)
+
+    def _restored_package_directories() -> list[Path]:
+        return _restored_package_directories_for_project(project)
+
+    def _unblock_mark_of_the_web() -> None:
+        directories = _restored_package_directories()
+        for directory in directories:
+            subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"Get-ChildItem -LiteralPath '{directory}' -Recurse -File -ErrorAction SilentlyContinue "
+                    f"| Unblock-File -ErrorAction SilentlyContinue",
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        print(f"[build] scanned {len(directories)} restored NuGet package directories for Mark-of-the-Web")
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     project = str(project)
     target_str = str(target)

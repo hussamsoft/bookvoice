@@ -295,6 +295,30 @@ class MsiConfigTests(unittest.TestCase):
 
 
 class DesktopBuildTests(unittest.TestCase):
+    def test_restored_package_directories_selects_only_package_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = root / "BookVoice.App.csproj"
+            project.parent.mkdir(exist_ok=True)
+            project.write_text("", encoding="utf-8")
+            obj = project.parent / "obj"
+            obj.mkdir()
+            package_a = root / "cache-a" / "Example.Package" / "1.0.0"
+            package_b = root / "cache-b" / "Other.Package" / "2.0.0"
+            package_a.mkdir(parents=True)
+            package_b.mkdir(parents=True)
+            (root / "cache-a" / "ProjectOnly").mkdir()
+            assets = {
+                "packageFolders": {str(root / "cache-a"): {}, str(root / "cache-b"): {}},
+                "libraries": {
+                    "Example.Package/1.0.0": {"type": "package", "path": "Example.Package/1.0.0"},
+                    "Other.Package/2.0.0": {"type": "package", "path": "Other.Package/2.0.0"},
+                    "repo/project": {"type": "project"},
+                },
+            }
+            (obj / "project.assets.json").write_text(json.dumps(assets), encoding="utf-8")
+            self.assertEqual(build._restored_package_directories_for_project(project), sorted([root / "cache-a", root / "cache-b", package_a, package_b], key=str))
+
     def test_visual_studio_msbuild_requires_matching_pri_task(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
