@@ -38,10 +38,10 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 
 ### Packaging
 
-- Refreshed `dist/VERSION`, `dist/release-manifest.json`, and `backend/static/`
-  from this source tree. The complete payload and MSI installers still require
-  a Windows build host with WiX (`tools/wix`) and Windows SDK 10.0.19041; the
-  gitignored `installer/` follow-up is not included in this repository commit.
+- Built and verified the complete 2.8.2 release payload, both MSIs, 31 cabinets,
+  and `BookVoice-Launcher.exe` on a host with VS 2022 Build Tools, Windows SDK
+  10.0.19041, and WiX 3.11; the per-user MSI installed successfully and the
+  installed app payload was verified against `dist/`.
 - Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
   to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
   root `Launcher.exe`.
