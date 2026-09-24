@@ -415,12 +415,16 @@ def assemble_dist():
     stage_runtime_bundle()
     stage_media_tools()
 
-    # Portable bat uses this helper to terminate the full stale uvicorn tree.
-    scripts_src = ROOT / "scripts" / "kill_stale_bookvoice.ps1"
-    if scripts_src.is_file():
-        scripts_dst = DIST / "scripts"
-        scripts_dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(scripts_src, scripts_dst / "kill_stale_bookvoice.ps1")
+    # Both launch.py and serve_bookvoice.py lazily import the shared sticky
+    # port helper from scripts/. Ship it beside the stale-process helper;
+    # otherwise the desktop shell starts, but every backend restart dies with
+    # ModuleNotFoundError: port_state.
+    scripts_dst = DIST / "scripts"
+    scripts_dst.mkdir(parents=True, exist_ok=True)
+    for helper_name in ("kill_stale_bookvoice.ps1", "port_state.py"):
+        helper_src = ROOT / "scripts" / helper_name
+        if helper_src.is_file():
+            shutil.copy2(helper_src, scripts_dst / helper_name)
 
     ico = ROOT / "bookvoice.ico"
     if ico.is_file():
@@ -696,6 +700,42 @@ def build_launcher(launcher_backup: Path | None):
         raise SystemExit("Launcher rebuild produced no executable; refusing a stale release.")
 
 
+def payload_import_errors(dist: Path, worker: Path | None = None) -> list[str]:
+    """Import payload entry modules with the bundled worker interpreter.
+
+    This catches repository helpers imported through a runtime sys.path
+    insertion but not copied into the release payload. The entry modules are
+    import-safe: their server/CLI work is guarded by ``__main__``.
+    """
+    worker = worker or (dist / "runtime" / "worker" / "python.exe")
+    if not worker.is_file():
+        return []
+    modules = ("serve_bookvoice", "launch", "main", "tunnel", "system_tray")
+    code = (
+        "import importlib, os, sys; "
+        "root=os.getcwd(); "
+        "sys.path[:0]=[root, os.path.join(root, 'scripts')]; "
+        "[importlib.import_module(name) for name in "
+        + repr(modules)
+        + "]"
+    )
+    try:
+        result = subprocess.run(
+            [str(worker), "-c", code],
+            cwd=dist,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [f"payload entry import check failed: {exc}"]
+    if result.returncode:
+        detail = (result.stderr or result.stdout or "unknown import failure").strip()
+        return [f"payload entry import check failed: {detail}"]
+    return []
+
+
 def check_static_sync():
     """Load scripts/check_static_sync.py, the shared build/CI staleness check."""
     import importlib.util as _ilu
@@ -748,6 +788,7 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
         "requirements.txt",
         "BookVoice.bat",
         "Start-BookVoice-Server.bat",
+        "scripts/port_state.py",
         "scripts/kill_stale_bookvoice.ps1",
         "runtime/worker/python.exe",
         "runtime-manifest.json",
@@ -803,6 +844,7 @@ def validate(committed_static_problems: list[str] | None = None, legacy_launcher
         errors.append("data/default_voices must include at least one .wav voice clip")
 
     errors.extend(runtime_contract_errors(DIST))
+    errors.extend(payload_import_errors(DIST))
 
     # Compare dist/ to backend/ source. Some backend "services" are packages,
     # so the source/package comparison must mirror on the source side too.

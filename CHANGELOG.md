@@ -38,10 +38,10 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 
 ### Packaging
 
-- Built and verified the complete 2.8.2 release payload, both MSIs, 31 cabinets,
-  and `BookVoice-Launcher.exe` on a host with VS 2022 Build Tools, Windows SDK
-  10.0.19041, and WiX 3.11; the per-user MSI installed successfully and the
-  installed app payload was verified against `dist/`.
+- Release packaging for 2.8.2 targets the complete payload, both MSIs, 31
+  cabinets, and `BookVoice-Launcher.exe` on a host with VS 2022 Build Tools,
+  Windows SDK 10.0.19041, and WiX 3.11; final release verification checks
+  the per-user installation and compares its app payload with `dist/`.
 - Fixed MSI shortcuts, the `.bookvoice` association, and launcher discovery
   to target the shipped `desktop\BookVoice.exe` instead of the absent legacy
   root `Launcher.exe`.
@@ -51,6 +51,17 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 - `build.py` desktop staging now discovers a Visual Studio MSBuild instance
   with the AppxPackage PRI tools, then runs restore, narrowly scoped
   Mark-of-the-Web removal for restored package directories, and publish.
+- Fixed desktop startup and monitor-change crashes caused by enumerating
+  `DisplayArea.FindAll()` through its broken WinRT `foreach` projection by
+  using index-based iteration for saved-placement restore and live window
+  moves.
+- Shell startup failures now record full exception details, fall back to a
+  pre-resolution shell log, surface a concise startup error dialog, and
+  exit non-zero when window construction or startup fails.
+- Fixed the 2.8.2 desktop payload omitting `scripts/port_state.py`, which
+  caused the WinUI shell to start and then retry a backend that could not
+  import its shared sticky-port helper; release validation now imports the
+  bundled entry modules before packaging.
 
 ## Unreleased
 

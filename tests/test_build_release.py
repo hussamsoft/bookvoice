@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -100,6 +101,69 @@ class ReleaseManifestTests(unittest.TestCase):
                 build.sync_large_tree(source, target)
 
         copy.assert_not_called()
+
+
+    def test_validate_rejects_missing_sticky_port_helper(self):
+        required = [
+            "main.py", "launch.py", "serve_bookvoice.py", "system_tray.py",
+            "VERSION", "release-manifest.json", "requirements.txt",
+            "BookVoice.bat", "Start-BookVoice-Server.bat",
+            "scripts/kill_stale_bookvoice.ps1", "runtime/worker/python.exe",
+            "runtime-manifest.json", "routes/tts.py", "routes/voices.py",
+            "routes/config.py", "routes/studio.py", "services/tts_service.py",
+            "services/config_service.py", "services/media_tools.py",
+            "services/path_utils.py", "services/storage_utils.py",
+            "services/studio_service.py", "services/voice_profile_service.py",
+            "tools/ffmpeg/ffmpeg.exe", "tools/ffmpeg/ffprobe.exe",
+            "tools/ffmpeg/NOTICE.txt", "tools/ffmpeg/LICENSE.txt",
+            "static/index.html",
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dist = root / "dist"
+            backend = root / "backend"
+            backend.mkdir()
+            (backend / "main.py").write_text("placeholder", encoding="utf-8")
+            for relative in required:
+                path = dist / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("placeholder", encoding="utf-8")
+            (dist / "data/default_voices").mkdir(parents=True)
+            (dist / "data/default_voices/reference.wav").write_bytes(b"wav")
+            original_dist, original_root, original_backend = build.DIST, build.ROOT, build.BACKEND
+            build.DIST, build.ROOT, build.BACKEND = dist, root, backend
+            try:
+                with (
+                    patch.object(build, "runtime_contract_errors", return_value=[]),
+                    patch.object(build, "payload_import_errors", return_value=[]),
+                ):
+                    with self.assertRaises(SystemExit) as raised:
+                        build.validate(skip_desktop=True)
+            finally:
+                build.DIST, build.ROOT, build.BACKEND = original_dist, original_root, original_backend
+        self.assertIn("required missing: scripts/port_state.py", str(raised.exception))
+
+
+    def test_payload_import_check_reports_missing_helper(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir)
+            (dist / "runtime/worker").mkdir(parents=True)
+            for module in ("serve_bookvoice", "launch", "main", "tunnel", "system_tray"):
+                (dist / f"{module}.py").write_text("import port_state\n", encoding="utf-8")
+            errors = build.payload_import_errors(dist, worker=Path(sys.executable))
+        self.assertTrue(errors)
+        self.assertIn("port_state", errors[0])
+
+    def test_payload_import_check_accepts_bundled_helper(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dist = Path(temp_dir)
+            (dist / "runtime/worker").mkdir(parents=True)
+            (dist / "scripts").mkdir()
+            (dist / "scripts/port_state.py").write_text("VALUE = 1\n", encoding="utf-8")
+            for module in ("serve_bookvoice", "launch", "main", "tunnel", "system_tray"):
+                (dist / f"{module}.py").write_text("import port_state\n", encoding="utf-8")
+            errors = build.payload_import_errors(dist, worker=Path(sys.executable))
+        self.assertEqual(errors, [])
 
 
 class BundleBaselineTests(unittest.TestCase):
