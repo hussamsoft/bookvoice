@@ -121,8 +121,10 @@ public sealed partial class MainWindow : Window
         var center = new PointInt32(
             window.Position.X + window.Size.Width / 2,
             window.Position.Y + window.Size.Height / 2);
-        foreach (var area in DisplayArea.FindAll())
+        var areas = DisplayArea.FindAll();
+        for (var i = 0; i < areas.Count; i++)
         {
+            var area = areas[i];
             if (RectContains(area.WorkArea, center.X, center.Y))
             {
                 return area;
@@ -216,8 +218,10 @@ public sealed partial class MainWindow : Window
             // Find the display that currently contains the saved rectangle;
             // falls back to Primary when the saved position is off-screen
             // (e.g. a monitor was removed between runs).
-            foreach (var area in DisplayArea.FindAll())
+            var areas = DisplayArea.FindAll();
+            for (var i = 0; i < areas.Count; i++)
             {
+                var area = areas[i];
                 var work = area.WorkArea;
                 if (RectContains(work, bounds.X, bounds.Y)
                     || RectContains(work, bounds.X + bounds.Width, bounds.Y + bounds.Height))
