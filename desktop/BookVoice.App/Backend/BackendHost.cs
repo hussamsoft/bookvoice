@@ -131,7 +131,7 @@ internal sealed class BackendHost : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Stopped() cancels the token; the process tree is killed by Stop().
+            // Stopped() cancels the token; Stop() requests graceful shutdown before its kill fallback.
         }
         catch (Exception ex)
         {
@@ -235,7 +235,7 @@ internal sealed class BackendHost : IDisposable
                 RotateLog(logPath);
             }
             _logStream?.Dispose();
-            _logStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            _logStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         }
         finally
         {
@@ -247,8 +247,9 @@ internal sealed class BackendHost : IDisposable
             FileName = python,
             WorkingDirectory = _appDir,
             UseShellExecute = false,
-            CreateNoWindow = true,
             RedirectStandardOutput = true,
+            CreateNoWindow = false,
+            WindowStyle = ProcessWindowStyle.Hidden,
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
@@ -263,6 +264,10 @@ internal sealed class BackendHost : IDisposable
         psi.Environment["PYTHONUTF8"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         psi.Environment["PYTHONNOUSERSITE"] = "1";
+        if (AppPaths.IsPortable())
+        {
+            psi.Environment["BOOKVOICE_PORTABLE"] = "1";
+        }
 
         LogLine($"==== desktop shell start (pid {Environment.ProcessId}) ====");
         _process = Process.Start(psi);
@@ -313,7 +318,15 @@ internal sealed class BackendHost : IDisposable
 
     private void LogLine(string line)
     {
-        _logWriteGate.Wait();
+        try
+        {
+            _logWriteGate.Wait();
+        }
+        catch (ObjectDisposedException)
+        {
+            ShellLog.Write(line);
+            return;
+        }
         try
         {
             if (_logStream == null)
@@ -334,7 +347,13 @@ internal sealed class BackendHost : IDisposable
         }
         finally
         {
-            _logWriteGate.Release();
+            try
+            {
+                _logWriteGate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 
@@ -351,19 +370,17 @@ internal sealed class BackendHost : IDisposable
             if (!process.HasExited)
             {
                 // serve_bookvoice.py installs SIGINT/SIGBREAK handlers so
-                // it can flush state on a normal console close. Attach
-                // to its console and send a CTRL_BREAK_EVENT first; only
-                // fall back to Kill if it ignores the signal or the
-                // graceful shutdown times out.
-                if (TrySendCtrlBreak(process))
+                // it can stop its child, tunnel, access file, and state file.
+                // Keep the shell attached with an ignore attribute while the
+                // wrapper exits so the control event cannot terminate us too.
+                if (TrySendControlEvent(process))
                 {
-                    if (process.WaitForExit(3000))
-                    {
-                        return;
-                    }
+                    ShellLog.Write("backend graceful stop completed");
+                    return;
                 }
                 if (!process.HasExited)
                 {
+                    ShellLog.Write("backend graceful stop failed; killing process tree");
                     process.Kill(entireProcessTree: true);
                 }
                 process.WaitForExit(3000);
@@ -382,36 +399,59 @@ internal sealed class BackendHost : IDisposable
         }
     }
 
-    private static bool TrySendCtrlBreak(Process process)
+    private static bool TrySendControlEvent(Process process)
     {
+        // GenerateConsoleCtrlEvent targets every process in group 0. Use a
+        // short-lived helper so the interactive shell never receives its
+        // own CTRL_BREAK while the helper attaches to the backend console.
         if (process.HasExited)
         {
             return true;
         }
+
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            ShellLog.Write("backend graceful stop could not locate the shell executable");
+            return false;
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+        psi.ArgumentList.Add("--signal-backend");
+        psi.ArgumentList.Add(process.Id.ToString());
         try
         {
-            if (NativeMethods.FreeConsole())
+            using var helper = Process.Start(psi);
+            if (helper == null)
             {
-                if (NativeMethods.AttachConsole((uint)process.Id))
-                {
-                    try
-                    {
-                        return NativeMethods.GenerateConsoleCtrlEvent(
-                            NativeMethods.CTRL_BREAK_EVENT, 0);
-                    }
-                    finally
-                    {
-                        NativeMethods.FreeConsole();
-                    }
-                }
+                ShellLog.Write("backend graceful stop helper did not start");
+                return false;
             }
+            ShellLog.Write("backend graceful stop requested");
+            if (!helper.WaitForExit(5000))
+            {
+                helper.Kill(entireProcessTree: true);
+                ShellLog.Write("backend graceful stop helper timed out");
+                return false;
+            }
+            if (!process.WaitForExit(5000))
+            {
+                ShellLog.Write("backend graceful stop timed out");
+                return false;
+            }
+            return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // AttachConsole requires the same desktop session and may fail
-            // for processes started without a console; fall back to Kill.
+            ShellLog.Write($"backend graceful stop signal failed: {ex.Message}");
+            return false;
         }
-        return false;
     }
 
     private void Fail(string message)
@@ -480,4 +520,45 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+
+    internal static bool SendCtrlBreak(uint processId)
+    {
+        NativeMethods.FreeConsole();
+        if (!NativeMethods.AttachConsole(processId))
+        {
+            return false;
+        }
+        if (!NativeMethods.SetConsoleCtrlHandler(IgnoreControlHandler, true))
+        {
+            NativeMethods.FreeConsole();
+            return false;
+        }
+        try
+        {
+            return NativeMethods.GenerateConsoleCtrlEvent(
+                NativeMethods.CTRL_BREAK_EVENT, 0);
+        }
+        finally
+        {
+            NativeMethods.SetConsoleCtrlHandler(IgnoreControlHandler, false);
+            NativeMethods.FreeConsole();
+        }
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate int ConsoleControlHandler(uint controlType);
+
+    private static readonly ConsoleControlHandler IgnoreControlHandlerDelegate =
+        IgnoreConsoleControl;
+    private static readonly nint IgnoreControlHandler =
+        Marshal.GetFunctionPointerForDelegate(IgnoreControlHandlerDelegate);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetConsoleCtrlHandler(
+        nint handlerRoutine,
+        [MarshalAs(UnmanagedType.Bool)] bool add);
+
+    private static int IgnoreConsoleControl(uint controlType) => 1;
+
 }

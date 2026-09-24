@@ -58,6 +58,10 @@ Library, Settings, Reader, Scanner, and Voice Studio.
 - Shell startup failures now record full exception details, fall back to a
   pre-resolution shell log, surface a concise startup error dialog, and
   exit non-zero when window construction or startup fails.
+- Fixed desktop shutdown so an ignorable console control event reaches
+  `serve_bookvoice.py`'s `SIGINT`/`SIGBREAK` cleanup without also terminating
+  the shell; backend state and tunnel cleanup now complete before the kill
+  fallback.
 - Fixed the 2.8.2 desktop payload omitting `scripts/port_state.py`, which
   caused the WinUI shell to start and then retry a backend that could not
   import its shared sticky-port helper; release validation now imports the

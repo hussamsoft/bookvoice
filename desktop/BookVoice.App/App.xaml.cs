@@ -48,9 +48,17 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        ConfigureWebViewGpuArgs();
         var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        if (argv.Length == 2
+            && argv[0] == "--signal-backend"
+            && uint.TryParse(argv[1], out var backendPid)
+            && backendPid != 0)
+        {
+            Environment.Exit(global::BookVoice.App.Backend.NativeMethods.SendCtrlBreak(backendPid) ? 0 : 1);
+            return;
+        }
 
+        ConfigureWebViewGpuArgs();
         var registration = argv.FirstOrDefault(arg =>
             arg is "--register-bookvoice" or "--unregister-bookvoice");
         if (registration != null)
