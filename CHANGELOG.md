@@ -62,6 +62,8 @@ Library, Settings, Reader, Scanner, and Voice Studio.
   `serve_bookvoice.py`'s `SIGINT`/`SIGBREAK` cleanup without also terminating
   the shell; backend state and tunnel cleanup now complete before the kill
   fallback.
+- Fixed desktop close during pending WebView2 initialization so shutdown
+  cancels content work without flashing the embedded-browser error panel.
 - Fixed the 2.8.2 desktop payload omitting `scripts/port_state.py`, which
   caused the WinUI shell to start and then retry a backend that could not
   import its shared sticky-port helper; release validation now imports the

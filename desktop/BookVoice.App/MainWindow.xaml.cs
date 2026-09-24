@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window
     // then-close path persists the user's real pre-maximize rect instead
     // of the (0, 0, MinWidth, MinHeight) placeholder (audit C-8).
     private WindowBounds? _lastNormalBounds;
+    private bool _isClosing;
 
     public MainWindow()
     {
@@ -311,6 +312,10 @@ public sealed partial class MainWindow : Window
 
     private async Task OnReadyAsync(ServerStateInfo state)
     {
+        if (_isClosing)
+        {
+            return;
+        }
         _lastReady = state;
         _restartPending = false;
         var baseUrl = $"http://127.0.0.1:{state.Port}/";
@@ -323,23 +328,38 @@ public sealed partial class MainWindow : Window
             try
             {
                 var id = await BookImporter.ImportAsync(baseUrl, pending);
+                if (_isClosing)
+                {
+                    return;
+                }
                 url += $"?book={id}";
             }
             catch (Exception ex)
             {
+                if (_isClosing)
+                {
+                    return;
+                }
                 await ShowDialogAsync("Could not open the prepared book", ex.Message);
             }
         }
 
+        if (_isClosing)
+        {
+            return;
+        }
         if (state.Book is { } serverBook && url == baseUrl)
         {
-            // serve_bookvoice.py imported a book from the command line.
             url += $"?book={serverBook}";
         }
 
         try
         {
             await ShowContentAsync(url);
+        }
+        catch (Exception) when (_isClosing)
+        {
+            ShellLog.Write("content initialization cancelled during shutdown");
         }
         catch (Exception ex)
         {
@@ -350,6 +370,10 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowContentAsync(string url)
     {
+        if (_isClosing)
+        {
+            return;
+        }
         if (!_webViewReady)
         {
             try
@@ -360,19 +384,32 @@ public sealed partial class MainWindow : Window
                         ? Path.Combine(Path.GetTempPath(), "BookVoice", "webview2")
                         : AppPaths.WebViewDataPath(_runtimeDir),
                     options: new CoreWebView2EnvironmentOptions());
+                if (_isClosing)
+                {
+                    return;
+                }
                 await Web.EnsureCoreWebView2Async(environment);
+                if (_isClosing)
+                {
+                    return;
+                }
+                var core = Web.CoreWebView2;
+                if (core is null)
+                {
+                    throw new InvalidOperationException("WebView2 core is unavailable after initialization.");
+                }
                 _webViewReady = true;
-                Web.NavigationCompleted += (_, navArgs) => OnNavigationCompleted(navArgs);
+                core.NavigationCompleted += (_, navArgs) => OnNavigationCompleted(navArgs);
                 // The shell is an app frame, not a browser: links that ask for
                 // a new window (target=_blank, external docs) go to the
-                // system's default browser instead of being swallowed. Only
-                // safe schemes are forwarded; anything else (file://,
-                // ms-settings:, custom URL protocols, etc.) is dropped and
-                // logged so a compromised page cannot launch arbitrary
-                // handlers via Process.Start.
-                Web.CoreWebView2.NewWindowRequested += (_, newWindowArgs) =>
+                // system's default browser instead of being swallowed.
+                core.NewWindowRequested += (_, newWindowArgs) =>
                 {
                     newWindowArgs.Handled = true;
+                    if (_isClosing)
+                    {
+                        return;
+                    }
                     var uriText = newWindowArgs.Uri;
                     if (uriText == null)
                     {
@@ -398,6 +435,11 @@ public sealed partial class MainWindow : Window
                     }
                 };
             }
+            catch (Exception) when (_isClosing)
+            {
+                ShellLog.Write("webview initialization cancelled during shutdown");
+                return;
+            }
             catch (Exception ex) when (ex.Message.Contains("WebView2 Runtime", StringComparison.OrdinalIgnoreCase)
                 || ex.GetType().Name.Contains("RuntimeNotFound", StringComparison.Ordinal))
             {
@@ -418,6 +460,10 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        if (_isClosing)
+        {
+            return;
+        }
         SplashPanel.Visibility = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
         ContentPanel.Visibility = Visibility.Visible;
@@ -427,7 +473,7 @@ public sealed partial class MainWindow : Window
 
     private void OnNavigationCompleted(CoreWebView2NavigationCompletedEventArgs args)
     {
-        if (args.IsSuccess || _restartPending)
+        if (_isClosing)
         {
             return;
         }
@@ -462,7 +508,10 @@ public sealed partial class MainWindow : Window
 
     private void ShowError(string message, string? tail)
     {
-        ShellLog.Write($"error panel shown: {message}");
+        if (_isClosing)
+        {
+            return;
+        }
         ErrorMessage.Text = SanitizeErrorMessage(message);
         ErrorLog.Text = tail ?? "";
         RuntimeHelpLink.Visibility = Visibility.Collapsed;
@@ -598,6 +647,10 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowDialogAsync(string title, string message)
     {
+        if (_isClosing)
+        {
+            return;
+        }
         var dialog = new ContentDialog
         {
             Title = title,
@@ -618,6 +671,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed()
     {
+        _isClosing = true;
         SavePlacement();
         _host?.Dispose();
         _host = null;

@@ -16,6 +16,8 @@ namespace BookVoice.App.Backend;
 internal sealed class BackendHost : IDisposable
 {
     public const int MaxRestarts = 5;
+    private const int GracefulStopTimeoutMilliseconds = 15000;
+    // Cold helper startup and Python cleanup can exceed the old five-second window.
 
     /// <summary>Raised on the caller's context: title, detail, percent, indeterminate.</summary>
     public event Action<string, string, int, bool>? StatusChanged;
@@ -432,13 +434,13 @@ internal sealed class BackendHost : IDisposable
                 return false;
             }
             ShellLog.Write("backend graceful stop requested");
-            if (!helper.WaitForExit(5000))
+            if (!helper.WaitForExit(GracefulStopTimeoutMilliseconds))
             {
                 helper.Kill(entireProcessTree: true);
                 ShellLog.Write("backend graceful stop helper timed out");
                 return false;
             }
-            if (!process.WaitForExit(5000))
+            if (!process.WaitForExit(GracefulStopTimeoutMilliseconds))
             {
                 ShellLog.Write("backend graceful stop timed out");
                 return false;
